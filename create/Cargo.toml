@@ -3,4 +3,11 @@ name = "create"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+name = "kaswallet-create"
+path = "src/main.rs"
+
 [dependencies]
+core = { path = "../core" }
+clap = { version = "4.5.31", features = ["derive"] }
+kaspa-consensus-core = { path = "../../rusty-kaspa/consensus/core" }

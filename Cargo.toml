@@ -16,3 +16,4 @@ license = "ISC"
 [workspace.dependencies]
 kaswallet-create = { path = "create" }
 kaswallet-daemon = { path = "daemon" }
+rusty-kaspa = { path = "../rusty-kaspa" }
