@@ -1,9 +1,17 @@
-[package]
-name = "kaswallet"
+[workspace]
+resolver = "2"
+members = [
+    "core",
+    "create",
+    "daemon",
+]
+
+[workspace.package]
+rust-version = "1.82.0"
 version = "0.1.0"
 edition = "2021"
-
-[dependencies]
+authors = ["Kaspa Developers", "IgraNet Developers"]
+license = "ISC"
 
 [workspace.dependencies]
 kaswallet-create = { path = "create" }
