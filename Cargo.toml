@@ -4,3 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+
+[workspace.dependencies]
+kaswallet-create = { path = "create" }
+kaswallet-daemon = { path = "daemon" }
