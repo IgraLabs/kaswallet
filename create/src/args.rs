@@ -18,7 +18,7 @@ pub struct Args {
 
     /// Path to keys.json (default: ~/.kwallet/keys.json)
     #[arg(long, short = 'k', default_value = core::args::default_keys_path(), help="Path to keys file")]
-    keys_file: String,
+    pub keys_file: String,
 
     /// Import from mnemonic rather than create new
     #[arg(
@@ -26,16 +26,16 @@ pub struct Args {
         short = 'i',
         help = "Import private keys from mnemonic rather than generating new ones"
     )]
-    import: bool,
+    pub import: bool,
 
     #[arg(long, default_value_t = 1, help = "Minimum number of signatures")]
-    min_signatures: u16,
+    pub min_signatures: u16,
 
     #[arg(long, default_value_t = 1, help = "Number of private keys")]
-    num_private_keys: u16,
+    pub num_private_keys: u16,
 
     #[arg(long, default_value_t = 1, help = "Number of public keys")]
-    num_public_keys: u16,
+    pub num_public_keys: u16,
 }
 
 impl Args {

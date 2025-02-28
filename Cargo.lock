@@ -369,6 +369,7 @@ version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bf88ba1141d185c399bee5288d850d63b8369520c1eafc32a0430b5b6c287bf4"
 dependencies = [
+ "sha2",
  "tinyvec",
 ]
 
@@ -579,6 +580,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "core",
+ "kaspa-bip32",
  "kaspa-consensus-core",
 ]
 
@@ -670,6 +672,7 @@ checksum = "9ed9a281f7bc9b7576e61468ba615a66a5c8cfdff42420a70aa82701a3b1e292"
 dependencies = [
  "block-buffer",
  "crypto-common",
+ "subtle",
 ]
 
 [[package]]
@@ -1005,6 +1008,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "hmac"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c49c37c09c17a53d937dfbb742eb3a961d65a994e6bcdcf37e7399d0cc8ab5e"
+dependencies = [
+ "digest",
+]
+
+[[package]]
 name = "humantime"
 version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1126,7 +1138,7 @@ dependencies = [
 
 [[package]]
 name = "kaspa-addresses"
-version = "0.16.0"
+version = "0.16.1"
 dependencies = [
  "borsh",
  "js-sys",
@@ -1139,8 +1151,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "kaspa-bip32"
+version = "0.16.1"
+dependencies = [
+ "borsh",
+ "bs58",
+ "getrandom 0.2.15",
+ "hmac",
+ "js-sys",
+ "kaspa-consensus-core",
+ "kaspa-utils",
+ "once_cell",
+ "pbkdf2",
+ "rand 0.8.5",
+ "rand_core 0.6.4",
+ "ripemd",
+ "secp256k1",
+ "serde",
+ "sha2",
+ "subtle",
+ "thiserror",
+ "wasm-bindgen",
+ "workflow-wasm",
+ "zeroize",
+]
+
+[[package]]
 name = "kaspa-consensus-core"
-version = "0.16.0"
+version = "0.16.1"
 dependencies = [
  "arc-swap",
  "async-trait",
@@ -1175,7 +1213,7 @@ dependencies = [
 
 [[package]]
 name = "kaspa-core"
-version = "0.16.0"
+version = "0.16.1"
 dependencies = [
  "cfg-if",
  "ctrlc",
@@ -1193,7 +1231,7 @@ dependencies = [
 
 [[package]]
 name = "kaspa-hashes"
-version = "0.16.0"
+version = "0.16.1"
 dependencies = [
  "blake2b_simd",
  "borsh",
@@ -1211,7 +1249,7 @@ dependencies = [
 
 [[package]]
 name = "kaspa-math"
-version = "0.16.0"
+version = "0.16.1"
 dependencies = [
  "borsh",
  "faster-hex",
@@ -1230,14 +1268,14 @@ dependencies = [
 
 [[package]]
 name = "kaspa-merkle"
-version = "0.16.0"
+version = "0.16.1"
 dependencies = [
  "kaspa-hashes",
 ]
 
 [[package]]
 name = "kaspa-muhash"
-version = "0.16.0"
+version = "0.16.1"
 dependencies = [
  "kaspa-hashes",
  "kaspa-math",
@@ -1247,7 +1285,7 @@ dependencies = [
 
 [[package]]
 name = "kaspa-txscript-errors"
-version = "0.16.0"
+version = "0.16.1"
 dependencies = [
  "secp256k1",
  "thiserror",
@@ -1255,7 +1293,7 @@ dependencies = [
 
 [[package]]
 name = "kaspa-utils"
-version = "0.16.0"
+version = "0.16.1"
 dependencies = [
  "arc-swap",
  "async-channel 2.3.1",
@@ -1612,6 +1650,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "pbkdf2"
+version = "0.12.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f8ed6a7761f76e3b9f92dfb0a60a6a6477c61024b775147ff0973a02653abaf2"
+dependencies = [
+ "digest",
+ "hmac",
+]
+
+[[package]]
 name = "pin-project-lite"
 version = "0.2.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1845,6 +1893,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2b15c43186be67a4fd63bee50d0303afffcef381492ebe2c5d87f324e1b8815c"
 
 [[package]]
+name = "ripemd"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bd124222d17ad93a644ed9d011a40f4fb64aa54275c08cc216524a9ea82fb09f"
+dependencies = [
+ "digest",
+]
+
+[[package]]
 name = "rlimit"
 version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2044,6 +2101,12 @@ name = "strsim"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
+
+[[package]]
+name = "subtle"
+version = "2.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "syn"
@@ -2861,3 +2924,9 @@ dependencies = [
  "quote",
  "syn 2.0.98",
 ]
+
+[[package]]
+name = "zeroize"
+version = "1.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ced3678a2879b30306d323f4542626697a464a97c0a07c9aebf7ebca65cd4dde"
