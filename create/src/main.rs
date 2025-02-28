@@ -1,6 +1,7 @@
 use crate::args::Args;
 use clap::Parser;
 use constant_time_eq::constant_time_eq;
+use core::encrypted_mnemonic::EncryptedMnemonic;
 use kaspa_bip32::mnemonic::Mnemonic;
 use kaspa_bip32::{Language, WordCount};
 use std::io;
@@ -71,8 +72,10 @@ fn main() {
     let mnemonics = get_mnemonics(&args);
     let password = prompt_for_password();
 
-    for (i, mnemonic) in mnemonics.iter().enumerate() {
-        println!("Mnemonic #{}: {}", i + 1, mnemonic.phrase());
-    }
-    println!("Password: {}", password);
+    let encrypted_mnemonics: Vec<EncryptedMnemonic> = mnemonics
+        .iter()
+        .map(|mnemonic| EncryptedMnemonic::new(mnemonic, &password))
+        .collect();
+
+    println!("Encrypted Mnemonics: {:?}", encrypted_mnemonics);
 }
