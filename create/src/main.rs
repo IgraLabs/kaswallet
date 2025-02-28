@@ -3,7 +3,11 @@ use clap::Parser;
 use constant_time_eq::constant_time_eq;
 use core::encrypted_mnemonic::EncryptedMnemonic;
 use kaspa_bip32::mnemonic::Mnemonic;
-use kaspa_bip32::{Language, WordCount};
+use kaspa_bip32::{
+    secp256k1, ExtendedPrivateKey, ExtendedPublicKey, Language, Prefix, PrivateKey, SecretKey,
+    SecretKeyExt, WordCount,
+};
+use kaspa_wallet_keys::derivation::gen1::WalletDerivationManager;
 use std::io;
 
 mod args;
@@ -76,6 +80,34 @@ fn main() {
         .iter()
         .map(|mnemonic| EncryptedMnemonic::new(mnemonic, &password))
         .collect();
+    let x_private_keys: Vec<ExtendedPrivateKey<SecretKey>> = mnemonics
+        .iter()
+        .map(|mnemonic: &Mnemonic| {
+            let seed = mnemonic.to_seed("");
+            ExtendedPrivateKey::new(seed).unwrap()
+        })
+        .collect();
+    let x_public_keys: Vec<ExtendedPublicKey<secp256k1::PublicKey>> = x_private_keys
+        .iter()
+        .map(|x_private_key| {
+            let (key, attributes) = WalletDerivationManager::derive_extended_key_from_master_key(
+                x_private_key.clone(),
+                is_multisig,
+                0,
+            )
+            .unwrap();
+            ExtendedPublicKey {
+                public_key: key.get_public_key(),
+                attrs: attributes,
+            }
+        })
+        .collect();
 
-    println!("Encrypted Mnemonics: {:?}", encrypted_mnemonics);
+    for (i, x_public_key) in x_public_keys.iter().enumerate() {
+        println!(
+            "Public Key #{}: {}",
+            i + 1,
+            x_public_key.to_string(Some(Prefix::from(args.network())))
+        );
+    }
 }
