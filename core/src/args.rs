@@ -1,4 +1,6 @@
 ﻿use kaspa_consensus_core::network::{NetworkId, NetworkType};
+use regex::Regex;
+use std::env;
 
 pub fn parse_network_type(
     testnet: bool,
@@ -17,8 +19,20 @@ pub fn parse_network_type(
 
 pub fn default_keys_path() -> &'static str {
     if cfg!(target_os = "windows") {
-        "%USERPROFILE%\\AppData\\Local\\Kaspawallet\\key.json"
+        "%USERPROFILE%\\AppData\\Local\\Kaswallet\\key.json"
     } else {
-        "~/.kwallet/keys.json"
+        "~/.kaswallet/keys.json"
+    }
+}
+
+pub fn expand_path(path: &str) -> String {
+    if cfg!(target_os = "windows") {
+        let re = Regex::new(r"%([^%]+)%").unwrap();
+        re.replace_all(&path, |caps: &regex::Captures| {
+            env::var(&caps[1]).unwrap_or_else(|_| caps[0].to_string())
+        })
+        .to_string()
+    } else {
+        shellexpand::tilde(path).to_string()
     }
 }

@@ -17,3 +17,5 @@ kaspa-consensus-core = { path = "../../rusty-kaspa/consensus/core" }
 kaspa-bip32 = { path = "../../rusty-kaspa/wallet/bip32" }
 hex = "0.4.3"
 rand_core = "0.9.2"
+regex = "1.11.1"
+shellexpand = "3.1.0"

@@ -2,15 +2,19 @@ use crate::args::Args;
 use clap::Parser;
 use constant_time_eq::constant_time_eq;
 use core::encrypted_mnemonic::EncryptedMnemonic;
+use core::keys::{Keys, VERSION};
 use kaspa_bip32::mnemonic::Mnemonic;
 use kaspa_bip32::secp256k1::PublicKey;
 use kaspa_bip32::{
-    secp256k1, ExtendedPrivateKey, ExtendedPublicKey, Language, Prefix, PrivateKey, SecretKey,
-    SecretKeyExt, WordCount,
+    secp256k1, ExtendedPrivateKey, ExtendedPublicKey, Language, Prefix, SecretKey, SecretKeyExt,
+    WordCount,
 };
 use kaspa_wallet_keys::derivation::gen1::WalletDerivationManager;
-use std::io;
+use std::fs::File;
+use std::io::Write;
+use std::path::Path;
 use std::str::FromStr;
+use std::{fs, io};
 
 mod args;
 
@@ -61,7 +65,7 @@ fn prompt_for_password() -> String {
     }
 }
 
-fn prompt_for_x_public_key(i: usize, args: &Args) -> ExtendedPublicKey<PublicKey> {
+fn prompt_for_x_public_key(i: usize) -> ExtendedPublicKey<PublicKey> {
     println!("enter extended public key #{}:", i + 1);
     let input = read_line();
     let x_public_key = ExtendedPublicKey::from_str(&input);
@@ -87,7 +91,7 @@ fn minimum_cosigner_index(
     all_public_keys: Vec<ExtendedPublicKey<PublicKey>>,
     signer_public_keys: Vec<ExtendedPublicKey<PublicKey>>,
     prefix: Option<Prefix>,
-) -> usize {
+) -> i16 {
     let mut sorted_public_keys = all_public_keys.clone();
     sorted_public_keys.sort_by(|a, b| a.to_string(prefix).cmp(&b.to_string(prefix)));
 
@@ -102,7 +106,7 @@ fn minimum_cosigner_index(
         }
     }
 
-    minimum_cosigner_index
+    minimum_cosigner_index as i16
 }
 fn main() {
     let args = args::Args::parse();
@@ -149,13 +153,47 @@ fn main() {
 
     let mut all_public_keys = signer_public_keys.clone();
     while all_public_keys.len() < args.num_public_keys as usize {
-        let x_public_key = prompt_for_x_public_key(all_public_keys.len(), &args);
+        let x_public_key = prompt_for_x_public_key(all_public_keys.len());
         all_public_keys.push(x_public_key);
     }
 
-    let cosigner_index = if signer_public_keys.len() == 0 {
+    let cosigner_index: i16 = if signer_public_keys.len() == 0 {
         0
     } else {
-        minimum_cosigner_index(all_public_keys, signer_public_keys, prefix)
+        minimum_cosigner_index(all_public_keys.clone(), signer_public_keys, prefix)
     };
+
+    let keys_file = Keys {
+        version: VERSION,
+        encrypted_mnemonics,
+        public_keys: all_public_keys
+            .iter()
+            .map(|x| x.to_string(prefix))
+            .collect(),
+        last_used_external_index: 0,
+        last_used_internal_index: 0,
+        minumum_signatures: args.min_signatures,
+        cosigner_index,
+    };
+
+    save_keys_to_file(args.keys_file, &keys_file).unwrap();
+}
+
+fn save_keys_to_file(keys_file_path: String, keys: &Keys) -> io::Result<()> {
+    let json = serde_json::to_string_pretty(keys)?;
+
+    let keys_file_path = core::args::expand_path(&keys_file_path);
+    let path = Path::new(&keys_file_path);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let mut file = File::create(path)?;
+
+    file.write_all(json.as_bytes())?;
+    file.flush()?;
+    file.sync_all()?;
+
+    println!("Keys data written to {}", path.to_str().unwrap());
+
+    Ok(())
 }

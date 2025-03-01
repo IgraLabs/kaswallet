@@ -3,8 +3,9 @@ use argon2::{Argon2, PasswordHasher};
 use chacha20poly1305::aead::{AeadMutInPlace, Key};
 use chacha20poly1305::{aead::KeyInit, AeadCore, XChaCha20Poly1305};
 use kaspa_bip32::mnemonic::Mnemonic;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct EncryptedMnemonic {
     cipher: String,
     salt: String,

@@ -1,23 +1,20 @@
-﻿use serde::{Deserialize, Serialize};
+﻿use crate::encrypted_mnemonic::EncryptedMnemonic;
+use serde::{Deserialize, Serialize};
 use std::io::Result;
+
+pub const VERSION: i32 = 1;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Keys {
-    pub version: u32,
+    pub version: i32,
     pub encrypted_mnemonics: Vec<EncryptedMnemonic>,
     pub public_keys: Vec<String>,
 
-    pub last_used_exeternal_index: u64,
-    pub last_used_internal_index: u64,
+    pub last_used_external_index: i64,
+    pub last_used_internal_index: i64,
 
-    pub minumum_signatures: u16,
-    pub cosigner_index: u16,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct EncryptedMnemonic {
-    pub cipher: String,
-    pub salt: String,
+    pub minumum_signatures: i16,
+    pub cosigner_index: i16,
 }
 
 pub fn save_keys(keys: &Keys, path: String) -> Result<()> {
