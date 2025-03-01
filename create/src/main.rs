@@ -3,21 +3,21 @@ use clap::Parser;
 use constant_time_eq::constant_time_eq;
 use core::encrypted_mnemonic::EncryptedMnemonic;
 use kaspa_bip32::mnemonic::Mnemonic;
+use kaspa_bip32::secp256k1::PublicKey;
 use kaspa_bip32::{
     secp256k1, ExtendedPrivateKey, ExtendedPublicKey, Language, Prefix, PrivateKey, SecretKey,
     SecretKeyExt, WordCount,
 };
 use kaspa_wallet_keys::derivation::gen1::WalletDerivationManager;
 use std::io;
+use std::str::FromStr;
 
 mod args;
 
 pub fn prompt_for_mnemonic() -> Mnemonic {
     loop {
         println!("Please enter mnemonic (24 space separated words):");
-        let mut input = String::new();
-        io::stdin().read_line(&mut input).unwrap();
-        let input = input.trim(); // trim trailing chars that read_line adds.
+        let input = read_line();
 
         let list = input
             .split_whitespace()
@@ -38,6 +38,13 @@ pub fn prompt_for_mnemonic() -> Mnemonic {
     }
 }
 
+fn read_line() -> String {
+    let mut input = String::new();
+    io::stdin().read_line(&mut input).unwrap();
+    let input = input.trim().to_string(); // trim trailing chars that read_line adds.
+    input
+}
+
 fn prompt_for_password() -> String {
     loop {
         println!("Please enter encryption password:");
@@ -54,7 +61,14 @@ fn prompt_for_password() -> String {
     }
 }
 
-fn get_mnemonics(args: &Args) -> Vec<Mnemonic> {
+fn prompt_for_x_public_key(i: usize, args: &Args) -> ExtendedPublicKey<PublicKey> {
+    println!("enter extended public key #{}:", i + 1);
+    let input = read_line();
+    let x_public_key = ExtendedPublicKey::from_str(&input);
+    x_public_key.unwrap()
+}
+
+fn prompt_or_generate_mnemonics(args: &Args) -> Vec<Mnemonic> {
     let mut mnemonics: Vec<Mnemonic> = vec![];
     for i in 0..args.num_private_keys {
         let mnemonic: Mnemonic = if args.import {
@@ -73,8 +87,8 @@ fn main() {
     let args = args::Args::parse();
     let is_multisig = args.num_public_keys > 1;
 
-    let mnemonics = get_mnemonics(&args);
     let password = prompt_for_password();
+    let mnemonics = prompt_or_generate_mnemonics(&args);
 
     let encrypted_mnemonics: Vec<EncryptedMnemonic> = mnemonics
         .iter()
@@ -87,7 +101,7 @@ fn main() {
             ExtendedPrivateKey::new(seed).unwrap()
         })
         .collect();
-    let x_public_keys: Vec<ExtendedPublicKey<secp256k1::PublicKey>> = x_private_keys
+    let mut x_public_keys: Vec<ExtendedPublicKey<secp256k1::PublicKey>> = x_private_keys
         .iter()
         .map(|x_private_key| {
             let (key, attributes) = WalletDerivationManager::derive_extended_key_from_master_key(
@@ -105,9 +119,14 @@ fn main() {
 
     for (i, x_public_key) in x_public_keys.iter().enumerate() {
         println!(
-            "Public Key #{}: {}",
+            "Extended public key of mnemonic#{}: {}",
             i + 1,
             x_public_key.to_string(Some(Prefix::from(args.network())))
         );
+    }
+
+    while x_public_keys.len() < args.num_public_keys as usize {
+        let x_public_key = prompt_for_x_public_key(x_public_keys.len(), &args);
+        x_public_keys.push(x_public_key);
     }
 }
