@@ -83,6 +83,27 @@ fn prompt_or_generate_mnemonics(args: &Args) -> Vec<Mnemonic> {
     mnemonics
 }
 
+fn minimum_cosigner_index(
+    all_public_keys: Vec<ExtendedPublicKey<PublicKey>>,
+    signer_public_keys: Vec<ExtendedPublicKey<PublicKey>>,
+    prefix: Option<Prefix>,
+) -> usize {
+    let mut sorted_public_keys = all_public_keys.clone();
+    sorted_public_keys.sort_by(|a, b| a.to_string(prefix).cmp(&b.to_string(prefix)));
+
+    let mut minimum_cosigner_index = sorted_public_keys.len();
+    for x_public_key in signer_public_keys {
+        let current_key_cosigner_index = sorted_public_keys
+            .iter()
+            .position(|x| x.eq(&x_public_key))
+            .unwrap_or(0);
+        if current_key_cosigner_index < minimum_cosigner_index {
+            minimum_cosigner_index = current_key_cosigner_index;
+        }
+    }
+
+    minimum_cosigner_index
+}
 fn main() {
     let args = args::Args::parse();
     let is_multisig = args.num_public_keys > 1;
@@ -101,7 +122,7 @@ fn main() {
             ExtendedPrivateKey::new(seed).unwrap()
         })
         .collect();
-    let mut x_public_keys: Vec<ExtendedPublicKey<secp256k1::PublicKey>> = x_private_keys
+    let signer_public_keys: Vec<ExtendedPublicKey<secp256k1::PublicKey>> = x_private_keys
         .iter()
         .map(|x_private_key| {
             let (key, attributes) = WalletDerivationManager::derive_extended_key_from_master_key(
@@ -117,16 +138,24 @@ fn main() {
         })
         .collect();
 
-    for (i, x_public_key) in x_public_keys.iter().enumerate() {
+    let prefix = Some(Prefix::from(args.network()));
+    for (i, x_public_key) in signer_public_keys.iter().enumerate() {
         println!(
             "Extended public key of mnemonic#{}: {}",
             i + 1,
-            x_public_key.to_string(Some(Prefix::from(args.network())))
+            x_public_key.to_string(prefix)
         );
     }
 
-    while x_public_keys.len() < args.num_public_keys as usize {
-        let x_public_key = prompt_for_x_public_key(x_public_keys.len(), &args);
-        x_public_keys.push(x_public_key);
+    let mut all_public_keys = signer_public_keys.clone();
+    while all_public_keys.len() < args.num_public_keys as usize {
+        let x_public_key = prompt_for_x_public_key(all_public_keys.len(), &args);
+        all_public_keys.push(x_public_key);
     }
+
+    let cosigner_index = if signer_public_keys.len() == 0 {
+        0
+    } else {
+        minimum_cosigner_index(all_public_keys, signer_public_keys, prefix)
+    };
 }
