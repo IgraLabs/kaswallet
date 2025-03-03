@@ -2,7 +2,7 @@ use crate::args::Args;
 use clap::Parser;
 use constant_time_eq::constant_time_eq;
 use core::encrypted_mnemonic::EncryptedMnemonic;
-use core::keys::{Keys, VERSION};
+use core::keys::{Keys, KEY_FILE_VERSION};
 use kaspa_bip32::mnemonic::Mnemonic;
 use kaspa_bip32::secp256k1::PublicKey;
 use kaspa_bip32::{
@@ -164,7 +164,7 @@ fn main() {
     };
 
     let keys_file = Keys {
-        version: VERSION,
+        version: KEY_FILE_VERSION,
         encrypted_mnemonics,
         public_keys: all_public_keys
             .iter()

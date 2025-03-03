@@ -2,7 +2,7 @@
 use serde::{Deserialize, Serialize};
 use std::io::Result;
 
-pub const VERSION: i32 = 1;
+pub const KEY_FILE_VERSION: i32 = 1;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Keys {
