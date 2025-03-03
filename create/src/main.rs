@@ -1,6 +1,7 @@
 use crate::args::Args;
 use clap::Parser;
 use constant_time_eq::constant_time_eq;
+use core::args::expand_path;
 use core::encrypted_mnemonic::EncryptedMnemonic;
 use core::keys::{Keys, KEY_FILE_VERSION};
 use kaspa_bip32::mnemonic::Mnemonic;
@@ -182,7 +183,7 @@ fn main() {
 fn save_keys_to_file(keys_file_path: String, keys: &Keys) -> io::Result<()> {
     let json = serde_json::to_string_pretty(keys)?;
 
-    let keys_file_path = core::args::expand_path(&keys_file_path);
+    let keys_file_path = expand_path(&keys_file_path);
     let path = Path::new(&keys_file_path);
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;

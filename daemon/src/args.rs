@@ -1,8 +1,9 @@
-﻿use clap::Parser;
+﻿use clap::{Parser, ValueEnum};
 use kaspa_consensus_core::network::NetworkId;
+use log::LevelFilter;
 
 #[derive(Parser, Debug)]
-#[command(name = "kaswallet-create")]
+#[command(name = "kaswallet-daemon")]
 pub struct Args {
     #[arg(long, help = "Use the test network")]
     testnet: bool,
@@ -17,11 +18,18 @@ pub struct Args {
     simnet: bool,
 
     /// Path to keys.json (default: ~/.kwallet/keys.json)
-    #[arg(long, short = 'k', default_value = core::args::default_keys_path(), help="Path to keys file")]
-    keys_file: String,
+    #[arg(long, short = 'k', default_value = core::args::default_keys_path(), help="Path to keys file"
+    )]
+    pub keys_file: String,
+
+    #[arg(long, default_value = core::args::default_logs_path(), help="Path to logs directory")]
+    pub logs_path: String,
+
+    #[arg(long, short = 'v', default_value = "info", help = "Log level")]
+    pub logs_level: LogsLevel,
 
     #[arg(long, short = 's', help = "Kaspa node RPC server to connect to")]
-    server: Option<String>,
+    pub server: Option<String>,
 
     #[arg(
         long,
@@ -29,7 +37,31 @@ pub struct Args {
         default_value = "127.0.0.1:8082",
         help = "Address to listen on"
     )]
-    listen: String,
+    pub listen: String,
+}
+
+#[derive(Debug, Clone, ValueEnum, Default)]
+pub enum LogsLevel {
+    Off,
+    Trace,
+    #[default]
+    Debug,
+    Info,
+    Warn,
+    Error,
+}
+
+impl Into<LevelFilter> for LogsLevel {
+    fn into(self) -> LevelFilter {
+        match self {
+            LogsLevel::Off => LevelFilter::Off,
+            LogsLevel::Trace => LevelFilter::Trace,
+            LogsLevel::Debug => LevelFilter::Debug,
+            LogsLevel::Info => LevelFilter::Info,
+            LogsLevel::Warn => LevelFilter::Warn,
+            LogsLevel::Error => LevelFilter::Error,
+        }
+    }
 }
 
 impl Args {

@@ -25,7 +25,15 @@ pub fn default_keys_path() -> &'static str {
     }
 }
 
-pub fn expand_path(path: &str) -> String {
+pub fn default_logs_path() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "%USERPROFILE%\\AppData\\Local\\Kaswallet\\logs"
+    } else {
+        "~/.kaswallet/logs"
+    }
+}
+
+pub fn expand_path(path: String) -> String {
     if cfg!(target_os = "windows") {
         let re = Regex::new(r"%([^%]+)%").unwrap();
         re.replace_all(&path, |caps: &regex::Captures| {
@@ -33,6 +41,6 @@ pub fn expand_path(path: &str) -> String {
         })
         .to_string()
     } else {
-        shellexpand::tilde(path).to_string()
+        shellexpand::tilde(&path).to_string()
     }
 }
