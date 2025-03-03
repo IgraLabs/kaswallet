@@ -1,4 +1,5 @@
-﻿use log::LevelFilter;
+﻿use crate::args::Args;
+use log::LevelFilter;
 use log4rs::append::console::ConsoleAppender;
 use log4rs::append::rolling_file::policy::compound::roll::fixed_window::FixedWindowRoller;
 use log4rs::append::rolling_file::policy::compound::trigger::size::SizeTrigger;
@@ -11,9 +12,9 @@ use log4rs::Config;
 use std::error::Error;
 use std::path::Path;
 
-pub fn init_log(logs_path: String, log_level: LevelFilter) -> Result<(), Box<dyn Error>> {
-    let general_log_path = Path::new(&logs_path).join("kaswallet.log");
-    let err_log_path = Path::new(&logs_path).join("kaswallet.err.log");
+pub fn init_log(args: Args) -> Result<(), Box<dyn Error>> {
+    let general_log_path = Path::new(&args.logs_path).join("kaswallet.log");
+    let err_log_path = Path::new(&args.logs_path).join("kaswallet.err.log");
 
     let encoder = Box::new(PatternEncoder::new(
         "{d(%Y-%m-%dT%H:%M:%S)(utc)} [{l}] {m}{n}",
@@ -40,7 +41,7 @@ pub fn init_log(logs_path: String, log_level: LevelFilter) -> Result<(), Box<dyn
         .encoder(encoder.clone())
         .build(general_log_path, rolling_policy_general)?;
     let file_err = RollingFileAppender::builder().encoder(encoder).build(
-        Path::new(&logs_path).join("kaswallet.err.log"),
+        Path::new(&args.logs_path).join("kaswallet.err.log"),
         rolling_policy_err,
     )?;
 
@@ -57,7 +58,7 @@ pub fn init_log(logs_path: String, log_level: LevelFilter) -> Result<(), Box<dyn
                 .appender("stdout")
                 .appender("file")
                 .appender("file_err")
-                .build(log_level),
+                .build(args.logs_level.into()),
         )?;
 
     log4rs::init_config(config)?;

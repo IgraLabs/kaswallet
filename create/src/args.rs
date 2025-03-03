@@ -16,7 +16,7 @@ pub struct Args {
     #[arg(long, help = "Use the simulation test network")]
     simnet: bool,
 
-    #[arg(long, short = 'k', default_value = core::args::default_keys_path(), help="Path to keys file")]
+    #[arg(long, short = 'k', default_value = common::args::default_keys_path(), help="Path to keys file")]
     pub keys_file: String,
 
     /// Import from mnemonic rather than create new
@@ -39,6 +39,11 @@ pub struct Args {
 
 impl Args {
     pub fn network(&self) -> NetworkId {
-        core::args::parse_network_type(self.testnet, self.devnet, self.simnet, self.testnet_suffix)
+        common::args::parse_network_type(
+            self.testnet,
+            self.devnet,
+            self.simnet,
+            self.testnet_suffix,
+        )
     }
 }

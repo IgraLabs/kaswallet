@@ -1,22 +1,31 @@
 use clap::Parser;
-use core::args::expand_path;
-use ::log::{debug, error, info, trace, warn};
+use common::args::expand_path;
+use ::log::info;
+use std::error::Error;
+use tonic::transport::Server;
+use wallet_proto::wallet_proto::wallet_server::WalletServer;
 
 mod args;
 mod log;
+mod service;
 
-fn main() {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn Error>> {
     let args = args::Args::parse();
 
-    if let Err(e) = log::init_log(expand_path(args.logs_path), args.logs_level.clone().into()) {
+    if let Err(e) = log::init_log(args.clone()) {
         panic!("Failed to initialize logger: {}", e);
     }
 
-    for _ in 0..10_000 {
-        trace!("Trace!!!");
-        debug!("Debug!!!");
-        info!("Info!!!");
-        warn!("Warn!!!");
-        error!("Error!!!");
-    }
+    let service = service::KasWalletService::new(args.clone());
+    let server = WalletServer::new(service);
+
+    info!("Starting wallet server on {}", args.listen);
+
+    Server::builder()
+        .add_service(server)
+        .serve(args.listen.parse().unwrap())
+        .await?;
+
+    Ok(())
 }

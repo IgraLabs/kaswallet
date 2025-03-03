@@ -1,9 +1,9 @@
 [workspace]
 resolver = "2"
 members = [
-    "core",
+    "common",
     "create",
-    "daemon",
+    "daemon", "test_client", "wallet_proto",
 ]
 
 [workspace.package]

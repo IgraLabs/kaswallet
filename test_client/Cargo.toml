@@ -1,0 +1,12 @@
+[package]
+name = "test_client"
+rust-version.workspace = true
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+wallet_proto = { path = "../wallet_proto" }
+tokio = "1.43.0"
+tonic = "0.12.3"

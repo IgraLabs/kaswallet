@@ -8,8 +8,11 @@ name = "kaswallet-daemon"
 path = "src/main.rs"
 
 [dependencies]
-core = { path = "../core" }
+common = { path = "../common" }
+wallet_proto = { path = "../wallet_proto" }
 clap = { version = "4.5.31", features = ["derive"] }
 kaspa-consensus-core = { path = "../../rusty-kaspa/consensus/core" }
 log = "0.4.14"
 log4rs = "1.3.0"
+tonic = "0.12.3"
+tokio = "1.43.0"

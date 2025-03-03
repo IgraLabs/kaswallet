@@ -1,8 +1,9 @@
 ﻿use clap::{Parser, ValueEnum};
+use common::args::parse_network_type;
 use kaspa_consensus_core::network::NetworkId;
 use log::LevelFilter;
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Clone)]
 #[command(name = "kaswallet-daemon")]
 pub struct Args {
     #[arg(long, help = "Use the test network")]
@@ -18,11 +19,11 @@ pub struct Args {
     simnet: bool,
 
     /// Path to keys.json (default: ~/.kwallet/keys.json)
-    #[arg(long, short = 'k', default_value = core::args::default_keys_path(), help="Path to keys file"
+    #[arg(long, short = 'k', default_value = common::args::default_keys_path(), help="Path to keys file"
     )]
     pub keys_file: String,
 
-    #[arg(long, default_value = core::args::default_logs_path(), help="Path to logs directory")]
+    #[arg(long, default_value = common::args::default_logs_path(), help="Path to logs directory")]
     pub logs_path: String,
 
     #[arg(long, short = 'v', default_value = "info", help = "Log level")]
@@ -66,6 +67,6 @@ impl Into<LevelFilter> for LogsLevel {
 
 impl Args {
     pub fn network(&self) -> NetworkId {
-        core::args::parse_network_type(self.testnet, self.devnet, self.simnet, self.testnet_suffix)
+        parse_network_type(self.testnet, self.devnet, self.simnet, self.testnet_suffix)
     }
 }
