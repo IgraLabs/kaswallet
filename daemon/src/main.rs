@@ -1,5 +1,4 @@
 use clap::Parser;
-use common::args::expand_path;
 use ::log::info;
 use std::error::Error;
 use tonic::transport::Server;

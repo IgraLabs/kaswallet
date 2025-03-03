@@ -1,4 +1,5 @@
 ﻿use crate::args::Args;
+use log::trace;
 use tonic::{Request, Response, Status};
 use wallet_proto::wallet_proto::wallet_server::Wallet;
 use wallet_proto::wallet_proto::{
@@ -74,6 +75,8 @@ impl Wallet for KasWalletService {
         &self,
         request: Request<GetVersionRequest>,
     ) -> Result<Response<GetVersionResponse>, Status> {
+        trace!("Received request: {:?}", request.get_ref().to_owned());
+
         Ok(Response::new(GetVersionResponse {
             version: env!("CARGO_PKG_VERSION").to_string(),
         }))
