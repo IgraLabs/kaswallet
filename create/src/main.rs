@@ -109,8 +109,22 @@ fn minimum_cosigner_index(
 
     minimum_cosigner_index as i16
 }
+
+fn should_continue_if_key_file_exists(keys_file_path: &str) -> bool {
+    if Path::new(keys_file_path).exists(){
+        println!("Keys file already exists at {}. Do you wish to overwrite it? (type 'yes' if you do)",
+                 keys_file_path);
+        let input = read_line();
+        return input == "yes"
+    }
+    true
+}
 fn main() {
     let args = args::Args::parse();
+    let keys_file_path = expand_path(args.keys_file.clone());
+    if !should_continue_if_key_file_exists(&keys_file_path){
+        return
+    }
     let is_multisig = args.num_public_keys > 1;
 
     let password = prompt_for_password();
@@ -177,13 +191,12 @@ fn main() {
         cosigner_index,
     };
 
-    save_keys_to_file(args.keys_file, &keys_file).unwrap();
+    save_keys_to_file(keys_file_path, &keys_file).unwrap();
 }
 
 fn save_keys_to_file(keys_file_path: String, keys: &Keys) -> io::Result<()> {
     let json = serde_json::to_string_pretty(keys)?;
 
-    let keys_file_path = expand_path(keys_file_path);
     let path = Path::new(&keys_file_path);
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
