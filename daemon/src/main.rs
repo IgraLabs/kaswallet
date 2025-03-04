@@ -7,6 +7,7 @@ use wallet_proto::wallet_proto::wallet_server::WalletServer;
 mod args;
 mod log;
 mod service;
+mod kaspad_client;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -16,7 +17,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
         panic!("Failed to initialize logger: {}", e);
     }
 
-    let service = service::KasWalletService::new(args.clone());
+    let kaspa_rpc_client =
+        kaspad_client::connect(args.server.clone(), args.network())?;
+
+    let service = service::KasWalletService::new(args.clone(), kaspa_rpc_client);
     let server = WalletServer::new(service);
 
     info!("Starting wallet server on {}", args.listen);

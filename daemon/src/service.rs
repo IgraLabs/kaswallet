@@ -1,4 +1,6 @@
-﻿use crate::args::Args;
+﻿use std::sync::Arc;
+use kaspa_wrpc_client::KaspaRpcClient;
+use crate::args::Args;
 use log::trace;
 use tonic::{Request, Response, Status};
 use wallet_proto::wallet_proto::wallet_server::Wallet;
@@ -11,11 +13,15 @@ use wallet_proto::wallet_proto::{
 };
 
 #[derive(Debug)]
-pub struct KasWalletService {}
+pub struct KasWalletService {
+    kaspa_rpc_client: Arc<KaspaRpcClient>,
+}
 
 impl KasWalletService {
-    pub fn new(args: Args) -> Self {
-        Self {}
+    pub fn new(args: Args, kaspa_rpc_client: Arc<KaspaRpcClient>) -> Self {
+        Self {
+            kaspa_rpc_client
+        }
     }
 }
 
