@@ -14,7 +14,7 @@ mod service;
 async fn main() -> Result<(), Box<dyn Error>> {
     let args = args::Args::parse();
 
-    if let Err(e) = log::init_log(args.clone()) {
+    if let Err(e) = log::init_log(args.logs_path.clone(), args.logs_level.clone()) {
         panic!("Failed to initialize logger: {}", e);
     }
 
