@@ -1,13 +1,14 @@
 use clap::Parser;
+use kaspa_wrpc_client::prelude::RpcApi;
 use ::log::info;
 use std::error::Error;
 use tonic::transport::Server;
 use wallet_proto::wallet_proto::wallet_server::WalletServer;
 
 mod args;
+mod kaspad_client;
 mod log;
 mod service;
-mod kaspad_client;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -17,9 +18,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         panic!("Failed to initialize logger: {}", e);
     }
 
-    let kaspa_rpc_client =
-        kaspad_client::connect(args.server.clone(), args.network())?;
-
+    let kaspa_rpc_client = kaspad_client::connect(args.server.clone(), args.network()).await?;
     let service = service::KasWalletService::new(args.clone(), kaspa_rpc_client);
     let server = WalletServer::new(service);
 
