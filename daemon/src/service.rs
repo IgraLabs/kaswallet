@@ -1,7 +1,7 @@
-﻿use std::sync::Arc;
+﻿use crate::args::Args;
 use kaspa_wrpc_client::KaspaRpcClient;
-use crate::args::Args;
 use log::trace;
+use std::sync::Arc;
 use tonic::{Request, Response, Status};
 use wallet_proto::wallet_proto::wallet_server::Wallet;
 use wallet_proto::wallet_proto::{
@@ -19,9 +19,7 @@ pub struct KasWalletService {
 
 impl KasWalletService {
     pub fn new(args: Args, kaspa_rpc_client: Arc<KaspaRpcClient>) -> Self {
-        Self {
-            kaspa_rpc_client
-        }
+        Self { kaspa_rpc_client }
     }
 }
 
@@ -31,6 +29,7 @@ impl Wallet for KasWalletService {
         &self,
         request: Request<GetAddressesRequest>,
     ) -> Result<Response<GetAddressesResponse>, Status> {
+        trace!("Received request: {:?}", request.get_ref().to_owned());
         todo!()
     }
 
@@ -38,6 +37,7 @@ impl Wallet for KasWalletService {
         &self,
         request: Request<NewAddressRequest>,
     ) -> Result<Response<NewAddressResponse>, Status> {
+        trace!("Received request: {:?}", request.get_ref().to_owned());
         todo!()
     }
 
@@ -45,6 +45,7 @@ impl Wallet for KasWalletService {
         &self,
         request: Request<GetBalanceRequest>,
     ) -> Result<Response<GetBalanceResponse>, Status> {
+        trace!("Received request: {:?}", request.get_ref().to_owned());
         todo!()
     }
 
@@ -52,6 +53,7 @@ impl Wallet for KasWalletService {
         &self,
         request: Request<GetUtxosRequest>,
     ) -> Result<Response<GetUtxosResponse>, Status> {
+        trace!("Received request: {:?}", request.get_ref().to_owned());
         todo!()
     }
 
@@ -59,10 +61,12 @@ impl Wallet for KasWalletService {
         &self,
         request: Request<CreateUnsignedTransactionsRequest>,
     ) -> Result<Response<CreateUnsignedTransactionsResponse>, Status> {
+        trace!("Received request: {:?}", request.get_ref().to_owned());
         todo!()
     }
 
     async fn sign(&self, request: Request<SignRequest>) -> Result<Response<SignResponse>, Status> {
+        trace!("Received request: {:?}", request.get_ref().to_owned());
         todo!()
     }
 
@@ -70,10 +74,12 @@ impl Wallet for KasWalletService {
         &self,
         request: Request<BroadcastRequest>,
     ) -> Result<Response<BroadcastResponse>, Status> {
+        trace!("Received request: {:?}", request.get_ref().to_owned());
         todo!()
     }
 
     async fn send(&self, request: Request<SendRequest>) -> Result<Response<SendResponse>, Status> {
+        trace!("Received request: {:?}", request.get_ref().to_owned());
         todo!()
     }
 
