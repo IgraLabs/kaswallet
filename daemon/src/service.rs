@@ -1,4 +1,5 @@
-﻿use crate::args::Args;
+﻿use crate::address_manager::AddressManager;
+use crate::args::Args;
 use common::keys::Keys;
 use kaspa_wrpc_client::KaspaRpcClient;
 use log::trace;
@@ -17,12 +18,19 @@ use wallet_proto::wallet_proto::{
 pub struct KasWalletService {
     kaspa_rpc_client: Arc<KaspaRpcClient>,
     keys: Arc<Keys>,
+    address_manager: Arc<AddressManager>,
 }
 
 impl KasWalletService {
-    pub fn new(args: Args, kaspa_rpc_client: Arc<KaspaRpcClient>, keys: Arc<Keys>) -> Self {
+    pub fn new(
+        args: Args,
+        kaspa_rpc_client: Arc<KaspaRpcClient>,
+        address_manager: Arc<AddressManager>,
+        keys: Arc<Keys>,
+    ) -> Self {
         Self {
             kaspa_rpc_client,
+            address_manager,
             keys,
         }
     }

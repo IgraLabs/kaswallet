@@ -11,8 +11,12 @@ path = "src/main.rs"
 common = { path = "../common" }
 wallet_proto = { path = "../wallet_proto" }
 clap = { version = "4.5.31", features = ["derive"] }
+kaspa-bip32 = { path = "../../rusty-kaspa/wallet/bip32" }
 kaspa-consensus-core = { path = "../../rusty-kaspa/consensus/core" }
-kaspa-wrpc-client = {path = "../../rusty-kaspa/rpc/wrpc/client"}
+kaspa-wrpc-client = { path = "../../rusty-kaspa/rpc/wrpc/client" }
+kaspa-hashes = { path = "../../rusty-kaspa/crypto/hashes" }
+kaspa-txscript = { path = "../../rusty-kaspa/crypto/txscript" }
+kaspa-addresses = { path = "../../rusty-kaspa/crypto/addresses" }
 log = "0.4.14"
 log4rs = "1.3.0"
 tonic = "0.12.3"

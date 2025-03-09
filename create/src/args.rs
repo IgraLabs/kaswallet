@@ -28,13 +28,13 @@ pub struct Args {
     pub import: bool,
 
     #[arg(long, default_value_t = 1, help = "Minimum number of signatures")]
-    pub min_signatures: i16,
+    pub min_signatures: u16,
 
     #[arg(long, default_value_t = 1, help = "Number of private keys")]
-    pub num_private_keys: i16,
+    pub num_private_keys: u16,
 
     #[arg(long, default_value_t = 1, help = "Number of public keys")]
-    pub num_public_keys: i16,
+    pub num_public_keys: u16,
 }
 
 impl Args {

@@ -5,7 +5,7 @@ use chacha20poly1305::{aead::KeyInit, AeadCore, XChaCha20Poly1305};
 use kaspa_bip32::mnemonic::Mnemonic;
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct EncryptedMnemonic {
     cipher: String,
     salt: String,

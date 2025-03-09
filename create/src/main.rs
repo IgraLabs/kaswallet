@@ -7,15 +7,12 @@ use constant_time_eq::constant_time_eq;
 use kaspa_bip32::mnemonic::Mnemonic;
 use kaspa_bip32::secp256k1::PublicKey;
 use kaspa_bip32::{
-    secp256k1, ExtendedPrivateKey, ExtendedPublicKey, Language, Prefix, SecretKey, SecretKeyExt,
-    WordCount,
+    ExtendedPrivateKey, ExtendedPublicKey, Language, Prefix, SecretKey, SecretKeyExt, WordCount,
 };
 use kaspa_wallet_keys::derivation::gen1::WalletDerivationManager;
-use std::fs::File;
-use std::io::Write;
+use std::io;
 use std::path::Path;
 use std::str::FromStr;
-use std::{fs, io};
 
 mod args;
 
@@ -91,10 +88,10 @@ fn prompt_or_generate_mnemonics(args: &Args) -> Vec<Mnemonic> {
 fn minimum_cosigner_index(
     all_public_keys: Vec<ExtendedPublicKey<PublicKey>>,
     signer_public_keys: Vec<ExtendedPublicKey<PublicKey>>,
-    prefix: Option<Prefix>,
-) -> i16 {
+    prefix: Prefix,
+) -> u16 {
     let mut sorted_public_keys = all_public_keys.clone();
-    sorted_public_keys.sort_by(|a, b| a.to_string(prefix).cmp(&b.to_string(prefix)));
+    sorted_public_keys.sort_by(|a, b| a.to_string(Some(prefix)).cmp(&b.to_string(Some(prefix))));
 
     let mut minimum_cosigner_index = sorted_public_keys.len();
     for x_public_key in signer_public_keys {
@@ -107,23 +104,25 @@ fn minimum_cosigner_index(
         }
     }
 
-    minimum_cosigner_index as i16
+    minimum_cosigner_index as u16
 }
 
 fn should_continue_if_key_file_exists(keys_file_path: &str) -> bool {
-    if Path::new(keys_file_path).exists(){
-        println!("Keys file already exists at {}. Do you wish to overwrite it? (type 'yes' if you do)",
-                 keys_file_path);
+    if Path::new(keys_file_path).exists() {
+        println!(
+            "Keys file already exists at {}. Do you wish to overwrite it? (type 'yes' if you do)",
+            keys_file_path
+        );
         let input = read_line();
-        return input == "yes"
+        return input == "yes";
     }
     true
 }
 fn main() {
     let args = args::Args::parse();
     let keys_file_path = expand_path(args.keys_file.clone());
-    if !should_continue_if_key_file_exists(&keys_file_path){
-        return
+    if !should_continue_if_key_file_exists(&keys_file_path) {
+        return;
     }
     let is_multisig = args.num_public_keys > 1;
 
@@ -141,7 +140,7 @@ fn main() {
             ExtendedPrivateKey::new(seed).unwrap()
         })
         .collect();
-    let signer_public_keys: Vec<ExtendedPublicKey<secp256k1::PublicKey>> = x_private_keys
+    let signer_public_keys: Vec<ExtendedPublicKey<PublicKey>> = x_private_keys
         .iter()
         .map(|x_private_key| {
             let (key, attributes) = WalletDerivationManager::derive_extended_key_from_master_key(
@@ -157,12 +156,12 @@ fn main() {
         })
         .collect();
 
-    let prefix = Some(Prefix::from(args.network()));
+    let prefix = Prefix::from(args.network());
     for (i, x_public_key) in signer_public_keys.iter().enumerate() {
         println!(
             "Extended public key of mnemonic#{}: {}",
             i + 1,
-            x_public_key.to_string(prefix)
+            x_public_key.to_string(Some(prefix))
         );
     }
 
@@ -172,42 +171,24 @@ fn main() {
         all_public_keys.push(x_public_key);
     }
 
-    let cosigner_index: i16 = if signer_public_keys.len() == 0 {
+    let cosigner_index: u16 = if signer_public_keys.len() == 0 {
         0
     } else {
         minimum_cosigner_index(all_public_keys.clone(), signer_public_keys, prefix)
     };
 
-    let keys_file = Keys {
-        version: KEY_FILE_VERSION,
+    let keys_file = Keys::new(
+        keys_file_path.clone(),
+        KEY_FILE_VERSION,
         encrypted_mnemonics,
-        public_keys: all_public_keys
-            .iter()
-            .map(|x| x.to_string(prefix))
-            .collect(),
-        last_used_external_index: 0,
-        last_used_internal_index: 0,
-        minumum_signatures: args.min_signatures,
+        prefix,
+        all_public_keys,
+        0,
+        0,
+        args.min_signatures,
         cosigner_index,
-    };
+    );
 
-    save_keys_to_file(keys_file_path, &keys_file).unwrap();
-}
-
-fn save_keys_to_file(keys_file_path: String, keys: &Keys) -> io::Result<()> {
-    let json = serde_json::to_string_pretty(keys)?;
-
-    let path = Path::new(&keys_file_path);
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    let mut file = File::create(path)?;
-
-    file.write_all(json.as_bytes())?;
-    file.flush()?;
-    file.sync_all()?;
-
-    println!("Keys data written to {}", path.to_str().unwrap());
-
-    Ok(())
+    keys_file.save().unwrap();
+    println!("Keys data written to {}", keys_file_path);
 }
