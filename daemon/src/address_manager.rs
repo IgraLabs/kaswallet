@@ -17,8 +17,13 @@ use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::ops::Add;
 use std::str::FromStr;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::select;
+use tokio::sync::{mpsc, Mutex};
+use tokio::time::interval;
+use tonic::transport::Channel;
 use wallet_proto::wallet_proto::wallet_server::Wallet;
 
 const NUM_INDEXES_TO_QUERY_FOR_FAR_ADDRESSES: u32 = 100;
@@ -43,6 +48,10 @@ pub struct AddressManager {
     utxos_sorted_by_amount: Mutex<Vec<WalletUtxo>>,
     mempool_excluded_utxos: Mutex<HashMap<WalletOutpoint, WalletUtxo>>,
     used_outpoints: Mutex<HashMap<WalletOutpoint, DateTime<Utc>>>,
+    first_sync_done: AtomicBool,
+
+    force_sync_sender: mpsc::Sender<()>,
+    force_sync_receiver: mpsc::Receiver<()>,
 }
 
 impl AddressManager {
@@ -52,6 +61,7 @@ impl AddressManager {
         prefix: AddressPrefix,
     ) -> Self {
         let is_multisig = keys.public_keys.len() > 0;
+        let (force_sync_sender, force_sync_receiver) = mpsc::channel(32);
 
         Self {
             kaspa_rpc_client,
@@ -68,6 +78,24 @@ impl AddressManager {
             utxos_sorted_by_amount: Mutex::new(vec![]),
             mempool_excluded_utxos: Mutex::new(HashMap::new()),
             used_outpoints: Mutex::new(HashMap::new()),
+            first_sync_done: AtomicBool::new(false),
+            force_sync_sender,
+            force_sync_receiver,
+        }
+    }
+
+    pub async fn sync_loop(&mut self) -> Result<(), Box<dyn Error>> {
+        self.collect_recent_addresses().await?;
+        self.refresh_utxos().await?;
+        self.first_sync_done.store(true, Relaxed);
+
+        let mut interval = interval(core::time::Duration::from_secs(1));
+        loop {
+            select! {
+                _ = interval.tick() =>{}
+                _ = self.force_sync_receiver.recv() => {}
+            }
+            self.sync().await?;
         }
     }
 
@@ -391,5 +419,13 @@ impl AddressManager {
         // completed, in order to make sure that indeed this state reflects a state obtained following the required wait time.
         return (self.start_time_of_last_completed_refresh.lock().await)
             .gt(&outpoint_broadcast_time.add(Duration::minutes(1)));
+    }
+
+    async fn sync(&mut self) -> Result<(), Box<dyn Error>> {
+        self.collect_far_addresses().await?;
+        self.collect_recent_addresses().await?;
+        self.refresh_utxos().await?;
+
+        Ok(())
     }
 }
