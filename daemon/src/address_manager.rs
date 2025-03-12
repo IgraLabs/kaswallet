@@ -1,16 +1,25 @@
-﻿use crate::model::{Keychain, WalletAddress, KEYCHAINS};
+﻿use crate::model::{
+    Keychain, WalletAddress, WalletOutpoint, WalletUtxo, WalletUtxoEntry, KEYCHAINS,
+};
+use chrono::prelude::*;
+use chrono::Duration;
 use common::keys::Keys;
 use kaspa_addresses::{Address, Prefix as AddressPrefix, Version as AddressVersion};
 use kaspa_bip32::secp256k1::PublicKey;
 use kaspa_bip32::{DerivationPath, ExtendedPublicKey};
-use kaspa_wrpc_client::prelude::{RpcApi, RpcBalancesByAddressesEntry};
+use kaspa_wrpc_client::prelude::{
+    RpcAddress, RpcApi, RpcBalancesByAddressesEntry, RpcMempoolEntryByAddress,
+    RpcUtxosByAddressesEntry,
+};
 use kaspa_wrpc_client::KaspaRpcClient;
 use log::info;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::error::Error;
+use std::ops::Add;
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use wallet_proto::wallet_proto::wallet_server::Wallet;
 
 const NUM_INDEXES_TO_QUERY_FOR_FAR_ADDRESSES: u32 = 100;
 const NUM_INDEXES_TO_QUERY_FOR_RECENT_ADDRESSES: u32 = 1000;
@@ -29,6 +38,11 @@ pub struct AddressManager {
     is_log_final_progress_line_shown: bool,
     max_used_addresses_for_log: u32,
     max_processed_addresses_for_log: u32,
+
+    start_time_of_last_completed_refresh: Mutex<DateTime<Utc>>,
+    utxos_sorted_by_amount: Mutex<Vec<WalletUtxo>>,
+    mempool_excluded_utxos: Mutex<HashMap<WalletOutpoint, WalletUtxo>>,
+    used_outpoints: Mutex<HashMap<WalletOutpoint, DateTime<Utc>>>,
 }
 
 impl AddressManager {
@@ -50,6 +64,10 @@ impl AddressManager {
             is_log_final_progress_line_shown: false,
             max_used_addresses_for_log: 0,
             max_processed_addresses_for_log: 0,
+            start_time_of_last_completed_refresh: Mutex::new(DateTime::<Utc>::MIN_UTC),
+            utxos_sorted_by_amount: Mutex::new(vec![]),
+            mempool_excluded_utxos: Mutex::new(HashMap::new()),
+            used_outpoints: Mutex::new(HashMap::new()),
         }
     }
 
@@ -281,5 +299,97 @@ impl AddressManager {
                 percent_processed
             );
         }
+    }
+
+    async fn refresh_utxos(&self) -> Result<(), Box<dyn Error>> {
+        let refresh_start = Utc::now();
+
+        let address_strings = self.address_strings().await?;
+        let rpc_addresses: Vec<RpcAddress> = address_strings
+            .iter()
+            .map(|address_string| Address::constructor(address_string))
+            .collect();
+
+        // It's important to check the mempool before calling `GetUTXOsByAddresses`:
+        // If we would do it the other way around an output can be spent in the mempool
+        // and not in consensus, and between the calls its spending transaction will be
+        // added to consensus and removed from the mempool, so `getUTXOsByAddressesResponse`
+        // will include an obsolete output.
+        let mempool_entries_by_addresses = self
+            .kaspa_rpc_client
+            .get_mempool_entries_by_addresses(rpc_addresses.clone(), true, true)
+            .await?;
+
+        let get_utxo_by_addresses_response = self
+            .kaspa_rpc_client
+            .get_utxos_by_addresses(rpc_addresses)
+            .await?;
+
+        self.update_utxo_set(
+            get_utxo_by_addresses_response,
+            mempool_entries_by_addresses,
+            refresh_start,
+        )
+        .await
+    }
+
+    async fn update_utxo_set(
+        &self,
+        rpc_utxo_entries: Vec<RpcUtxosByAddressesEntry>,
+        rpc_mempool_utxo_entries: Vec<RpcMempoolEntryByAddress>,
+        refresh_start_time: DateTime<Utc>,
+    ) -> Result<(), Box<dyn Error>> {
+        let mut wallet_utxos: Vec<WalletUtxo> = vec![];
+
+        let mut exculde = HashSet::new();
+        for rpc_mempool_entries_by_address in rpc_mempool_utxo_entries {
+            for rpc_mempool_entry in rpc_mempool_entries_by_address.sending {
+                for input in rpc_mempool_entry.transaction.inputs {
+                    exculde.insert(input.previous_outpoint);
+                }
+            }
+        }
+
+        let address_set = self.addresses.lock().await;
+        let mut mempool_excluded_utxos: HashMap<WalletOutpoint, WalletUtxo> = HashMap::new();
+        for rpc_utxo_entry in rpc_utxo_entries {
+            let wallet_outpoint: WalletOutpoint = rpc_utxo_entry.outpoint.into();
+            let wallet_utxo_entry: WalletUtxoEntry = rpc_utxo_entry.utxo_entry.into();
+
+            let rpc_address = rpc_utxo_entry.address.unwrap();
+            let address = address_set.get(&rpc_address.address_to_string()).unwrap();
+
+            let wallet_utxo = WalletUtxo::new(wallet_outpoint, wallet_utxo_entry, address.clone());
+
+            if exculde.contains(&rpc_utxo_entry.outpoint) {
+                mempool_excluded_utxos.insert(wallet_utxo.outpoint.clone(), wallet_utxo);
+            } else {
+                wallet_utxos.push(wallet_utxo);
+            }
+        }
+
+        wallet_utxos.sort_by(|a, b| a.utxo_entry.amount.cmp(&b.utxo_entry.amount));
+        *(self.start_time_of_last_completed_refresh.lock().await) = refresh_start_time;
+        *(self.utxos_sorted_by_amount.lock().await) = wallet_utxos;
+        *(self.mempool_excluded_utxos.lock().await) = mempool_excluded_utxos;
+
+        // Cleanup expired used outpoints to avoid a memory leak
+        let mut used_outpoints = self.used_outpoints.lock().await;
+        for (outpoint, broadcast_time) in used_outpoints.clone() {
+            if self.has_used_outpoint_expired(&broadcast_time).await {
+                used_outpoints.remove(&outpoint);
+            }
+        }
+        Ok(())
+    }
+
+    async fn has_used_outpoint_expired(&self, outpoint_broadcast_time: &DateTime<Utc>) -> bool {
+        // If the node returns a UTXO we previously attempted to spend and enough time has passed, we assume
+        // that the network rejected or lost the previous transaction and allow a reuse. We set this time
+        // interval to a minute.
+        // We also verify that a full refresh UTXO operation started after this time point and has already
+        // completed, in order to make sure that indeed this state reflects a state obtained following the required wait time.
+        return (self.start_time_of_last_completed_refresh.lock().await)
+            .gt(&outpoint_broadcast_time.add(Duration::minutes(1)));
     }
 }
