@@ -7,7 +7,8 @@ use std::fs::File;
 use std::io::{Result, Write};
 use std::path::Path;
 use std::str::FromStr;
-use std::sync::Mutex;
+use tokio::runtime::Runtime;
+use tokio::sync::Mutex;
 
 pub const KEY_FILE_VERSION: i32 = 1;
 
@@ -46,15 +47,18 @@ impl From<&Keys> for KeysJson {
             .map(|x| x.to_string(Some(keys.public_keys_prefix)))
             .collect();
 
-        KeysJson {
-            version: keys.version,
-            encrypted_mnemonics: keys.encrypted_mnemonics.clone(),
-            public_keys,
-            last_used_external_index: *keys.last_used_external_index.lock().unwrap(),
-            last_used_internal_index: *keys.last_used_internal_index.lock().unwrap(),
-            minimum_signatures: keys.minimum_signatures,
-            cosigner_index: keys.cosigner_index,
-        }
+        let rt = Runtime::new().unwrap();
+        rt.block_on(async {
+            KeysJson {
+                version: keys.version,
+                encrypted_mnemonics: keys.encrypted_mnemonics.clone(),
+                public_keys,
+                last_used_external_index: *keys.last_used_external_index.lock().await,
+                last_used_internal_index: *keys.last_used_internal_index.lock().await,
+                minimum_signatures: keys.minimum_signatures,
+                cosigner_index: keys.cosigner_index,
+            }
+        })
     }
 }
 

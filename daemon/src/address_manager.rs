@@ -53,13 +53,14 @@ impl AddressManager {
         }
     }
 
-    pub async fn address_strings(&self) -> Vec<String> {
-        self.addresses
-            .lock()
-            .await
+    pub async fn address_strings(&self) -> Result<Vec<String>, Box<dyn Error>> {
+        let addresses = self.addresses.lock().await;
+        let strings = addresses
             .keys()
             .map(|address_string| address_string.to_string())
-            .collect()
+            .collect();
+
+        Ok(strings)
     }
 
     pub async fn collect_recent_addresses(&mut self) -> Result<(), Box<dyn Error>> {
@@ -67,19 +68,36 @@ impl AddressManager {
         let mut max_used_index: u32 = 0;
 
         while index < max_used_index + NUM_INDEXES_TO_QUERY_FOR_RECENT_ADDRESSES {
-            self.collect_addresses(index, index + NUM_INDEXES_TO_QUERY_FOR_RECENT_ADDRESSES)
-                .await?;
+            let collect_addresses_result = self
+                .collect_addresses(index, index + NUM_INDEXES_TO_QUERY_FOR_RECENT_ADDRESSES)
+                .await;
+            if let Err(e) = collect_addresses_result {
+                return Err(e);
+            }
             index += NUM_INDEXES_TO_QUERY_FOR_RECENT_ADDRESSES;
 
-            max_used_index = self.max_used_index();
+            max_used_index = self.max_used_index().await;
 
             self.update_syncing_progress_log(index, max_used_index);
-
-            let mut next_sync_start_index = self.next_sync_start_index.lock().await;
-            if index > *next_sync_start_index {
-                *next_sync_start_index = index;
-            }
         }
+
+        let mut next_sync_start_index = self.next_sync_start_index.lock().await;
+        if index > *next_sync_start_index {
+            *next_sync_start_index = index;
+        }
+        Ok(())
+    }
+
+    pub async fn collect_far_addresses(&mut self) -> Result<(), Box<dyn Error>> {
+        let mut next_sync_start_index = self.next_sync_start_index.lock().await;
+
+        self.collect_addresses(
+            *next_sync_start_index,
+            *next_sync_start_index + NUM_INDEXES_TO_QUERY_FOR_FAR_ADDRESSES,
+        )
+        .await?;
+
+        *next_sync_start_index += NUM_INDEXES_TO_QUERY_FOR_FAR_ADDRESSES;
 
         Ok(())
     }
@@ -128,8 +146,8 @@ impl AddressManager {
         address_set: AddressSet,
         get_balances_by_addresses_response: Vec<RpcBalancesByAddressesEntry>,
     ) -> Result<(), Box<dyn Error>> {
-        let mut last_used_external_index = self.keys_file.last_used_external_index.lock().unwrap();
-        let mut last_used_internal_index = self.keys_file.last_used_internal_index.lock().unwrap();
+        let mut last_used_external_index = self.keys_file.last_used_external_index.lock().await;
+        let mut last_used_internal_index = self.keys_file.last_used_internal_index.lock().await;
 
         for entry in get_balances_by_addresses_response {
             if entry.balance == None || entry.balance == Some(0) {
@@ -221,9 +239,9 @@ impl AddressManager {
         Ok(address)
     }
 
-    fn max_used_index(&self) -> u32 {
-        let last_used_external_index = *self.keys_file.last_used_external_index.lock().unwrap();
-        let last_used_internal_index = *self.keys_file.last_used_internal_index.lock().unwrap();
+    async fn max_used_index(&self) -> u32 {
+        let last_used_external_index = *self.keys_file.last_used_external_index.lock().await;
+        let last_used_internal_index = *self.keys_file.last_used_internal_index.lock().await;
 
         if last_used_external_index > last_used_internal_index {
             last_used_external_index
