@@ -15,7 +15,7 @@ mod kaspad_client;
 mod log;
 mod model;
 mod service;
-mod sync;
+mod sync_manager;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {

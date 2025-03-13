@@ -16,6 +16,7 @@ use wallet_proto::wallet_proto::{
 
 #[derive(Debug)]
 pub struct KasWalletService {
+    args: Args,
     kaspa_rpc_client: Arc<KaspaRpcClient>,
     keys: Arc<Keys>,
     address_manager: Arc<AddressManager>,
@@ -29,6 +30,7 @@ impl KasWalletService {
         keys: Arc<Keys>,
     ) -> Self {
         Self {
+            args,
             kaspa_rpc_client,
             address_manager,
             keys,
