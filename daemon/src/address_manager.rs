@@ -5,7 +5,7 @@ use kaspa_bip32::secp256k1::PublicKey;
 use kaspa_bip32::{DerivationPath, ExtendedPublicKey};
 use kaspa_wrpc_client::prelude::*;
 use kaspa_wrpc_client::KaspaRpcClient;
-use log::info;
+use log::{debug, info};
 use std::collections::HashMap;
 use std::error::Error;
 use std::str::FromStr;
@@ -70,6 +70,8 @@ impl AddressManager {
     }
 
     pub async fn collect_recent_addresses(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+        debug!("Collecting recent addresses");
+
         let mut index: u32 = 0;
         let mut max_used_index: u32 = 0;
 
@@ -95,6 +97,8 @@ impl AddressManager {
     }
 
     pub async fn collect_far_addresses(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+        debug!("Collecting far addresses");
+
         let mut next_sync_start_index = self.next_sync_start_index.lock().await;
 
         self.collect_addresses(
@@ -113,6 +117,8 @@ impl AddressManager {
         start: u32,
         end: u32,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        debug!("Collecting addresses from {} to {}", start, end);
+
         let addresses = self.addresses_to_query(start, end)?;
 
         let get_balances_by_addresses_response = self
@@ -141,11 +147,7 @@ impl AddressManager {
         for index in start..end {
             for cosigner_index in 0..self.extended_public_keys.len() as u32 {
                 for keychain in KEYCHAINS {
-                    let wallet_address = WalletAddress {
-                        index,
-                        cosigner_index,
-                        keychain,
-                    };
+                    let wallet_address = WalletAddress::new(index, cosigner_index, keychain);
                     let address = self.calculate_address(&wallet_address)?;
                     addresses.insert(address.to_string(), wallet_address);
                 }
@@ -160,30 +162,32 @@ impl AddressManager {
         address_set: AddressSet,
         get_balances_by_addresses_response: Vec<RpcBalancesByAddressesEntry>,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        let mut last_used_external_index = self.keys_file.last_used_external_index.lock().await;
-        let mut last_used_internal_index = self.keys_file.last_used_internal_index.lock().await;
+        // create scope to release last_used_internal/external_index before keys_file.save() is called
+        {
+            let mut last_used_external_index = self.keys_file.last_used_external_index.lock().await;
+            let mut last_used_internal_index = self.keys_file.last_used_internal_index.lock().await;
 
-        for entry in get_balances_by_addresses_response {
-            if entry.balance == None || entry.balance == Some(0) {
-                // TODO: Check if it's actually None or Some(0)
-                continue;
-            }
-
-            let address_string = entry.address.to_string();
-            let wallet_address = address_set.get(&address_string).unwrap();
-
-            self.addresses
-                .lock()
-                .await
-                .insert(address_string, wallet_address.clone());
-
-            if wallet_address.keychain == Keychain::External {
-                if wallet_address.index > *last_used_external_index {
-                    *last_used_external_index = wallet_address.index;
+            for entry in get_balances_by_addresses_response {
+                if entry.balance == Some(0) {
+                    continue;
                 }
-            } else {
-                if wallet_address.index > *last_used_internal_index {
-                    *last_used_internal_index = wallet_address.index;
+
+                let address_string = entry.address.to_string();
+                let wallet_address = address_set.get(&address_string).unwrap();
+
+                self.addresses
+                    .lock()
+                    .await
+                    .insert(address_string, wallet_address.clone());
+
+                if wallet_address.keychain == Keychain::External {
+                    if wallet_address.index > *last_used_external_index {
+                        *last_used_external_index = wallet_address.index;
+                    }
+                } else {
+                    if wallet_address.index > *last_used_internal_index {
+                        *last_used_internal_index = wallet_address.index;
+                    }
                 }
             }
         }

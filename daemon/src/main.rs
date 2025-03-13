@@ -7,6 +7,7 @@ use kaspa_bip32::Prefix;
 use ::log::{error, info};
 use std::error::Error;
 use std::sync::Arc;
+use tokio::select;
 use tokio::sync::Mutex;
 use tonic::transport::Server;
 use wallet_proto::wallet_proto::wallet_server::WalletServer;
@@ -59,9 +60,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
         keys,
     );
 
-    SyncManager::start(sync_manager);
+    let sync_manager_handle = SyncManager::start(sync_manager);
 
-    let handle = tokio::spawn(async move {
+    let server_handle = tokio::spawn(async move {
         info!("Starting wallet server on {}", args.listen);
         let server = WalletServer::new(service);
         let serve_result = Server::builder()
@@ -73,7 +74,20 @@ async fn main() -> Result<(), Box<dyn Error>> {
             panic!("Error from server: {}", e);
         }
     });
-    handle.await.unwrap();
+    select! {
+        result = sync_manager_handle => {
+            if let Err(e) = result {
+                panic!("Error from sync manager: {}", e);
+            }
+            info!("Sync manager has finished");
+        }
+        result = server_handle => {
+            if let Err(e) = result {
+                panic!("Error from server: {}", e);
+            }
+            info!("Server has finished");
+        }
+    }
 
     Ok(())
 }

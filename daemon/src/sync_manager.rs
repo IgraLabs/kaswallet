@@ -15,6 +15,7 @@ use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
 use tokio::select;
 use tokio::sync::{mpsc, Mutex};
+use tokio::task::JoinHandle;
 use tokio::time::interval;
 
 #[derive(Debug)]
@@ -52,13 +53,13 @@ impl SyncManager {
         }
     }
 
-    pub fn start(sync_manager: Arc<Mutex<SyncManager>>) {
+    pub fn start(sync_manager: Arc<Mutex<SyncManager>>) -> JoinHandle<()> {
         tokio::spawn(async move {
             let mut sync_manager = sync_manager.lock().await;
             if let Err(e) = sync_manager.sync_loop().await {
                 panic!("Error in sync loop: {}", e);
             }
-        });
+        })
     }
 
     pub async fn sync_loop(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
@@ -82,6 +83,8 @@ impl SyncManager {
     }
 
     async fn refresh_utxos(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
+        debug!("Refreshing UTXOs.");
+
         let refresh_start = Utc::now();
 
         let address_strings: Vec<String>;
