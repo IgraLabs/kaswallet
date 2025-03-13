@@ -54,6 +54,10 @@ impl AddressManager {
         }
     }
 
+    pub async fn is_synced(&self) -> bool {
+        self.next_sync_start_index > self.last_used_index()
+    }
+
     pub async fn address_set(&self) -> AddressSet {
         let addresses = self.addresses.lock().await;
         addresses.clone()
@@ -84,7 +88,7 @@ impl AddressManager {
             }
             index += NUM_INDEXES_TO_QUERY_FOR_RECENT_ADDRESSES;
 
-            max_used_index = self.max_used_index().await;
+            max_used_index = self.last_used_index().await;
 
             self.update_address_collection_progress_log(index, max_used_index);
         }
@@ -266,7 +270,7 @@ impl AddressManager {
         Ok(address)
     }
 
-    async fn max_used_index(&self) -> u32 {
+    async fn last_used_index(&self) -> u32 {
         let last_used_external_index = *self.keys_file.last_used_external_index.lock().await;
         let last_used_internal_index = *self.keys_file.last_used_internal_index.lock().await;
 

@@ -53,6 +53,10 @@ impl SyncManager {
         }
     }
 
+    pub async fn is_synced(&self) -> bool {
+        self.address_manager.lock().await.is_synced() && self.first_sync_done.load(Relaxed)
+    }
+
     pub fn start(sync_manager: Arc<Mutex<SyncManager>>) -> JoinHandle<()> {
         tokio::spawn(async move {
             let mut sync_manager = sync_manager.lock().await;
