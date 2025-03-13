@@ -1,9 +1,11 @@
 ﻿use crate::address_manager::AddressManager;
 use crate::args::Args;
+use crate::sync_manager::SyncManager;
 use common::keys::Keys;
 use kaspa_wrpc_client::KaspaRpcClient;
 use log::trace;
 use std::sync::Arc;
+use tokio::sync::Mutex;
 use tonic::{Request, Response, Status};
 use wallet_proto::wallet_proto::wallet_server::Wallet;
 use wallet_proto::wallet_proto::{
@@ -19,20 +21,23 @@ pub struct KasWalletService {
     args: Args,
     kaspa_rpc_client: Arc<KaspaRpcClient>,
     keys: Arc<Keys>,
-    address_manager: Arc<AddressManager>,
+    address_manager: Arc<Mutex<AddressManager>>,
+    sync_manager: Arc<SyncManager>,
 }
 
 impl KasWalletService {
     pub fn new(
         args: Args,
         kaspa_rpc_client: Arc<KaspaRpcClient>,
-        address_manager: Arc<AddressManager>,
+        address_manager: Arc<Mutex<AddressManager>>,
+        sync_manager: Arc<SyncManager>,
         keys: Arc<Keys>,
     ) -> Self {
         Self {
             args,
             kaspa_rpc_client,
             address_manager,
+            sync_manager,
             keys,
         }
     }

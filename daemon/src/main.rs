@@ -1,4 +1,5 @@
 use crate::address_manager::AddressManager;
+use crate::sync_manager::SyncManager;
 use clap::Parser;
 use common::args::expand_path;
 use common::keys::Keys;
@@ -6,6 +7,7 @@ use kaspa_bip32::Prefix;
 use ::log::{error, info};
 use std::error::Error;
 use std::sync::Arc;
+use tokio::sync::Mutex;
 use tonic::transport::Server;
 use wallet_proto::wallet_proto::wallet_server::WalletServer;
 
@@ -39,13 +41,22 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let kaspa_rpc_client = kaspad_client::connect(args.server.clone(), args.network()).await?;
 
     let prefix = args.network().network_type.into();
-    let address_manager = Arc::new(AddressManager::new(
+    let address_manager = Arc::new(Mutex::new(AddressManager::new(
         kaspa_rpc_client.clone(),
         keys.clone(),
         prefix,
+    )));
+    let sync_manager = Arc::new(SyncManager::new(
+        kaspa_rpc_client.clone(),
+        address_manager.clone(),
     ));
-    let service =
-        service::KasWalletService::new(args.clone(), kaspa_rpc_client, address_manager, keys);
+    let service = service::KasWalletService::new(
+        args.clone(),
+        kaspa_rpc_client.clone(),
+        address_manager.clone(),
+        sync_manager,
+        keys,
+    );
     let server = WalletServer::new(service);
 
     info!("Starting wallet server on {}", args.listen);

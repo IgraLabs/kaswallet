@@ -16,6 +16,7 @@ use tokio::select;
 use tokio::sync::{mpsc, Mutex};
 use tokio::time::interval;
 
+#[derive(Debug)]
 pub struct SyncManager {
     kaspa_rpc_client: Arc<KaspaRpcClient>,
     address_manager: Arc<Mutex<AddressManager>>,
