@@ -6,6 +6,7 @@ use kaspa_wrpc_client::prelude::{
     RpcAddress, RpcApi, RpcMempoolEntryByAddress, RpcUtxosByAddressesEntry,
 };
 use kaspa_wrpc_client::KaspaRpcClient;
+use log::{debug, info};
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::ops::Add;
@@ -51,13 +52,24 @@ impl SyncManager {
         }
     }
 
-    pub async fn sync_loop(&mut self) -> Result<(), Box<dyn Error>> {
+    pub fn start(sync_manager: Arc<Mutex<SyncManager>>) {
+        tokio::spawn(async move {
+            let mut sync_manager = sync_manager.lock().await;
+            if let Err(e) = sync_manager.sync_loop().await {
+                panic!("Error in sync loop: {}", e);
+            }
+        });
+    }
+
+    pub async fn sync_loop(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+        info!("Starting sync loop");
         {
             let mut address_manager = self.address_manager.lock().await;
             address_manager.collect_recent_addresses().await?;
         }
         self.refresh_utxos().await?;
         self.first_sync_done.store(true, Relaxed);
+        info!("Finished initial sync");
 
         let mut interval = interval(core::time::Duration::from_secs(1));
         loop {
@@ -69,7 +81,7 @@ impl SyncManager {
         }
     }
 
-    async fn refresh_utxos(&self) -> Result<(), Box<dyn Error>> {
+    async fn refresh_utxos(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
         let refresh_start = Utc::now();
 
         let address_strings: Vec<String>;
@@ -105,13 +117,16 @@ impl SyncManager {
         .await
     }
 
-    async fn sync(&mut self) -> Result<(), Box<dyn Error>> {
+    async fn sync(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+        debug!("Starting sync cycle");
         {
             let mut address_manager = self.address_manager.lock().await;
             address_manager.collect_far_addresses().await?;
             address_manager.collect_recent_addresses().await?;
         }
         self.refresh_utxos().await?;
+
+        debug!("Sync cycle completed successfully");
 
         Ok(())
     }
@@ -121,7 +136,7 @@ impl SyncManager {
         rpc_utxo_entries: Vec<RpcUtxosByAddressesEntry>,
         rpc_mempool_utxo_entries: Vec<RpcMempoolEntryByAddress>,
         refresh_start_time: DateTime<Utc>,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
         let mut wallet_utxos: Vec<WalletUtxo> = vec![];
 
         let mut exculde = HashSet::new();

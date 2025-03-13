@@ -36,6 +36,7 @@ pub async fn connect(
     )?);
 
     rpc_client.connect(options).await?;
+    info!("Connected to kaspa node successfully");
 
     Ok(rpc_client)
 }

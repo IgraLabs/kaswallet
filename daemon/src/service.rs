@@ -22,7 +22,7 @@ pub struct KasWalletService {
     kaspa_rpc_client: Arc<KaspaRpcClient>,
     keys: Arc<Keys>,
     address_manager: Arc<Mutex<AddressManager>>,
-    sync_manager: Arc<SyncManager>,
+    sync_manager: Arc<Mutex<SyncManager>>,
 }
 
 impl KasWalletService {
@@ -30,7 +30,7 @@ impl KasWalletService {
         args: Args,
         kaspa_rpc_client: Arc<KaspaRpcClient>,
         address_manager: Arc<Mutex<AddressManager>>,
-        sync_manager: Arc<SyncManager>,
+        sync_manager: Arc<Mutex<SyncManager>>,
         keys: Arc<Keys>,
     ) -> Self {
         Self {

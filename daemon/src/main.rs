@@ -30,6 +30,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let prefix = Prefix::from(args.network());
     let keys_file_path = expand_path(args.keys_file.clone());
     let keys = Keys::load(keys_file_path.clone(), prefix);
+
     if let Err(e) = keys {
         error!("Failed to load keys from file {}: {}", keys_file_path, e);
         error!("Please run kaswallet-create or provide a `--keys-file` flag");
@@ -46,25 +47,33 @@ async fn main() -> Result<(), Box<dyn Error>> {
         keys.clone(),
         prefix,
     )));
-    let sync_manager = Arc::new(SyncManager::new(
+    let sync_manager = Arc::new(Mutex::new(SyncManager::new(
         kaspa_rpc_client.clone(),
         address_manager.clone(),
-    ));
+    )));
     let service = service::KasWalletService::new(
         args.clone(),
         kaspa_rpc_client.clone(),
         address_manager.clone(),
-        sync_manager,
+        sync_manager.clone(),
         keys,
     );
-    let server = WalletServer::new(service);
 
-    info!("Starting wallet server on {}", args.listen);
+    SyncManager::start(sync_manager);
 
-    Server::builder()
-        .add_service(server)
-        .serve(args.listen.parse().unwrap())
-        .await?;
+    let handle = tokio::spawn(async move {
+        info!("Starting wallet server on {}", args.listen);
+        let server = WalletServer::new(service);
+        let serve_result = Server::builder()
+            .add_service(server)
+            .serve(args.listen.parse().unwrap())
+            .await;
+
+        if let Err(e) = serve_result {
+            panic!("Error from server: {}", e);
+        }
+    });
+    handle.await.unwrap();
 
     Ok(())
 }

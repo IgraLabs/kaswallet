@@ -59,7 +59,7 @@ impl AddressManager {
         addresses.clone()
     }
 
-    pub async fn address_strings(&self) -> Result<Vec<String>, Box<dyn Error>> {
+    pub async fn address_strings(&self) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
         let addresses = self.addresses.lock().await;
         let strings = addresses
             .keys()
@@ -69,7 +69,7 @@ impl AddressManager {
         Ok(strings)
     }
 
-    pub async fn collect_recent_addresses(&mut self) -> Result<(), Box<dyn Error>> {
+    pub async fn collect_recent_addresses(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
         let mut index: u32 = 0;
         let mut max_used_index: u32 = 0;
 
@@ -94,7 +94,7 @@ impl AddressManager {
         Ok(())
     }
 
-    pub async fn collect_far_addresses(&mut self) -> Result<(), Box<dyn Error>> {
+    pub async fn collect_far_addresses(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
         let mut next_sync_start_index = self.next_sync_start_index.lock().await;
 
         self.collect_addresses(
@@ -108,7 +108,11 @@ impl AddressManager {
         Ok(())
     }
 
-    async fn collect_addresses(&self, start: u32, end: u32) -> Result<(), Box<dyn Error>> {
+    async fn collect_addresses(
+        &self,
+        start: u32,
+        end: u32,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
         let addresses = self.addresses_to_query(start, end)?;
 
         let get_balances_by_addresses_response = self
@@ -127,7 +131,11 @@ impl AddressManager {
         Ok(())
     }
 
-    fn addresses_to_query(&self, start: u32, end: u32) -> Result<AddressSet, Box<dyn Error>> {
+    fn addresses_to_query(
+        &self,
+        start: u32,
+        end: u32,
+    ) -> Result<AddressSet, Box<dyn Error + Send + Sync>> {
         let mut addresses = HashMap::new();
 
         for index in start..end {
@@ -151,7 +159,7 @@ impl AddressManager {
         &self,
         address_set: AddressSet,
         get_balances_by_addresses_response: Vec<RpcBalancesByAddressesEntry>,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
         let mut last_used_external_index = self.keys_file.last_used_external_index.lock().await;
         let mut last_used_internal_index = self.keys_file.last_used_internal_index.lock().await;
 
@@ -185,7 +193,10 @@ impl AddressManager {
         Ok(())
     }
 
-    fn calculate_address(&self, wallet_address: &WalletAddress) -> Result<Address, Box<dyn Error>> {
+    fn calculate_address(
+        &self,
+        wallet_address: &WalletAddress,
+    ) -> Result<Address, Box<dyn Error + Send + Sync>> {
         let path = self.calculate_address_path(wallet_address)?;
 
         if self.is_multisig {
@@ -198,7 +209,7 @@ impl AddressManager {
     fn calculate_address_path(
         &self,
         wallet_address: &WalletAddress,
-    ) -> Result<DerivationPath, Box<dyn Error>> {
+    ) -> Result<DerivationPath, Box<dyn Error + Send + Sync>> {
         let wallet_address = wallet_address.clone();
         let path_string = if self.is_multisig {
             format!(
@@ -216,7 +227,10 @@ impl AddressManager {
         Ok(path)
     }
 
-    fn p2pk_address(&self, derivation_path: DerivationPath) -> Result<Address, Box<dyn Error>> {
+    fn p2pk_address(
+        &self,
+        derivation_path: DerivationPath,
+    ) -> Result<Address, Box<dyn Error + Send + Sync>> {
         let extended_public_key = self.extended_public_keys.first().unwrap().clone();
         let derived_key = extended_public_key.derive_path(&derivation_path)?;
         let pk = derived_key.public_key();
@@ -225,7 +239,10 @@ impl AddressManager {
         Ok(address)
     }
 
-    fn multisig_address(&self, derivation_path: DerivationPath) -> Result<Address, Box<dyn Error>> {
+    fn multisig_address(
+        &self,
+        derivation_path: DerivationPath,
+    ) -> Result<Address, Box<dyn Error + Send + Sync>> {
         let mut sorted_extended_public_keys = self.extended_public_keys.as_ref().clone();
         sorted_extended_public_keys.sort();
 
