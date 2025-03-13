@@ -18,6 +18,8 @@ use tokio::sync::{mpsc, Mutex};
 use tokio::task::JoinHandle;
 use tokio::time::interval;
 
+const SYNC_INTERVAL: u64 = 10; // seconds
+
 #[derive(Debug)]
 pub struct SyncManager {
     kaspa_rpc_client: Arc<KaspaRpcClient>,
@@ -54,35 +56,40 @@ impl SyncManager {
     }
 
     pub async fn is_synced(&self) -> bool {
-        self.address_manager.lock().await.is_synced() && self.first_sync_done.load(Relaxed)
+        self.address_manager.lock().await.is_synced().await && self.first_sync_done.load(Relaxed)
     }
 
     pub fn start(sync_manager: Arc<Mutex<SyncManager>>) -> JoinHandle<()> {
         tokio::spawn(async move {
-            let mut sync_manager = sync_manager.lock().await;
-            if let Err(e) = sync_manager.sync_loop().await {
+            if let Err(e) = Self::sync_loop(sync_manager).await {
                 panic!("Error in sync loop: {}", e);
             }
         })
     }
 
-    pub async fn sync_loop(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
-        info!("Starting sync loop");
+    pub async fn sync_loop(
+        sync_manager: Arc<Mutex<SyncManager>>,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
         {
-            let mut address_manager = self.address_manager.lock().await;
-            address_manager.collect_recent_addresses().await?;
-        }
-        self.refresh_utxos().await?;
-        self.first_sync_done.store(true, Relaxed);
-        info!("Finished initial sync");
-
-        let mut interval = interval(core::time::Duration::from_secs(1));
-        loop {
-            select! {
-                _ = interval.tick() =>{}
-                _ = self.force_sync_receiver.recv() => {}
+            let sync_manager = sync_manager.lock().await;
+            info!("Starting sync loop");
+            {
+                let mut address_manager = sync_manager.address_manager.lock().await;
+                address_manager.collect_recent_addresses().await?;
             }
-            self.sync().await?;
+            sync_manager.refresh_utxos().await?;
+            sync_manager.first_sync_done.store(true, Relaxed);
+            info!("Finished initial sync");
+        }
+
+        let mut interval = interval(core::time::Duration::from_secs(SYNC_INTERVAL));
+        loop {
+            _ = interval.tick();
+
+            {
+                let mut sync_manager = sync_manager.lock().await;
+                sync_manager.sync().await?;
+            }
         }
     }
 

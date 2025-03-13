@@ -13,12 +13,12 @@ pub const KEYCHAINS: [Keychain; 2] = [Keychain::External, Keychain::Internal];
 #[derive(Clone, Debug)]
 pub struct WalletAddress {
     pub index: u32,
-    pub cosigner_index: u32,
+    pub cosigner_index: u16,
     pub keychain: Keychain,
 }
 
 impl WalletAddress {
-    pub fn new(index: u32, cosigner_index: u32, keychain: Keychain) -> Self {
+    pub fn new(index: u32, cosigner_index: u16, keychain: Keychain) -> Self {
         WalletAddress {
             index,
             cosigner_index,

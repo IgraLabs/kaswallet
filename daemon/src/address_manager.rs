@@ -55,7 +55,7 @@ impl AddressManager {
     }
 
     pub async fn is_synced(&self) -> bool {
-        self.next_sync_start_index > self.last_used_index()
+        *self.next_sync_start_index.lock().await > self.last_used_index().await
     }
 
     pub async fn address_set(&self) -> AddressSet {
@@ -71,6 +71,28 @@ impl AddressManager {
             .collect();
 
         Ok(strings)
+    }
+
+    pub async fn new_address(
+        &self,
+    ) -> Result<(String, WalletAddress), Box<dyn Error + Send + Sync>> {
+        let last_used_external_index: u32;
+        {
+            let mut last_used_external_index_mutex =
+                self.keys_file.last_used_external_index.lock().await;
+            *last_used_external_index_mutex += 1;
+            last_used_external_index = *last_used_external_index_mutex;
+        }
+        self.keys_file.save()?;
+
+        let wallet_address = WalletAddress::new(
+            last_used_external_index,
+            self.keys_file.cosigner_index,
+            Keychain::External,
+        );
+        let address = self.calculate_address(&wallet_address)?;
+
+        Ok((address.to_string(), wallet_address))
     }
 
     pub async fn collect_recent_addresses(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
@@ -149,7 +171,7 @@ impl AddressManager {
         let mut addresses = HashMap::new();
 
         for index in start..end {
-            for cosigner_index in 0..self.extended_public_keys.len() as u32 {
+            for cosigner_index in 0..self.extended_public_keys.len() as u16 {
                 for keychain in KEYCHAINS {
                     let wallet_address = WalletAddress::new(index, cosigner_index, keychain);
                     let address = self.calculate_address(&wallet_address)?;

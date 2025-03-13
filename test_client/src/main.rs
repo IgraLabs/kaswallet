@@ -12,5 +12,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Version={:?}", response.into_inner().version);
 
+    let new_address_response = client
+        .new_address(Request::new(
+            wallet_proto::wallet_proto::NewAddressRequest {},
+        ))
+        .await?;
+
+    println!(
+        "New Address={:?}",
+        new_address_response.into_inner().address
+    );
+
     Ok(())
 }

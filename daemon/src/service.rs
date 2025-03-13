@@ -3,7 +3,7 @@ use crate::args::Args;
 use crate::sync_manager::SyncManager;
 use common::keys::Keys;
 use kaspa_wrpc_client::KaspaRpcClient;
-use log::trace;
+use log::{debug, trace};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tonic::{Request, Response, Status};
@@ -58,7 +58,28 @@ impl Wallet for KasWalletService {
         request: Request<NewAddressRequest>,
     ) -> Result<Response<NewAddressResponse>, Status> {
         trace!("Received request: {:?}", request.get_ref().to_owned());
-        todo!()
+
+        {
+            let sync_manager = self.sync_manager.lock().await;
+            if !sync_manager.is_synced().await {
+                return Err(Status::failed_precondition(
+                    "Wallet is not synced yet. Please wait for the sync to complete.",
+                ));
+            }
+        }
+
+        let address_manager = self.address_manager.lock().await;
+
+        match address_manager.new_address().await {
+            Ok((address, _)) => {
+                let response = NewAddressResponse { address };
+                Ok(Response::new(response))
+            }
+            Err(e) => Err(Status::internal(format!(
+                "Failed to generate new address: {}",
+                e
+            ))),
+        }
     }
 
     async fn get_balance(
