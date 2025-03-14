@@ -2,7 +2,7 @@
 use kaspa_hashes::Hash;
 use kaspa_wrpc_client::prelude::{RpcTransactionOutpoint, RpcUtxoEntry};
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum Keychain {
     External = 0,
     Internal = 1,
@@ -10,7 +10,7 @@ pub enum Keychain {
 
 pub const KEYCHAINS: [Keychain; 2] = [Keychain::External, Keychain::Internal];
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct WalletAddress {
     pub index: u32,
     pub cosigner_index: u16,
@@ -42,7 +42,7 @@ impl From<RpcTransactionOutpoint> for WalletOutpoint {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct WalletUtxoEntry {
     pub amount: u64,
     pub script_public_key: ScriptPublicKey,
@@ -61,7 +61,7 @@ impl From<RpcUtxoEntry> for WalletUtxoEntry {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct WalletUtxo {
     pub outpoint: WalletOutpoint,
     pub utxo_entry: WalletUtxoEntry,

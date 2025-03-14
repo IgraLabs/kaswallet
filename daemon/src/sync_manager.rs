@@ -66,7 +66,11 @@ impl SyncManager {
         })
     }
 
-    pub async fn sync_loop(
+    pub async fn get_utxos_sorted_by_amount(&self) -> Vec<WalletUtxo> {
+        self.utxos_sorted_by_amount.lock().await.clone()
+    }
+
+    async fn sync_loop(
         sync_manager: Arc<Mutex<SyncManager>>,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         {
