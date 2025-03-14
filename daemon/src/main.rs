@@ -6,11 +6,9 @@ use common::keys::Keys;
 use kaspa_bip32::Prefix;
 use ::log::{error, info};
 use std::error::Error;
-use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 use tokio::select;
 use tokio::sync::Mutex;
-use tokio::task::JoinHandle;
 use tonic::transport::Server;
 use wallet_proto::wallet_proto::wallet_server::WalletServer;
 
@@ -50,7 +48,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         keys.clone(),
         prefix,
     )));
-    let mut sync_manager = Arc::new(Mutex::new(SyncManager::new(
+    let sync_manager = Arc::new(Mutex::new(SyncManager::new(
         kaspa_rpc_client.clone(),
         address_manager.clone(),
     )));

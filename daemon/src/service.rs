@@ -1,9 +1,11 @@
 ﻿use crate::address_manager::AddressManager;
 use crate::args::Args;
+use crate::model::{Keychain, WalletAddress};
 use crate::sync_manager::SyncManager;
 use common::keys::Keys;
 use kaspa_wrpc_client::KaspaRpcClient;
-use log::{debug, trace};
+use log::trace;
+use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tonic::{Request, Response, Status};
@@ -43,6 +45,18 @@ impl KasWalletService {
     }
 }
 
+impl KasWalletService {
+    async fn check_is_synced(&self) -> Result<(), Status> {
+        let sync_manager = self.sync_manager.lock().await;
+        if !sync_manager.is_synced().await {
+            return Err(Status::failed_precondition(
+                "Wallet is not synced yet. Please wait for the sync to complete.",
+            ));
+        }
+        Ok(())
+    }
+}
+
 #[tonic::async_trait]
 impl Wallet for KasWalletService {
     async fn get_addresses(
@@ -50,7 +64,29 @@ impl Wallet for KasWalletService {
         request: Request<GetAddressesRequest>,
     ) -> Result<Response<GetAddressesResponse>, Status> {
         trace!("Received request: {:?}", request.get_ref().to_owned());
-        todo!()
+
+        self.check_is_synced().await?;
+
+        let mut addresses = vec![];
+        let address_manager = self.address_manager.lock().await;
+        for i in 0..self.keys.last_used_external_index.load(Relaxed) {
+            let wallet_address = WalletAddress {
+                index: i,
+                cosigner_index: self.keys.cosigner_index,
+                keychain: Keychain::External,
+            };
+            match address_manager.calculate_address(&wallet_address) {
+                Ok(address) => addresses.push(address.to_string()),
+                Err(e) => {
+                    return Err(Status::internal(format!(
+                        "Failed to calculate address: {}",
+                        e
+                    )))
+                }
+            }
+        }
+
+        Ok(Response::new(GetAddressesResponse { address: addresses }))
     }
 
     async fn new_address(
@@ -59,14 +95,7 @@ impl Wallet for KasWalletService {
     ) -> Result<Response<NewAddressResponse>, Status> {
         trace!("Received request: {:?}", request.get_ref().to_owned());
 
-        {
-            let sync_manager = self.sync_manager.lock().await;
-            if !sync_manager.is_synced().await {
-                return Err(Status::failed_precondition(
-                    "Wallet is not synced yet. Please wait for the sync to complete.",
-                ));
-            }
-        }
+        self.check_is_synced().await?;
 
         let address_manager = self.address_manager.lock().await;
 

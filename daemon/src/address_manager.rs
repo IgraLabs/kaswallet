@@ -9,6 +9,7 @@ use log::{debug, info};
 use std::collections::HashMap;
 use std::error::Error;
 use std::str::FromStr;
+use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -76,13 +77,11 @@ impl AddressManager {
     pub async fn new_address(
         &self,
     ) -> Result<(String, WalletAddress), Box<dyn Error + Send + Sync>> {
-        let last_used_external_index: u32;
-        {
-            let mut last_used_external_index_mutex =
-                self.keys_file.last_used_external_index.lock().await;
-            *last_used_external_index_mutex += 1;
-            last_used_external_index = *last_used_external_index_mutex;
-        }
+        let last_used_external_index_previous_value = self
+            .keys_file
+            .last_used_external_index
+            .fetch_add(1, Relaxed);
+        let last_used_external_index = last_used_external_index_previous_value + 1;
         self.keys_file.save()?;
 
         let wallet_address = WalletAddress::new(
@@ -190,9 +189,6 @@ impl AddressManager {
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         // create scope to release last_used_internal/external_index before keys_file.save() is called
         {
-            let mut last_used_external_index = self.keys_file.last_used_external_index.lock().await;
-            let mut last_used_internal_index = self.keys_file.last_used_internal_index.lock().await;
-
             for entry in get_balances_by_addresses_response {
                 if entry.balance == Some(0) {
                     continue;
@@ -207,12 +203,18 @@ impl AddressManager {
                     .insert(address_string, wallet_address.clone());
 
                 if wallet_address.keychain == Keychain::External {
-                    if wallet_address.index > *last_used_external_index {
-                        *last_used_external_index = wallet_address.index;
+                    if wallet_address.index > self.keys_file.last_used_external_index.load(Relaxed)
+                    {
+                        self.keys_file
+                            .last_used_external_index
+                            .store(wallet_address.index, Relaxed);
                     }
                 } else {
-                    if wallet_address.index > *last_used_internal_index {
-                        *last_used_internal_index = wallet_address.index;
+                    if wallet_address.index > self.keys_file.last_used_internal_index.load(Relaxed)
+                    {
+                        self.keys_file
+                            .last_used_internal_index
+                            .store(wallet_address.index, Relaxed);
                     }
                 }
             }
@@ -223,7 +225,7 @@ impl AddressManager {
         Ok(())
     }
 
-    fn calculate_address(
+    pub fn calculate_address(
         &self,
         wallet_address: &WalletAddress,
     ) -> Result<Address, Box<dyn Error + Send + Sync>> {
@@ -293,8 +295,8 @@ impl AddressManager {
     }
 
     async fn last_used_index(&self) -> u32 {
-        let last_used_external_index = *self.keys_file.last_used_external_index.lock().await;
-        let last_used_internal_index = *self.keys_file.last_used_internal_index.lock().await;
+        let last_used_external_index = self.keys_file.last_used_external_index.load(Relaxed);
+        let last_used_internal_index = self.keys_file.last_used_internal_index.load(Relaxed);
 
         if last_used_external_index > last_used_internal_index {
             last_used_external_index

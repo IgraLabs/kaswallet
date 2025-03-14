@@ -7,9 +7,8 @@ use std::fs::File;
 use std::io::{Result, Write};
 use std::path::Path;
 use std::str::FromStr;
-use tokio::runtime::Handle;
-use tokio::sync::Mutex;
-use tokio::task::block_in_place;
+use std::sync::atomic::AtomicU32;
+use std::sync::atomic::Ordering::Relaxed;
 
 pub const KEY_FILE_VERSION: i32 = 1;
 
@@ -22,8 +21,8 @@ pub struct Keys {
     public_keys_prefix: Prefix,
     pub public_keys: Vec<ExtendedPublicKey<PublicKey>>,
 
-    pub last_used_external_index: Mutex<u32>,
-    pub last_used_internal_index: Mutex<u32>,
+    pub last_used_external_index: AtomicU32,
+    pub last_used_internal_index: AtomicU32,
 
     pub minimum_signatures: u16,
     pub cosigner_index: u16,
@@ -48,17 +47,12 @@ impl From<&Keys> for KeysJson {
             .map(|x| x.to_string(Some(keys.public_keys_prefix)))
             .collect();
 
-        let last_used_external_index =
-            *block_in_place(|| Handle::current().block_on(keys.last_used_external_index.lock()));
-        let last_used_internal_index =
-            *block_in_place(|| Handle::current().block_on(keys.last_used_internal_index.lock()));
-
         KeysJson {
             version: keys.version,
             encrypted_mnemonics: keys.encrypted_mnemonics.clone(),
             public_keys,
-            last_used_external_index,
-            last_used_internal_index,
+            last_used_external_index: keys.last_used_external_index.load(Relaxed),
+            last_used_internal_index: keys.last_used_internal_index.load(Relaxed),
             minimum_signatures: keys.minimum_signatures,
             cosigner_index: keys.cosigner_index,
         }
@@ -84,8 +78,8 @@ impl KeysJson {
             encrypted_mnemonics: self.encrypted_mnemonics.clone(),
             public_keys_prefix: prefix,
             public_keys,
-            last_used_external_index: Mutex::new(self.last_used_external_index),
-            last_used_internal_index: Mutex::new(self.last_used_internal_index),
+            last_used_external_index: AtomicU32::new(self.last_used_external_index),
+            last_used_internal_index: AtomicU32::new(self.last_used_internal_index),
             minimum_signatures: self.minimum_signatures,
             cosigner_index: self.cosigner_index,
         }
@@ -110,8 +104,8 @@ impl Keys {
             encrypted_mnemonics,
             public_keys_prefix,
             public_keys,
-            last_used_external_index: Mutex::new(last_used_external_index),
-            last_used_internal_index: Mutex::new(last_used_internal_index),
+            last_used_external_index: AtomicU32::new(last_used_external_index),
+            last_used_internal_index: AtomicU32::new(last_used_internal_index),
             minimum_signatures,
             cosigner_index,
         }
