@@ -42,9 +42,12 @@ pub struct GetUtxosRequest {
     /// Returns only UTXOs for requested addresses if provided
     #[prost(string, repeated, tag = "1")]
     pub address: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
-    /// Returns only spendable UTXOs if false
+    /// Does not return pending coinbase UTXOs if false
     #[prost(bool, tag = "2")]
     pub include_pending: bool,
+    /// Does not return UTXOs whose value is less than the fee to spend them
+    #[prost(bool, tag = "3")]
+    pub include_unspendable: bool,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetUtxosResponse {
@@ -65,7 +68,9 @@ pub struct Utxo {
     #[prost(message, optional, tag = "2")]
     pub utxo_entry: ::core::option::Option<UtxoEntry>,
     #[prost(bool, tag = "3")]
-    pub is_spendable: bool,
+    pub is_pending: bool,
+    #[prost(bool, tag = "4")]
+    pub is_unspendable: bool,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Outpoint {
