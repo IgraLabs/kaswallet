@@ -16,7 +16,7 @@ use tokio::sync::Mutex;
 const NUM_INDEXES_TO_QUERY_FOR_FAR_ADDRESSES: u32 = 100;
 const NUM_INDEXES_TO_QUERY_FOR_RECENT_ADDRESSES: u32 = 1000;
 
-type AddressSet = HashMap<String, WalletAddress>;
+pub type AddressSet = HashMap<String, WalletAddress>;
 #[derive(Debug)]
 pub struct AddressManager {
     kaspa_rpc_client: Arc<KaspaRpcClient>,

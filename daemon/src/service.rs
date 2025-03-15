@@ -1,8 +1,9 @@
-﻿use crate::address_manager::AddressManager;
+﻿use crate::address_manager::{AddressManager, AddressSet};
 use crate::args::Args;
 use crate::model::{Keychain, WalletAddress, WalletUtxo};
 use crate::sync_manager::SyncManager;
 use common::keys::Keys;
+use kaspa_addresses::Address;
 use kaspa_wallet_core::utxo::NetworkParams;
 use kaspa_wrpc_client::prelude::RpcApi;
 use kaspa_wrpc_client::KaspaRpcClient;
@@ -14,11 +15,11 @@ use tokio::sync::Mutex;
 use tonic::{Request, Response, Status};
 use wallet_proto::wallet_proto::wallet_server::Wallet;
 use wallet_proto::wallet_proto::{
-    AddressBalances, BroadcastRequest, BroadcastResponse, CreateUnsignedTransactionsRequest,
-    CreateUnsignedTransactionsResponse, GetAddressesRequest, GetAddressesResponse,
-    GetBalanceRequest, GetBalanceResponse, GetUtxosRequest, GetUtxosResponse, GetVersionRequest,
-    GetVersionResponse, NewAddressRequest, NewAddressResponse, SendRequest, SendResponse,
-    SignRequest, SignResponse,
+    AddressBalances, AddressToUtxos, BroadcastRequest, BroadcastResponse,
+    CreateUnsignedTransactionsRequest, CreateUnsignedTransactionsResponse, GetAddressesRequest,
+    GetAddressesResponse, GetBalanceRequest, GetBalanceResponse, GetUtxosRequest, GetUtxosResponse,
+    GetVersionRequest, GetVersionResponse, NewAddressRequest, NewAddressResponse, SendRequest,
+    SendResponse, SignRequest, SignResponse, Utxo as ProtoUtxo,
 };
 
 #[derive(Debug)]
@@ -29,6 +30,55 @@ pub struct KasWalletService {
     address_manager: Arc<Mutex<AddressManager>>,
     sync_manager: Arc<Mutex<SyncManager>>,
     coinbase_maturity: u64, // Is different in testnet
+}
+
+impl KasWalletService {
+    async fn filter_utxos_and_bucket_by_address(
+        &self,
+        utxos: &Vec<WalletUtxo>,
+        fee_rate: f64,
+        virtual_daa_score: u64,
+        include_pending: bool,
+        include_unspendable: bool,
+    ) -> HashMap<String, Vec<ProtoUtxo>> {
+        let mut filtered_bucketed_utxos = HashMap::new();
+        let address_manager = self.address_manager.lock().await;
+        for utxo in utxos {
+            let is_pending = self.is_utxo_pending(utxo, virtual_daa_score);
+            if !include_pending && is_pending {
+                continue;
+            }
+            let is_unspendable = self.is_utxo_unspendable(utxo, fee_rate);
+            if !include_unspendable && is_unspendable {
+                continue;
+            }
+
+            // TODO: Don't calculate address every time
+            let address = address_manager
+                .calculate_address(&utxo.address)
+                .unwrap()
+                .address_to_string();
+            let entry = filtered_bucketed_utxos
+                .entry(address)
+                .or_insert_with(Vec::new);
+            entry.push(utxo.to_owned().into_proto(is_pending, is_unspendable));
+        }
+
+        filtered_bucketed_utxos
+    }
+
+    async fn get_virtual_daa_score(&self) -> Result<u64, Status> {
+        let block_dag_info = match self.kaspa_rpc_client.get_block_dag_info().await {
+            Ok(block_dag_info) => block_dag_info,
+            Err(e) => {
+                error!("Failed to get block DAG info: {}", e);
+                return Err(Status::internal("Internal server error"));
+            }
+        };
+        let virtual_daa_score = block_dag_info.virtual_daa_score;
+
+        Ok(virtual_daa_score)
+    }
 }
 
 impl KasWalletService {
@@ -66,15 +116,20 @@ impl KasWalletService {
         Ok(())
     }
 
-    fn is_utxo_spendable(&self, utxo: WalletUtxo, virtual_daa_score: u64) -> bool {
+    fn is_utxo_unspendable(&self, utxo: &WalletUtxo, fee_rate: f64) -> bool {
+        todo!()
+    }
+
+    fn is_utxo_pending(&self, utxo: &WalletUtxo, virtual_daa_score: u64) -> bool {
         if !utxo.utxo_entry.is_coinbase {
-            return true;
+            return false;
         }
 
-        utxo.utxo_entry.block_daa_score + self.coinbase_maturity <= virtual_daa_score
+        utxo.utxo_entry.block_daa_score + self.coinbase_maturity > virtual_daa_score
     }
 }
 
+#[derive(Clone)]
 struct BalancesEntry {
     pub available: u64,
     pub pending: u64,
@@ -106,7 +161,7 @@ impl Wallet for KasWalletService {
         &self,
         request: Request<GetAddressesRequest>,
     ) -> Result<Response<GetAddressesResponse>, Status> {
-        trace!("Received request: {:?}", request.get_ref().to_owned());
+        trace!("Received request: {:?}", request.get_ref());
 
         self.check_is_synced().await?;
 
@@ -136,7 +191,7 @@ impl Wallet for KasWalletService {
         &self,
         request: Request<NewAddressRequest>,
     ) -> Result<Response<NewAddressResponse>, Status> {
-        trace!("Received request: {:?}", request.get_ref().to_owned());
+        trace!("Received request: {:?}", request.get_ref());
 
         self.check_is_synced().await?;
 
@@ -158,19 +213,11 @@ impl Wallet for KasWalletService {
         &self,
         request: Request<GetBalanceRequest>,
     ) -> Result<Response<GetBalanceResponse>, Status> {
-        trace!("Received request: {:?}", request.get_ref().to_owned());
+        trace!("Received request: {:?}", request.get_ref());
 
         self.check_is_synced().await?;
 
-        let block_dag_info = match self.kaspa_rpc_client.get_block_dag_info().await {
-            Ok(block_dag_info) => block_dag_info,
-            Err(e) => {
-                error!("Failed to get block DAG info: {}", e);
-                return Err(Status::internal("Internal server error"));
-            }
-        };
-
-        let virtual_daa_score = block_dag_info.virtual_daa_score;
+        let virtual_daa_score = self.get_virtual_daa_score().await?;
         let mut balances_map = HashMap::new();
 
         let utxos_sorted_by_amount: Vec<WalletUtxo>;
@@ -186,17 +233,18 @@ impl Wallet for KasWalletService {
             let balances = balances_map
                 .entry(address.clone())
                 .or_insert_with(BalancesEntry::new);
-            if self.is_utxo_spendable(entry, virtual_daa_score) {
-                balances.add_available(amount);
-            } else {
+            if self.is_utxo_pending(&entry, virtual_daa_score) {
                 balances.add_pending(amount);
+            } else {
+                balances.add_available(amount);
             }
         }
         let mut address_balances = vec![];
         let mut total_balances = BalancesEntry::new();
 
         let address_manager = self.address_manager.lock().await;
-        for (wallet_address, balances) in balances_map {
+        let is_verbose = request.get_ref().is_verbose;
+        for (wallet_address, balances) in balances_map.clone() {
             let address = match address_manager.calculate_address(&wallet_address) {
                 Ok(address) => address,
                 Err(e) => {
@@ -204,18 +252,20 @@ impl Wallet for KasWalletService {
                     return Err(Status::internal("Internal server error"));
                 }
             };
-            address_balances.push(AddressBalances {
-                address: address.to_string(),
-                available: balances.available,
-                pending: balances.pending,
-            });
+            if is_verbose {
+                address_balances.push(AddressBalances {
+                    address: address.to_string(),
+                    available: balances.available,
+                    pending: balances.pending,
+                });
+            }
             total_balances.add(balances);
         }
 
         info!(
-            "GetBalance request scanned {} UTXOs overll over {} addresses",
+            "GetBalance request scanned {} UTXOs overall over {} addresses",
             utxos_count,
-            address_balances.len()
+            balances_map.len()
         );
 
         Ok(Response::new(GetBalanceResponse {
@@ -229,20 +279,85 @@ impl Wallet for KasWalletService {
         &self,
         request: Request<GetUtxosRequest>,
     ) -> Result<Response<GetUtxosResponse>, Status> {
-        trace!("Received request: {:?}", request.get_ref().to_owned());
-        todo!()
+        trace!("Received request: {:?}", request.get_ref());
+
+        let request = request.get_ref();
+        let mut addresses = request.addresses.clone();
+        for address in &addresses {
+            if let Err(e) = Address::try_from(address.as_str()) {
+                return Err(Status::invalid_argument(format!(
+                    "Address {} is invalid: {}",
+                    address, e
+                )));
+            }
+        }
+
+        let address_set: AddressSet;
+        {
+            let address_manager = self.address_manager.lock().await;
+            address_set = address_manager.address_set().await;
+        }
+        if addresses.len() == 0 {
+            addresses = address_set.keys().cloned().collect();
+        } else {
+            for address in &addresses {
+                if !address_set.contains_key(address) {
+                    return Err(Status::invalid_argument(format!(
+                        "Address {} not found in wallet",
+                        address
+                    )));
+                }
+            }
+        }
+
+        let fee_estimate = match self.kaspa_rpc_client.get_fee_estimate().await {
+            Ok(fee_estimate) => fee_estimate,
+            Err(e) => {
+                error!("Failed to get fee estimate from RPC: {}", e);
+                return Err(Status::internal("Internal server error"));
+            }
+        };
+
+        let fee_rate = fee_estimate.normal_buckets[0].feerate;
+
+        let virtual_daa_score = self.get_virtual_daa_score().await?;
+
+        let utxos: Vec<WalletUtxo>;
+        {
+            let sync_manager = self.sync_manager.lock().await;
+            utxos = sync_manager.get_utxos_sorted_by_amount().await;
+        }
+
+        let filtered_bucketed_utxos = self
+            .filter_utxos_and_bucket_by_address(
+                &utxos,
+                fee_rate,
+                virtual_daa_score,
+                request.include_pending,
+                request.include_unspendable,
+            )
+            .await;
+
+        let addresses_to_utxos = filtered_bucketed_utxos
+            .iter()
+            .map(|(address_string, utxos)| AddressToUtxos {
+                address: address_string.to_string(),
+                utxos: utxos.clone(),
+            })
+            .collect();
+        Ok(Response::new(GetUtxosResponse { addresses_to_utxos }))
     }
 
     async fn create_unsigned_transactions(
         &self,
         request: Request<CreateUnsignedTransactionsRequest>,
     ) -> Result<Response<CreateUnsignedTransactionsResponse>, Status> {
-        trace!("Received request: {:?}", request.get_ref().to_owned());
+        trace!("Received request: {:?}", request.get_ref());
         todo!()
     }
 
     async fn sign(&self, request: Request<SignRequest>) -> Result<Response<SignResponse>, Status> {
-        trace!("Received request: {:?}", request.get_ref().to_owned());
+        trace!("Received request: {:?}", request.get_ref());
         todo!()
     }
 
@@ -250,12 +365,12 @@ impl Wallet for KasWalletService {
         &self,
         request: Request<BroadcastRequest>,
     ) -> Result<Response<BroadcastResponse>, Status> {
-        trace!("Received request: {:?}", request.get_ref().to_owned());
+        trace!("Received request: {:?}", request.get_ref());
         todo!()
     }
 
     async fn send(&self, request: Request<SendRequest>) -> Result<Response<SendResponse>, Status> {
-        trace!("Received request: {:?}", request.get_ref().to_owned());
+        trace!("Received request: {:?}", request.get_ref());
         todo!()
     }
 
@@ -263,7 +378,7 @@ impl Wallet for KasWalletService {
         &self,
         request: Request<GetVersionRequest>,
     ) -> Result<Response<GetVersionResponse>, Status> {
-        trace!("Received request: {:?}", request.get_ref().to_owned());
+        trace!("Received request: {:?}", request.get_ref());
 
         Ok(Response::new(GetVersionResponse {
             version: env!("CARGO_PKG_VERSION").to_string(),

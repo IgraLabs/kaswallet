@@ -39,9 +39,9 @@ message AddressBalances {
 }
 
 message GetUtxosRequest {
-    repeated string address = 1; // Returns only UTXOs for requested addresses if provided
-    bool include_pending = 2;     // Does not return pending coinbase UTXOs if false
-    bool include_unspendable = 3; // Does not return UTXOs whose value is less than the fee to spend them
+    repeated string addresses = 1; // Returns only UTXOs for requested addresses if provided
+    bool include_pending = 2;      // Does not return pending coinbase UTXOs if false
+    bool include_unspendable = 3;  // Does not return UTXOs whose value is less than the fee to spend them
 }
 message GetUtxosResponse {
     repeated AddressToUtxos addresses_to_utxos = 1;

@@ -1,6 +1,10 @@
 ﻿use kaspa_consensus_core::tx::ScriptPublicKey;
 use kaspa_hashes::Hash;
 use kaspa_wrpc_client::prelude::{RpcTransactionOutpoint, RpcUtxoEntry};
+use wallet_proto::wallet_proto::{
+    Outpoint as ProtoOutpoint, ScriptPublicKey as ProtoScriptPublicKey, Utxo as ProtoUtxo,
+    UtxoEntry as ProtoUtxoEntry,
+};
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum Keychain {
@@ -42,12 +46,35 @@ impl From<RpcTransactionOutpoint> for WalletOutpoint {
     }
 }
 
+impl Into<ProtoOutpoint> for WalletOutpoint {
+    fn into(self) -> ProtoOutpoint {
+        ProtoOutpoint {
+            transaction_id: self.transaction_id.to_string(),
+            index: self.index,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct WalletUtxoEntry {
     pub amount: u64,
     pub script_public_key: ScriptPublicKey,
     pub block_daa_score: u64,
     pub is_coinbase: bool,
+}
+
+impl Into<ProtoUtxoEntry> for WalletUtxoEntry {
+    fn into(self) -> ProtoUtxoEntry {
+        ProtoUtxoEntry {
+            amount: self.amount,
+            script_public_key: Some(ProtoScriptPublicKey {
+                version: self.script_public_key.version as u32,
+                script_public_key: hex::encode(self.script_public_key.script()),
+            }),
+            block_daa_score: self.block_daa_score,
+            is_coinbase: self.is_coinbase,
+        }
+    }
 }
 
 impl From<RpcUtxoEntry> for WalletUtxoEntry {
@@ -66,6 +93,17 @@ pub struct WalletUtxo {
     pub outpoint: WalletOutpoint,
     pub utxo_entry: WalletUtxoEntry,
     pub address: WalletAddress,
+}
+
+impl WalletUtxo {
+    pub(crate) fn into_proto(self, is_pending: bool, is_unspendable: bool) -> ProtoUtxo {
+        ProtoUtxo {
+            outpoint: Some(self.outpoint.into()),
+            utxo_entry: Some(self.utxo_entry.into()),
+            is_pending,
+            is_unspendable,
+        }
+    }
 }
 
 impl WalletUtxo {
