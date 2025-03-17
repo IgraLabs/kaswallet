@@ -1,13 +1,17 @@
 ﻿use crate::address_manager::AddressManager;
-use crate::model::{WalletOutpoint, WalletUtxo, WalletUtxoEntry};
+use crate::model::{UserInputError, WalletOutpoint, WalletUtxo, WalletUtxoEntry};
 use chrono::{DateTime, Duration, Utc};
 use kaspa_addresses::Address;
+use kaspa_consensus_core::constants::SOMPI_PER_KASPA;
+use kaspa_consensus_core::tx::Transaction;
 use kaspa_wrpc_client::prelude::{
-    RpcAddress, RpcApi, RpcMempoolEntryByAddress, RpcUtxosByAddressesEntry,
+    RpcAddress, RpcApi, RpcFeeEstimate, RpcMempoolEntryByAddress, RpcUtxosByAddressesEntry,
 };
 use kaspa_wrpc_client::KaspaRpcClient;
-use log::{debug, info};
+use log::{debug, error, info};
+use std::cmp::min;
 use std::collections::{HashMap, HashSet};
+use std::convert::Infallible;
 use std::error::Error;
 use std::ops::Add;
 use std::sync::atomic::AtomicBool;
@@ -16,8 +20,20 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
 use tokio::task::JoinHandle;
 use tokio::time::interval;
+use wallet_proto::wallet_proto::{fee_policy, FeePolicy, Outpoint};
 
 const SYNC_INTERVAL: u64 = 10; // seconds
+
+// The minimal change amount to target in order to avoid large storage mass (see KIP9 for more details).
+// By having at least 10KAS in the change output we make sure that the storage mass charged for change is
+// at most 1000 gram. Generally, if the payment is above 10KAS as well, the resulting storage mass will be
+// in the order of magnitude of compute mass and wil not incur additional charges.
+// Additionally, every transaction with send value > ~0.1 KAS should succeed (at most ~99K storage mass for payment
+// output, thus overall lower than standard mass upper bound which is 100K gram)
+const MIN_CHANGE_TARGET: u64 = SOMPI_PER_KASPA * 10;
+
+// The current minimal fee rate according to mempool standards
+const MIN_FEE_RATE: f64 = 1.0;
 
 #[derive(Debug)]
 pub struct SyncManager {
@@ -64,6 +80,43 @@ impl SyncManager {
                 panic!("Error in sync loop: {}", e);
             }
         })
+    }
+    pub async fn create_unsigned_transactions(
+        &self,
+        to_address: String,
+        amount: u64,
+        is_send_all: bool,
+        payload: Vec<u8>,
+        from_addresses: Vec<String>,
+        utxos: Vec<Outpoint>,
+        use_existing_change_address: bool,
+        fee_policy: Option<FeePolicy>,
+    ) -> Result<Vec<Transaction>, Box<dyn Error>> {
+        let validate_address = |address_string, name| -> Result<Address, Box<dyn Error>> {
+            match Address::try_from(address_string) {
+                Ok(address) => Ok(address),
+                Err(e) => Err(Box::new(UserInputError::new(format!(
+                    "Invalid {} address: {}",
+                    name, e
+                )))),
+            }
+        };
+
+        let to_address = validate_address(to_address, "to")?;
+        let from_address = match from_addresses.len() {
+            0 => None,
+            _ => {
+                let mut addresses = vec![];
+                for address_string in from_addresses {
+                    addresses.push(validate_address(address_string, "from")?);
+                }
+                Some(addresses)
+            }
+        };
+
+        let (fee_rate, max_fee) = self.calculate_fee_limits(fee_policy).await?;
+
+        Ok(vec![]) // TODO
     }
 
     pub async fn get_utxos_sorted_by_amount(&self) -> Vec<WalletUtxo> {
@@ -210,5 +263,54 @@ impl SyncManager {
         // completed, in order to make sure that indeed this state reflects a state obtained following the required wait time.
         return (self.start_time_of_last_completed_refresh.lock().await)
             .gt(&outpoint_broadcast_time.add(Duration::minutes(1)));
+    }
+
+    // returns:
+    // 1. fee_rate
+    // 2. max_fee
+    async fn calculate_fee_limits(
+        &self,
+        fee_policy: Option<FeePolicy>,
+    ) -> Result<(f64, u64), Box<dyn Error>> {
+        match fee_policy {
+            Some(fee_policy) => match fee_policy.fee_policy {
+                Some(fee_policy::FeePolicy::MaxFeeRate(requested_max_fee_rate)) => {
+                    if requested_max_fee_rate < MIN_FEE_RATE {
+                        return Err(Box::new(UserInputError::new(format!(
+                            "requested max fee rate {} is too low, minimum fee rate is {}",
+                            requested_max_fee_rate, MIN_FEE_RATE
+                        ))));
+                    }
+
+                    let fee_estimate = self.kaspa_rpc_client.get_fee_estimate().await?;
+                    let fee_rate = f64::min(
+                        fee_estimate.normal_buckets[0].feerate,
+                        requested_max_fee_rate,
+                    );
+                    Ok((fee_rate, u64::MAX))
+                }
+                Some(fee_policy::FeePolicy::ExactFeeRate(requested_exact_fee_rate)) => {
+                    if requested_exact_fee_rate < MIN_FEE_RATE {
+                        return Err(Box::new(UserInputError::new(format!(
+                            "requested max fee rate {} is too low, minimum fee rate is {}",
+                            requested_exact_fee_rate, MIN_FEE_RATE
+                        ))));
+                    }
+
+                    Ok((requested_exact_fee_rate, u64::MAX))
+                }
+                Some(fee_policy::FeePolicy::MaxFee(requested_max_fee)) => {
+                    let fee_estimate = self.kaspa_rpc_client.get_fee_estimate().await?;
+                    Ok((fee_estimate.normal_buckets[0].feerate, requested_max_fee))
+                }
+                None => self.default_fee_rate().await,
+            },
+            None => self.default_fee_rate().await,
+        }
+    }
+
+    async fn default_fee_rate(&self) -> Result<(f64, u64), Box<dyn Error>> {
+        let fee_estimate = self.kaspa_rpc_client.get_fee_estimate().await?;
+        Ok((fee_estimate.normal_buckets[0].feerate, SOMPI_PER_KASPA)) // Default to a bound of max 1 KAS as fee
     }
 }

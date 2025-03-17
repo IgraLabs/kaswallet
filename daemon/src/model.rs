@@ -1,6 +1,8 @@
 ﻿use kaspa_consensus_core::tx::ScriptPublicKey;
 use kaspa_hashes::Hash;
 use kaspa_wrpc_client::prelude::{RpcTransactionOutpoint, RpcUtxoEntry};
+use std::fmt;
+use std::fmt::{Display, Formatter};
 use wallet_proto::wallet_proto::{
     Outpoint as ProtoOutpoint, ScriptPublicKey as ProtoScriptPublicKey, Utxo as ProtoUtxo,
     UtxoEntry as ProtoUtxoEntry,
@@ -119,3 +121,22 @@ impl WalletUtxo {
         }
     }
 }
+
+#[derive(Debug)]
+pub struct UserInputError {
+    message: String,
+}
+
+impl UserInputError {
+    pub fn new(message: String) -> Self {
+        UserInputError { message }
+    }
+}
+
+impl Display for UserInputError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
+impl std::error::Error for UserInputError {}

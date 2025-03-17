@@ -77,13 +77,20 @@ message CreateUnsignedTransactionsRequest {
 }
 message TransactionDescription {
     string to_address = 1;
-    uint64 amount = 2;           // mutually exclusive with `isSendAll`
-    bool is_send_all = 3;          // mutually exclusive with `amount`
-    repeated string from = 4;    // spends only utxos from given addresses.
-    repeated Outpoint utxos = 5; // spends only given utxos. Mutually exclusive with `from`
-    double fee_rate = 6;          // minimum = 1.0
-    bytes payload = 7;
-    bool use_existing_change_address = 8;   // Don't generate a new change adress if true
+    uint64 amount = 2;                      // mutually exclusive with `isSendAll`
+    bool is_send_all = 3;                   // mutually exclusive with `amount`
+    bytes payload = 4;
+    repeated string from_addresses = 5;     // spends only utxos from given addresses.
+    repeated Outpoint utxos = 6;            // spends only given utxos. Mutually exclusive with `from_addressess`
+    bool use_existing_change_address = 7;   // Don't generate a new change adress if true
+    FeePolicy fee_rate = 8;                 // minimum = 1.0
+}
+message FeePolicy {
+    oneof feePolicy {
+        double max_fee_rate = 1;
+        double exact_fee_rate = 2;
+        uint64 max_fee = 3;
+    }
 }
 message CreateUnsignedTransactionsResponse {
     repeated bytes unsigned_transactions = 1;

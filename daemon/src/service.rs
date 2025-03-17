@@ -353,7 +353,33 @@ impl Wallet for KasWalletService {
         request: Request<CreateUnsignedTransactionsRequest>,
     ) -> Result<Response<CreateUnsignedTransactionsResponse>, Status> {
         trace!("Received request: {:?}", request.get_ref());
-        todo!()
+
+        self.check_is_synced().await?;
+
+        let transaction_description = match request.into_inner().transaction_description {
+            Some(description) => description,
+            None => {
+                return Err(Status::invalid_argument(
+                    "Transaction description is required",
+                ))
+            }
+        };
+        let sync_manager = self.sync_manager.lock().await;
+
+        let unsigned_transaction = sync_manager.create_unsigned_transactions(
+            transaction_description.to_address,
+            transaction_description.amount,
+            transaction_description.is_send_all,
+            transaction_description.payload,
+            transaction_description.from_addresses,
+            transaction_description.utxos,
+            transaction_description.use_existing_change_address,
+            transaction_description.fee_policy,
+        );
+
+        Ok(Response::new(CreateUnsignedTransactionsResponse {
+            unsigned_transactions: vec![], // TODO
+        }))
     }
 
     async fn sign(&self, request: Request<SignRequest>) -> Result<Response<SignResponse>, Status> {

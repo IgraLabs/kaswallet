@@ -112,20 +112,37 @@ pub struct TransactionDescription {
     /// mutually exclusive with `amount`
     #[prost(bool, tag = "3")]
     pub is_send_all: bool,
-    /// spends only utxos from given addresses.
-    #[prost(string, repeated, tag = "4")]
-    pub from: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
-    /// spends only given utxos. Mutually exclusive with `from`
-    #[prost(message, repeated, tag = "5")]
-    pub utxos: ::prost::alloc::vec::Vec<Outpoint>,
-    /// minimum = 1.0
-    #[prost(double, tag = "6")]
-    pub fee_rate: f64,
-    #[prost(bytes = "vec", tag = "7")]
+    #[prost(bytes = "vec", tag = "4")]
     pub payload: ::prost::alloc::vec::Vec<u8>,
+    /// spends only utxos from given addresses.
+    #[prost(string, repeated, tag = "5")]
+    pub from_addresses: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    /// spends only given utxos. Mutually exclusive with `from_addressess`
+    #[prost(message, repeated, tag = "6")]
+    pub utxos: ::prost::alloc::vec::Vec<Outpoint>,
     /// Don't generate a new change adress if true
-    #[prost(bool, tag = "8")]
+    #[prost(bool, tag = "7")]
     pub use_existing_change_address: bool,
+    /// minimum = 1.0
+    #[prost(message, optional, tag = "8")]
+    pub fee_policy: ::core::option::Option<FeePolicy>,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct FeePolicy {
+    #[prost(oneof = "fee_policy::FeePolicy", tags = "1, 2, 3")]
+    pub fee_policy: ::core::option::Option<fee_policy::FeePolicy>,
+}
+/// Nested message and enum types in `FeePolicy`.
+pub mod fee_policy {
+    #[derive(Clone, Copy, PartialEq, ::prost::Oneof)]
+    pub enum FeePolicy {
+        #[prost(double, tag = "1")]
+        MaxFeeRate(f64),
+        #[prost(double, tag = "2")]
+        ExactFeeRate(f64),
+        #[prost(uint64, tag = "3")]
+        MaxFee(u64),
+    }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CreateUnsignedTransactionsResponse {
