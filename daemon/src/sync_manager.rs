@@ -1,5 +1,5 @@
 ﻿use crate::address_manager::AddressManager;
-use crate::model::{UserInputError, WalletOutpoint, WalletUtxo, WalletUtxoEntry};
+use crate::model::{UserInputError, WalletAddress, WalletOutpoint, WalletUtxo, WalletUtxoEntry};
 use chrono::{DateTime, Duration, Utc};
 use kaspa_addresses::Address;
 use kaspa_consensus_core::constants::SOMPI_PER_KASPA;
@@ -91,30 +91,50 @@ impl SyncManager {
         utxos: Vec<Outpoint>,
         use_existing_change_address: bool,
         fee_policy: Option<FeePolicy>,
-    ) -> Result<Vec<Transaction>, Box<dyn Error>> {
-        let validate_address = |address_string, name| -> Result<Address, Box<dyn Error>> {
-            match Address::try_from(address_string) {
-                Ok(address) => Ok(address),
-                Err(e) => Err(Box::new(UserInputError::new(format!(
-                    "Invalid {} address: {}",
-                    name, e
-                )))),
-            }
-        };
+    ) -> Result<Vec<Transaction>, Box<dyn Error + Send + Sync>> {
+        let validate_address =
+            |address_string, name| -> Result<Address, Box<dyn Error + Send + Sync>> {
+                match Address::try_from(address_string) {
+                    Ok(address) => Ok(address),
+                    Err(e) => Err(Box::new(UserInputError::new(format!(
+                        "Invalid {} address: {}",
+                        name, e
+                    )))),
+                }
+            };
 
         let to_address = validate_address(to_address, "to")?;
-        let from_address = match from_addresses.len() {
+        let address_set: HashMap<String, WalletAddress>;
+        {
+            let address_manager = self.address_manager.lock().await;
+            address_set = address_manager.address_set().await;
+        }
+        let from_addresses = match from_addresses.len() {
             0 => None,
             _ => {
                 let mut addresses = vec![];
                 for address_string in from_addresses {
-                    addresses.push(validate_address(address_string, "from")?);
+                    let wallet_address = address_set.get(&address_string).ok_or_else(|| {
+                        UserInputError::new(format!(
+                            "From address is not in address set: {}",
+                            address_string
+                        ))
+                    })?;
+                    addresses.push(wallet_address);
                 }
                 Some(addresses)
             }
         };
 
         let (fee_rate, max_fee) = self.calculate_fee_limits(fee_policy).await?;
+
+        let mut change_address: Address;
+        let mut change_wallet_address: WalletAddress;
+        {
+            let address_manager = self.address_manager.lock().await;
+            (change_address, change_wallet_address) = // TODO: check if I really need both.
+                address_manager.change_address(use_existing_change_address, &from_addresses)?;
+        }
 
         Ok(vec![]) // TODO
     }
@@ -271,7 +291,7 @@ impl SyncManager {
     async fn calculate_fee_limits(
         &self,
         fee_policy: Option<FeePolicy>,
-    ) -> Result<(f64, u64), Box<dyn Error>> {
+    ) -> Result<(f64, u64), Box<dyn Error + Send + Sync>> {
         match fee_policy {
             Some(fee_policy) => match fee_policy.fee_policy {
                 Some(fee_policy::FeePolicy::MaxFeeRate(requested_max_fee_rate)) => {
@@ -309,7 +329,7 @@ impl SyncManager {
         }
     }
 
-    async fn default_fee_rate(&self) -> Result<(f64, u64), Box<dyn Error>> {
+    async fn default_fee_rate(&self) -> Result<(f64, u64), Box<dyn Error + Send + Sync>> {
         let fee_estimate = self.kaspa_rpc_client.get_fee_estimate().await?;
         Ok((fee_estimate.normal_buckets[0].feerate, SOMPI_PER_KASPA)) // Default to a bound of max 1 KAS as fee
     }

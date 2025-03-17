@@ -341,4 +341,34 @@ impl AddressManager {
             );
         }
     }
+
+    pub fn change_address(
+        &self,
+        use_existing_change_address: bool,
+        from_addresses: &Option<Vec<&WalletAddress>>,
+    ) -> Result<(Address, WalletAddress), Box<dyn Error + Send + Sync>> {
+        let wallet_address = if let Some(from_addresses) = from_addresses {
+            from_addresses[0].clone()
+        } else {
+            let internal_index = if use_existing_change_address {
+                0
+            } else {
+                self.keys_file
+                    .last_used_internal_index
+                    .fetch_add(1, Relaxed)
+                    + 1
+            };
+            self.keys_file.save()?;
+
+            WalletAddress::new(
+                internal_index,
+                self.keys_file.cosigner_index,
+                Keychain::Internal,
+            )
+        };
+
+        let address = self.calculate_address(&wallet_address)?;
+
+        Ok((address, wallet_address))
+    }
 }
