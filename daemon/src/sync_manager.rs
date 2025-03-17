@@ -1,5 +1,7 @@
 ﻿use crate::address_manager::AddressManager;
-use crate::model::{UserInputError, WalletAddress, WalletOutpoint, WalletUtxo, WalletUtxoEntry};
+use crate::model::{
+    UserInputError, WalletAddress, WalletOutpoint, WalletPayment, WalletUtxo, WalletUtxoEntry,
+};
 use chrono::{DateTime, Duration, Utc};
 use kaspa_addresses::Address;
 use kaspa_consensus_core::constants::SOMPI_PER_KASPA;
@@ -136,7 +138,60 @@ impl SyncManager {
                 address_manager.change_address(use_existing_change_address, &from_addresses)?;
         }
 
-        Ok(vec![]) // TODO
+        let (selected_utxos, spend_value, change_sompi) = self
+            .select_utxos(amount, is_send_all, fee_rate, max_fee, from_addresses)
+            .await?;
+
+        let mut payments = vec![WalletPayment::new(to_address.clone(), amount)];
+        if change_sompi > 0 {
+            payments.push(WalletPayment::new(change_address.clone(), change_sompi));
+        }
+        let unsigned_transaction = self
+            .generate_unsigned_transactions(payments, selected_utxos)
+            .await?;
+
+        let unsigned_transactions = self
+            .maybe_auto_compound_transaction(
+                unsigned_transaction,
+                to_address,
+                change_address,
+                change_wallet_address,
+                fee_rate,
+                max_fee,
+            )
+            .await?;
+
+        Ok(unsigned_transactions)
+    }
+
+    async fn maybe_auto_compound_transaction(
+        &self,
+        unsigned_transaction: Transaction,
+        to_address: Address,
+        change_address: Address,
+        change_wallet_address: WalletAddress,
+        fee_rate: f64,
+        max_fee: u64,
+    ) -> Result<Vec<Transaction>, Box<dyn Error + Send + Sync>> {
+        todo!()
+    }
+
+    async fn generate_unsigned_transactions(
+        &self,
+        payments: Vec<WalletPayment>,
+        selected_utxos: Vec<WalletUtxo>,
+    ) -> Result<Transaction, Box<dyn Error + Send + Sync>> {
+        todo!()
+    }
+    async fn select_utxos(
+        &self,
+        amount: u64,
+        is_send_all: bool,
+        fee_rate: f64,
+        max_fee: u64,
+        from_addresses: Option<Vec<&WalletAddress>>,
+    ) -> Result<(Vec<WalletUtxo>, u64, u64), Box<dyn Error + Send + Sync>> {
+        todo!()
     }
 
     pub async fn get_utxos_sorted_by_amount(&self) -> Vec<WalletUtxo> {

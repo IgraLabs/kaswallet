@@ -1,4 +1,5 @@
-﻿use kaspa_consensus_core::tx::ScriptPublicKey;
+﻿use kaspa_addresses::Address;
+use kaspa_consensus_core::tx::ScriptPublicKey;
 use kaspa_hashes::Hash;
 use kaspa_wrpc_client::prelude::{RpcTransactionOutpoint, RpcUtxoEntry};
 use std::fmt;
@@ -122,9 +123,19 @@ impl WalletUtxo {
     }
 }
 
+pub struct WalletPayment {
+    address: Address,
+    amount: u64,
+}
+impl WalletPayment {
+    pub fn new(address: Address, amount: u64) -> Self {
+        Self { address, amount }
+    }
+}
+
 #[derive(Debug)]
 pub struct UserInputError {
-    message: String,
+    pub message: String,
 }
 
 impl UserInputError {

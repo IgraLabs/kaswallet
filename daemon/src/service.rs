@@ -1,14 +1,18 @@
 ﻿use crate::address_manager::{AddressManager, AddressSet};
 use crate::args::Args;
-use crate::model::{Keychain, WalletAddress, WalletUtxo};
+use crate::model::{Keychain, UserInputError, WalletAddress, WalletUtxo};
 use crate::sync_manager::SyncManager;
 use common::keys::Keys;
 use kaspa_addresses::Address;
+use kaspa_consensus_core::tx::Transaction;
+use kaspa_p2p_lib::pb::TransactionMessage;
 use kaspa_wallet_core::utxo::NetworkParams;
 use kaspa_wrpc_client::prelude::RpcApi;
 use kaspa_wrpc_client::KaspaRpcClient;
 use log::{error, info, trace};
+use prost::Message;
 use std::collections::HashMap;
+use std::error::Error;
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -353,10 +357,8 @@ impl Wallet for KasWalletService {
         request: Request<CreateUnsignedTransactionsRequest>,
     ) -> Result<Response<CreateUnsignedTransactionsResponse>, Status> {
         trace!("Received request: {:?}", request.get_ref());
-
-        self.check_is_synced().await?;
-
-        let transaction_description = match request.into_inner().transaction_description {
+        let request = request.into_inner();
+        let transaction_description = match request.transaction_description {
             Some(description) => description,
             None => {
                 return Err(Status::invalid_argument(
@@ -364,21 +366,48 @@ impl Wallet for KasWalletService {
                 ))
             }
         };
+
+        // TODO: implement manual utxo selection
+        if !transaction_description.utxos.is_empty() {
+            return Err(Status::invalid_argument("UTXOs are not supported yet"));
+        }
+
+        self.check_is_synced().await?;
+
         let sync_manager = self.sync_manager.lock().await;
 
-        let unsigned_transaction = sync_manager.create_unsigned_transactions(
-            transaction_description.to_address,
-            transaction_description.amount,
-            transaction_description.is_send_all,
-            transaction_description.payload,
-            transaction_description.from_addresses,
-            transaction_description.utxos,
-            transaction_description.use_existing_change_address,
-            transaction_description.fee_policy,
-        );
+        let unsigned_transactions_result = sync_manager
+            .create_unsigned_transactions(
+                transaction_description.to_address,
+                transaction_description.amount,
+                transaction_description.is_send_all,
+                transaction_description.payload,
+                transaction_description.from_addresses,
+                transaction_description.utxos,
+                transaction_description.use_existing_change_address,
+                transaction_description.fee_policy,
+            )
+            .await;
+        let unsigned_transactions = match unsigned_transactions_result {
+            Ok(unsigned_transactions) => unsigned_transactions,
+            Err(e) => {
+                return match e.downcast::<UserInputError>() {
+                    Ok(e) => Err(Status::invalid_argument(e.message)),
+                    Err(_) => Err(Status::internal("Internal server error")),
+                }
+            }
+        };
+
+        let encoded_unsigned_transactions = unsigned_transactions
+            .iter()
+            .map(|unsigned_transaction| {
+                let transaction_message = TransactionMessage::from(unsigned_transaction);
+                transaction_message.encode_to_vec()
+            })
+            .collect();
 
         Ok(Response::new(CreateUnsignedTransactionsResponse {
-            unsigned_transactions: vec![], // TODO
+            unsigned_transactions: encoded_unsigned_transactions,
         }))
     }
 

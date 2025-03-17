@@ -83,7 +83,7 @@ message TransactionDescription {
     repeated string from_addresses = 5;     // spends only utxos from given addresses.
     repeated Outpoint utxos = 6;            // spends only given utxos. Mutually exclusive with `from_addressess`
     bool use_existing_change_address = 7;   // Don't generate a new change adress if true
-    FeePolicy fee_rate = 8;                 // minimum = 1.0
+    FeePolicy fee_policy = 8;                 // minimum = 1.0
 }
 message FeePolicy {
     oneof feePolicy {

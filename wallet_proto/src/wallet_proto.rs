@@ -203,10 +203,10 @@ pub mod wallet_client {
         dead_code,
         missing_docs,
         clippy::wildcard_imports,
-        clippy::let_unit_value
+        clippy::let_unit_value,
     )]
-    use tonic::codegen::http::Uri;
     use tonic::codegen::*;
+    use tonic::codegen::http::Uri;
     #[derive(Debug, Clone)]
     pub struct WalletClient<T> {
         inner: tonic::client::Grpc<T>,
@@ -245,13 +245,14 @@ pub mod wallet_client {
             F: tonic::service::Interceptor,
             T::ResponseBody: Default,
             T: tonic::codegen::Service<
-                    http::Request<tonic::body::BoxBody>,
-                    Response = http::Response<
-                        <T as tonic::client::GrpcService<tonic::body::BoxBody>>::ResponseBody,
-                    >,
+                http::Request<tonic::body::BoxBody>,
+                Response = http::Response<
+                    <T as tonic::client::GrpcService<tonic::body::BoxBody>>::ResponseBody,
                 >,
-            <T as tonic::codegen::Service<http::Request<tonic::body::BoxBody>>>::Error:
-                Into<StdError> + std::marker::Send + std::marker::Sync,
+            >,
+            <T as tonic::codegen::Service<
+                http::Request<tonic::body::BoxBody>,
+            >>::Error: Into<StdError> + std::marker::Send + std::marker::Sync,
         {
             WalletClient::new(InterceptedService::new(inner, interceptor))
         }
@@ -289,13 +290,22 @@ pub mod wallet_client {
         pub async fn get_addresses(
             &mut self,
             request: impl tonic::IntoRequest<super::GetAddressesRequest>,
-        ) -> std::result::Result<tonic::Response<super::GetAddressesResponse>, tonic::Status>
-        {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
-            })?;
+        ) -> std::result::Result<
+            tonic::Response<super::GetAddressesResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static("/wallet_proto.Wallet/GetAddresses");
+            let path = http::uri::PathAndQuery::from_static(
+                "/wallet_proto.Wallet/GetAddresses",
+            );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(GrpcMethod::new("wallet_proto.Wallet", "GetAddresses"));
@@ -304,13 +314,22 @@ pub mod wallet_client {
         pub async fn new_address(
             &mut self,
             request: impl tonic::IntoRequest<super::NewAddressRequest>,
-        ) -> std::result::Result<tonic::Response<super::NewAddressResponse>, tonic::Status>
-        {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
-            })?;
+        ) -> std::result::Result<
+            tonic::Response<super::NewAddressResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static("/wallet_proto.Wallet/NewAddress");
+            let path = http::uri::PathAndQuery::from_static(
+                "/wallet_proto.Wallet/NewAddress",
+            );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(GrpcMethod::new("wallet_proto.Wallet", "NewAddress"));
@@ -319,13 +338,22 @@ pub mod wallet_client {
         pub async fn get_balance(
             &mut self,
             request: impl tonic::IntoRequest<super::GetBalanceRequest>,
-        ) -> std::result::Result<tonic::Response<super::GetBalanceResponse>, tonic::Status>
-        {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
-            })?;
+        ) -> std::result::Result<
+            tonic::Response<super::GetBalanceResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static("/wallet_proto.Wallet/GetBalance");
+            let path = http::uri::PathAndQuery::from_static(
+                "/wallet_proto.Wallet/GetBalance",
+            );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(GrpcMethod::new("wallet_proto.Wallet", "GetBalance"));
@@ -334,12 +362,22 @@ pub mod wallet_client {
         pub async fn get_utxos(
             &mut self,
             request: impl tonic::IntoRequest<super::GetUtxosRequest>,
-        ) -> std::result::Result<tonic::Response<super::GetUtxosResponse>, tonic::Status> {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
-            })?;
+        ) -> std::result::Result<
+            tonic::Response<super::GetUtxosResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static("/wallet_proto.Wallet/GetUtxos");
+            let path = http::uri::PathAndQuery::from_static(
+                "/wallet_proto.Wallet/GetUtxos",
+            );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(GrpcMethod::new("wallet_proto.Wallet", "GetUtxos"));
@@ -352,43 +390,62 @@ pub mod wallet_client {
             tonic::Response<super::CreateUnsignedTransactionsResponse>,
             tonic::Status,
         > {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
-            })?;
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/wallet_proto.Wallet/CreateUnsignedTransactions",
             );
             let mut req = request.into_request();
-            req.extensions_mut().insert(GrpcMethod::new(
-                "wallet_proto.Wallet",
-                "CreateUnsignedTransactions",
-            ));
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new("wallet_proto.Wallet", "CreateUnsignedTransactions"),
+                );
             self.inner.unary(req, path, codec).await
         }
         pub async fn sign(
             &mut self,
             request: impl tonic::IntoRequest<super::SignRequest>,
         ) -> std::result::Result<tonic::Response<super::SignResponse>, tonic::Status> {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
-            })?;
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static("/wallet_proto.Wallet/Sign");
             let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(GrpcMethod::new("wallet_proto.Wallet", "Sign"));
+            req.extensions_mut().insert(GrpcMethod::new("wallet_proto.Wallet", "Sign"));
             self.inner.unary(req, path, codec).await
         }
         pub async fn broadcast(
             &mut self,
             request: impl tonic::IntoRequest<super::BroadcastRequest>,
-        ) -> std::result::Result<tonic::Response<super::BroadcastResponse>, tonic::Status> {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
-            })?;
+        ) -> std::result::Result<
+            tonic::Response<super::BroadcastResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static("/wallet_proto.Wallet/Broadcast");
+            let path = http::uri::PathAndQuery::from_static(
+                "/wallet_proto.Wallet/Broadcast",
+            );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(GrpcMethod::new("wallet_proto.Wallet", "Broadcast"));
@@ -398,26 +455,39 @@ pub mod wallet_client {
             &mut self,
             request: impl tonic::IntoRequest<super::SendRequest>,
         ) -> std::result::Result<tonic::Response<super::SendResponse>, tonic::Status> {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
-            })?;
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static("/wallet_proto.Wallet/Send");
             let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(GrpcMethod::new("wallet_proto.Wallet", "Send"));
+            req.extensions_mut().insert(GrpcMethod::new("wallet_proto.Wallet", "Send"));
             self.inner.unary(req, path, codec).await
         }
         pub async fn get_version(
             &mut self,
             request: impl tonic::IntoRequest<super::GetVersionRequest>,
-        ) -> std::result::Result<tonic::Response<super::GetVersionResponse>, tonic::Status>
-        {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
-            })?;
+        ) -> std::result::Result<
+            tonic::Response<super::GetVersionResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static("/wallet_proto.Wallet/GetVersion");
+            let path = http::uri::PathAndQuery::from_static(
+                "/wallet_proto.Wallet/GetVersion",
+            );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(GrpcMethod::new("wallet_proto.Wallet", "GetVersion"));
@@ -432,7 +502,7 @@ pub mod wallet_server {
         dead_code,
         missing_docs,
         clippy::wildcard_imports,
-        clippy::let_unit_value
+        clippy::let_unit_value,
     )]
     use tonic::codegen::*;
     /// Generated trait containing gRPC methods that should be implemented for use with WalletServer.
@@ -441,19 +511,31 @@ pub mod wallet_server {
         async fn get_addresses(
             &self,
             request: tonic::Request<super::GetAddressesRequest>,
-        ) -> std::result::Result<tonic::Response<super::GetAddressesResponse>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::GetAddressesResponse>,
+            tonic::Status,
+        >;
         async fn new_address(
             &self,
             request: tonic::Request<super::NewAddressRequest>,
-        ) -> std::result::Result<tonic::Response<super::NewAddressResponse>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::NewAddressResponse>,
+            tonic::Status,
+        >;
         async fn get_balance(
             &self,
             request: tonic::Request<super::GetBalanceRequest>,
-        ) -> std::result::Result<tonic::Response<super::GetBalanceResponse>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::GetBalanceResponse>,
+            tonic::Status,
+        >;
         async fn get_utxos(
             &self,
             request: tonic::Request<super::GetUtxosRequest>,
-        ) -> std::result::Result<tonic::Response<super::GetUtxosResponse>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::GetUtxosResponse>,
+            tonic::Status,
+        >;
         async fn create_unsigned_transactions(
             &self,
             request: tonic::Request<super::CreateUnsignedTransactionsRequest>,
@@ -468,7 +550,10 @@ pub mod wallet_server {
         async fn broadcast(
             &self,
             request: tonic::Request<super::BroadcastRequest>,
-        ) -> std::result::Result<tonic::Response<super::BroadcastResponse>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::BroadcastResponse>,
+            tonic::Status,
+        >;
         async fn send(
             &self,
             request: tonic::Request<super::SendRequest>,
@@ -476,7 +561,10 @@ pub mod wallet_server {
         async fn get_version(
             &self,
             request: tonic::Request<super::GetVersionRequest>,
-        ) -> std::result::Result<tonic::Response<super::GetVersionResponse>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::GetVersionResponse>,
+            tonic::Status,
+        >;
     }
     #[derive(Debug)]
     pub struct WalletServer<T> {
@@ -499,7 +587,10 @@ pub mod wallet_server {
                 max_encoding_message_size: None,
             }
         }
-        pub fn with_interceptor<F>(inner: T, interceptor: F) -> InterceptedService<Self, F>
+        pub fn with_interceptor<F>(
+            inner: T,
+            interceptor: F,
+        ) -> InterceptedService<Self, F>
         where
             F: tonic::service::Interceptor,
         {
@@ -554,16 +645,23 @@ pub mod wallet_server {
                 "/wallet_proto.Wallet/GetAddresses" => {
                     #[allow(non_camel_case_types)]
                     struct GetAddressesSvc<T: Wallet>(pub Arc<T>);
-                    impl<T: Wallet> tonic::server::UnaryService<super::GetAddressesRequest> for GetAddressesSvc<T> {
+                    impl<
+                        T: Wallet,
+                    > tonic::server::UnaryService<super::GetAddressesRequest>
+                    for GetAddressesSvc<T> {
                         type Response = super::GetAddressesResponse;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::GetAddressesRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut =
-                                async move { <T as Wallet>::get_addresses(&inner, request).await };
+                            let fut = async move {
+                                <T as Wallet>::get_addresses(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -592,16 +690,21 @@ pub mod wallet_server {
                 "/wallet_proto.Wallet/NewAddress" => {
                     #[allow(non_camel_case_types)]
                     struct NewAddressSvc<T: Wallet>(pub Arc<T>);
-                    impl<T: Wallet> tonic::server::UnaryService<super::NewAddressRequest> for NewAddressSvc<T> {
+                    impl<T: Wallet> tonic::server::UnaryService<super::NewAddressRequest>
+                    for NewAddressSvc<T> {
                         type Response = super::NewAddressResponse;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::NewAddressRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut =
-                                async move { <T as Wallet>::new_address(&inner, request).await };
+                            let fut = async move {
+                                <T as Wallet>::new_address(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -630,16 +733,21 @@ pub mod wallet_server {
                 "/wallet_proto.Wallet/GetBalance" => {
                     #[allow(non_camel_case_types)]
                     struct GetBalanceSvc<T: Wallet>(pub Arc<T>);
-                    impl<T: Wallet> tonic::server::UnaryService<super::GetBalanceRequest> for GetBalanceSvc<T> {
+                    impl<T: Wallet> tonic::server::UnaryService<super::GetBalanceRequest>
+                    for GetBalanceSvc<T> {
                         type Response = super::GetBalanceResponse;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::GetBalanceRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut =
-                                async move { <T as Wallet>::get_balance(&inner, request).await };
+                            let fut = async move {
+                                <T as Wallet>::get_balance(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -668,16 +776,21 @@ pub mod wallet_server {
                 "/wallet_proto.Wallet/GetUtxos" => {
                     #[allow(non_camel_case_types)]
                     struct GetUtxosSvc<T: Wallet>(pub Arc<T>);
-                    impl<T: Wallet> tonic::server::UnaryService<super::GetUtxosRequest> for GetUtxosSvc<T> {
+                    impl<T: Wallet> tonic::server::UnaryService<super::GetUtxosRequest>
+                    for GetUtxosSvc<T> {
                         type Response = super::GetUtxosResponse;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::GetUtxosRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut =
-                                async move { <T as Wallet>::get_utxos(&inner, request).await };
+                            let fut = async move {
+                                <T as Wallet>::get_utxos(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -706,19 +819,26 @@ pub mod wallet_server {
                 "/wallet_proto.Wallet/CreateUnsignedTransactions" => {
                     #[allow(non_camel_case_types)]
                     struct CreateUnsignedTransactionsSvc<T: Wallet>(pub Arc<T>);
-                    impl<T: Wallet>
-                        tonic::server::UnaryService<super::CreateUnsignedTransactionsRequest>
-                        for CreateUnsignedTransactionsSvc<T>
-                    {
+                    impl<
+                        T: Wallet,
+                    > tonic::server::UnaryService<
+                        super::CreateUnsignedTransactionsRequest,
+                    > for CreateUnsignedTransactionsSvc<T> {
                         type Response = super::CreateUnsignedTransactionsResponse;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::CreateUnsignedTransactionsRequest>,
+                            request: tonic::Request<
+                                super::CreateUnsignedTransactionsRequest,
+                            >,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as Wallet>::create_unsigned_transactions(&inner, request).await
+                                <T as Wallet>::create_unsigned_transactions(&inner, request)
+                                    .await
                             };
                             Box::pin(fut)
                         }
@@ -748,15 +868,21 @@ pub mod wallet_server {
                 "/wallet_proto.Wallet/Sign" => {
                     #[allow(non_camel_case_types)]
                     struct SignSvc<T: Wallet>(pub Arc<T>);
-                    impl<T: Wallet> tonic::server::UnaryService<super::SignRequest> for SignSvc<T> {
+                    impl<T: Wallet> tonic::server::UnaryService<super::SignRequest>
+                    for SignSvc<T> {
                         type Response = super::SignResponse;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::SignRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move { <T as Wallet>::sign(&inner, request).await };
+                            let fut = async move {
+                                <T as Wallet>::sign(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -785,16 +911,21 @@ pub mod wallet_server {
                 "/wallet_proto.Wallet/Broadcast" => {
                     #[allow(non_camel_case_types)]
                     struct BroadcastSvc<T: Wallet>(pub Arc<T>);
-                    impl<T: Wallet> tonic::server::UnaryService<super::BroadcastRequest> for BroadcastSvc<T> {
+                    impl<T: Wallet> tonic::server::UnaryService<super::BroadcastRequest>
+                    for BroadcastSvc<T> {
                         type Response = super::BroadcastResponse;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::BroadcastRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut =
-                                async move { <T as Wallet>::broadcast(&inner, request).await };
+                            let fut = async move {
+                                <T as Wallet>::broadcast(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -823,15 +954,21 @@ pub mod wallet_server {
                 "/wallet_proto.Wallet/Send" => {
                     #[allow(non_camel_case_types)]
                     struct SendSvc<T: Wallet>(pub Arc<T>);
-                    impl<T: Wallet> tonic::server::UnaryService<super::SendRequest> for SendSvc<T> {
+                    impl<T: Wallet> tonic::server::UnaryService<super::SendRequest>
+                    for SendSvc<T> {
                         type Response = super::SendResponse;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::SendRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move { <T as Wallet>::send(&inner, request).await };
+                            let fut = async move {
+                                <T as Wallet>::send(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -860,16 +997,21 @@ pub mod wallet_server {
                 "/wallet_proto.Wallet/GetVersion" => {
                     #[allow(non_camel_case_types)]
                     struct GetVersionSvc<T: Wallet>(pub Arc<T>);
-                    impl<T: Wallet> tonic::server::UnaryService<super::GetVersionRequest> for GetVersionSvc<T> {
+                    impl<T: Wallet> tonic::server::UnaryService<super::GetVersionRequest>
+                    for GetVersionSvc<T> {
                         type Response = super::GetVersionResponse;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::GetVersionRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut =
-                                async move { <T as Wallet>::get_version(&inner, request).await };
+                            let fut = async move {
+                                <T as Wallet>::get_version(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -895,19 +1037,23 @@ pub mod wallet_server {
                     };
                     Box::pin(fut)
                 }
-                _ => Box::pin(async move {
-                    let mut response = http::Response::new(empty_body());
-                    let headers = response.headers_mut();
-                    headers.insert(
-                        tonic::Status::GRPC_STATUS,
-                        (tonic::Code::Unimplemented as i32).into(),
-                    );
-                    headers.insert(
-                        http::header::CONTENT_TYPE,
-                        tonic::metadata::GRPC_CONTENT_TYPE,
-                    );
-                    Ok(response)
-                }),
+                _ => {
+                    Box::pin(async move {
+                        let mut response = http::Response::new(empty_body());
+                        let headers = response.headers_mut();
+                        headers
+                            .insert(
+                                tonic::Status::GRPC_STATUS,
+                                (tonic::Code::Unimplemented as i32).into(),
+                            );
+                        headers
+                            .insert(
+                                http::header::CONTENT_TYPE,
+                                tonic::metadata::GRPC_CONTENT_TYPE,
+                            );
+                        Ok(response)
+                    })
+                }
             }
         }
     }
