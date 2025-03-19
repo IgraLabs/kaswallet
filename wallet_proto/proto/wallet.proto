@@ -25,7 +25,7 @@ message NewAddressResponse {string address = 1;}
 
 message GetBalanceRequest
 {
-    bool is_verbose = 1;
+    bool include_balance_per_address = 1; // If false - returns only totals
 }
 message GetBalanceResponse {
     uint64 available = 1;
@@ -41,7 +41,7 @@ message AddressBalances {
 message GetUtxosRequest {
     repeated string addresses = 1; // Returns only UTXOs for requested addresses if provided
     bool include_pending = 2;      // Does not return pending coinbase UTXOs if false
-    bool include_unspendable = 3;  // Does not return UTXOs whose value is less than the fee to spend them
+    bool include_dust = 3;         // Does not return UTXOs whose value is less than the fee to spend them
 }
 message GetUtxosResponse {
     repeated AddressToUtxos addresses_to_utxos = 1;
@@ -54,7 +54,7 @@ message Utxo {
     Outpoint outpoint = 1;
     UtxoEntry utxo_entry = 2;
     bool is_pending = 3;
-    bool is_unspendable = 4;
+    bool is_dust = 4;
 }
 message Outpoint {
     string transaction_id = 1;

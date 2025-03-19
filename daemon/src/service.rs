@@ -4,7 +4,6 @@ use crate::model::{Keychain, UserInputError, WalletAddress, WalletUtxo};
 use crate::sync_manager::SyncManager;
 use common::keys::Keys;
 use kaspa_addresses::Address;
-use kaspa_consensus_core::tx::Transaction;
 use kaspa_p2p_lib::pb::TransactionMessage;
 use kaspa_wallet_core::utxo::NetworkParams;
 use kaspa_wrpc_client::prelude::RpcApi;
@@ -12,7 +11,6 @@ use kaspa_wrpc_client::KaspaRpcClient;
 use log::{error, info, trace};
 use prost::Message;
 use std::collections::HashMap;
-use std::error::Error;
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -43,7 +41,7 @@ impl KasWalletService {
         fee_rate: f64,
         virtual_daa_score: u64,
         include_pending: bool,
-        include_unspendable: bool,
+        include_dust: bool,
     ) -> HashMap<String, Vec<ProtoUtxo>> {
         let mut filtered_bucketed_utxos = HashMap::new();
         let address_manager = self.address_manager.lock().await;
@@ -52,8 +50,8 @@ impl KasWalletService {
             if !include_pending && is_pending {
                 continue;
             }
-            let is_unspendable = self.is_utxo_unspendable(utxo, fee_rate);
-            if !include_unspendable && is_unspendable {
+            let is_dust = self.is_utxo_dust(utxo, fee_rate);
+            if !include_dust && is_dust {
                 continue;
             }
 
@@ -65,7 +63,7 @@ impl KasWalletService {
             let entry = filtered_bucketed_utxos
                 .entry(address)
                 .or_insert_with(Vec::new);
-            entry.push(utxo.to_owned().into_proto(is_pending, is_unspendable));
+            entry.push(utxo.to_owned().into_proto(is_pending, is_dust));
         }
 
         filtered_bucketed_utxos
@@ -120,7 +118,7 @@ impl KasWalletService {
         Ok(())
     }
 
-    fn is_utxo_unspendable(&self, utxo: &WalletUtxo, fee_rate: f64) -> bool {
+    fn is_utxo_dust(&self, utxo: &WalletUtxo, fee_rate: f64) -> bool {
         todo!()
     }
 
@@ -247,7 +245,7 @@ impl Wallet for KasWalletService {
         let mut total_balances = BalancesEntry::new();
 
         let address_manager = self.address_manager.lock().await;
-        let is_verbose = request.get_ref().is_verbose;
+        let include_balance_per_address = request.get_ref().include_balance_per_address;
         for (wallet_address, balances) in balances_map.clone() {
             let address = match address_manager.calculate_address(&wallet_address) {
                 Ok(address) => address,
@@ -256,7 +254,7 @@ impl Wallet for KasWalletService {
                     return Err(Status::internal("Internal server error"));
                 }
             };
-            if is_verbose {
+            if include_balance_per_address {
                 address_balances.push(AddressBalances {
                     address: address.to_string(),
                     available: balances.available,
@@ -338,7 +336,7 @@ impl Wallet for KasWalletService {
                 fee_rate,
                 virtual_daa_score,
                 request.include_pending,
-                request.include_unspendable,
+                request.include_dust,
             )
             .await;
 

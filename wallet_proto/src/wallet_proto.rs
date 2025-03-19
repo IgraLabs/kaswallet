@@ -15,8 +15,9 @@ pub struct NewAddressResponse {
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct GetBalanceRequest {
+    /// If false - returns only totals
     #[prost(bool, tag = "1")]
-    pub is_verbose: bool,
+    pub include_balance_per_address: bool,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetBalanceResponse {
@@ -47,7 +48,7 @@ pub struct GetUtxosRequest {
     pub include_pending: bool,
     /// Does not return UTXOs whose value is less than the fee to spend them
     #[prost(bool, tag = "3")]
-    pub include_unspendable: bool,
+    pub include_dust: bool,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetUtxosResponse {
@@ -70,7 +71,7 @@ pub struct Utxo {
     #[prost(bool, tag = "3")]
     pub is_pending: bool,
     #[prost(bool, tag = "4")]
-    pub is_unspendable: bool,
+    pub is_dust: bool,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Outpoint {

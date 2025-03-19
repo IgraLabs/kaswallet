@@ -99,12 +99,12 @@ pub struct WalletUtxo {
 }
 
 impl WalletUtxo {
-    pub(crate) fn into_proto(self, is_pending: bool, is_unspendable: bool) -> ProtoUtxo {
+    pub(crate) fn into_proto(self, is_pending: bool, is_dust: bool) -> ProtoUtxo {
         ProtoUtxo {
             outpoint: Some(self.outpoint.into()),
             utxo_entry: Some(self.utxo_entry.into()),
             is_pending,
-            is_unspendable,
+            is_dust,
         }
     }
 }
