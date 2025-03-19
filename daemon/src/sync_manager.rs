@@ -4,9 +4,11 @@ use crate::model::{
 };
 use chrono::{DateTime, Duration, Utc};
 use kaspa_addresses::Address;
+use kaspa_bip32::secp256k1::PublicKey;
 use kaspa_consensus_core::constants::SOMPI_PER_KASPA;
 use kaspa_consensus_core::network::NetworkId;
 use kaspa_consensus_core::tx::Transaction;
+use kaspa_wallet_core::tx::MAXIMUM_STANDARD_TRANSACTION_MASS;
 use kaspa_wallet_core::utxo::NetworkParams;
 use kaspa_wrpc_client::prelude::{
     RpcAddress, RpcApi, RpcMempoolEntryByAddress, RpcUtxosByAddressesEntry,
@@ -223,7 +225,8 @@ impl SyncManager {
         fee_rate: f64,
         max_fee: u64,
     ) -> Result<Vec<Transaction>, Box<dyn Error + Send + Sync>> {
-        todo!()
+        // TODO: imeplement actual splitting of transactions
+        Ok(vec![unsigned_transaction])
     }
 
     async fn generate_unsigned_transactions(
@@ -356,7 +359,6 @@ impl SyncManager {
         max_fee: u64,
         estimated_recipient_value: u64,
     ) -> Result<u64, Box<dyn Error + Send + Sync>> {
-        // Implementation goes here
         todo!()
     }
 
