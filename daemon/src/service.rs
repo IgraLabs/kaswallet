@@ -5,7 +5,6 @@ use crate::sync_manager::SyncManager;
 use common::keys::Keys;
 use kaspa_addresses::Address;
 use kaspa_p2p_lib::pb::TransactionMessage;
-use kaspa_wallet_core::utxo::NetworkParams;
 use kaspa_wrpc_client::prelude::RpcApi;
 use kaspa_wrpc_client::KaspaRpcClient;
 use log::{error, info, trace};
@@ -31,7 +30,6 @@ pub struct KasWalletService {
     keys: Arc<Keys>,
     address_manager: Arc<Mutex<AddressManager>>,
     sync_manager: Arc<Mutex<SyncManager>>,
-    coinbase_maturity: u64, // Is different in testnet
 }
 
 impl KasWalletService {
@@ -45,9 +43,12 @@ impl KasWalletService {
         include_dust: bool,
     ) -> HashMap<String, Vec<ProtoUtxo>> {
         let mut filtered_bucketed_utxos = HashMap::new();
-        let address_manager = self.address_manager.lock().await;
         for utxo in utxos {
-            let is_pending = self.is_utxo_pending(utxo, virtual_daa_score);
+            let is_pending: bool;
+            {
+                let sync_manager = self.sync_manager.lock().await;
+                is_pending = sync_manager.is_utxo_pending(utxo, virtual_daa_score);
+            }
             if !include_pending && is_pending {
                 continue;
             }
@@ -56,11 +57,15 @@ impl KasWalletService {
                 continue;
             }
 
-            // TODO: Don't calculate address every time
-            let address = address_manager
-                .calculate_address(&utxo.address)
-                .unwrap()
-                .address_to_string();
+            let address: String;
+            {
+                let address_manager = self.address_manager.lock().await;
+                // TODO: Don't calculate address every time
+                address = address_manager
+                    .calculate_address(&utxo.address)
+                    .unwrap()
+                    .address_to_string();
+            }
 
             if !addresses.is_empty() && !addresses.contains(&address) {
                 continue;
@@ -97,18 +102,12 @@ impl KasWalletService {
         sync_manager: Arc<Mutex<SyncManager>>,
         keys: Arc<Keys>,
     ) -> Self {
-        let network_params = NetworkParams::from(args.network());
-        let coinbase_maturity = network_params
-            .coinbase_transaction_maturity_period_daa
-            .load(Relaxed);
-
         Self {
             args,
             kaspa_rpc_client,
             address_manager,
             sync_manager,
             keys,
-            coinbase_maturity,
         }
     }
 }
@@ -126,14 +125,6 @@ impl KasWalletService {
 
     fn is_utxo_dust(&self, utxo: &WalletUtxo, fee_rate: f64) -> bool {
         todo!()
-    }
-
-    fn is_utxo_pending(&self, utxo: &WalletUtxo, virtual_daa_score: u64) -> bool {
-        if !utxo.utxo_entry.is_coinbase {
-            return false;
-        }
-
-        utxo.utxo_entry.block_daa_score + self.coinbase_maturity > virtual_daa_score
     }
 }
 
@@ -229,22 +220,23 @@ impl Wallet for KasWalletService {
         let mut balances_map = HashMap::new();
 
         let utxos_sorted_by_amount: Vec<WalletUtxo>;
+        let utxos_count: usize;
         {
             let sync_manager = self.sync_manager.lock().await;
             utxos_sorted_by_amount = sync_manager.get_utxos_sorted_by_amount().await;
-        }
 
-        let utxos_count = utxos_sorted_by_amount.len();
-        for entry in utxos_sorted_by_amount {
-            let amount = entry.utxo_entry.amount;
-            let address = entry.address.clone();
-            let balances = balances_map
-                .entry(address.clone())
-                .or_insert_with(BalancesEntry::new);
-            if self.is_utxo_pending(&entry, virtual_daa_score) {
-                balances.add_pending(amount);
-            } else {
-                balances.add_available(amount);
+            utxos_count = utxos_sorted_by_amount.len();
+            for entry in utxos_sorted_by_amount {
+                let amount = entry.utxo_entry.amount;
+                let address = entry.address.clone();
+                let balances = balances_map
+                    .entry(address.clone())
+                    .or_insert_with(BalancesEntry::new);
+                if sync_manager.is_utxo_pending(&entry, virtual_daa_score) {
+                    balances.add_pending(amount);
+                } else {
+                    balances.add_available(amount);
+                }
             }
         }
         let mut address_balances = vec![];

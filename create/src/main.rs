@@ -156,7 +156,7 @@ fn main() {
         })
         .collect();
 
-    let prefix = Prefix::from(args.network());
+    let prefix = Prefix::from(args.network_id());
     for (i, x_public_key) in signer_public_keys.iter().enumerate() {
         println!(
             "Extended public key of mnemonic#{}: {}",

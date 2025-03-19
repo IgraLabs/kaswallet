@@ -28,7 +28,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         panic!("Failed to initialize logger: {}", e);
     }
 
-    let prefix = Prefix::from(args.network());
+    let prefix = Prefix::from(args.network_id());
     let keys_file_path = expand_path(args.keys_file.clone());
     let keys = Keys::load(keys_file_path.clone(), prefix);
 
@@ -40,15 +40,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let keys = Arc::new(keys.unwrap());
     info!("Loaded keys from file {}", keys_file_path);
 
-    let kaspa_rpc_client = kaspad_client::connect(args.server.clone(), args.network()).await?;
+    let kaspa_rpc_client = kaspad_client::connect(args.server.clone(), args.network_id()).await?;
 
-    let prefix = args.network().network_type.into();
+    let prefix = args.network_id().network_type.into();
     let address_manager = Arc::new(Mutex::new(AddressManager::new(
         kaspa_rpc_client.clone(),
         keys.clone(),
         prefix,
     )));
     let sync_manager = Arc::new(Mutex::new(SyncManager::new(
+        args.network_id(),
         kaspa_rpc_client.clone(),
         address_manager.clone(),
     )));

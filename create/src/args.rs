@@ -38,7 +38,7 @@ pub struct Args {
 }
 
 impl Args {
-    pub fn network(&self) -> NetworkId {
+    pub fn network_id(&self) -> NetworkId {
         common::args::parse_network_type(
             self.testnet,
             self.devnet,

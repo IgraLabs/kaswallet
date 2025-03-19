@@ -66,7 +66,7 @@ impl Into<LevelFilter> for LogsLevel {
 }
 
 impl Args {
-    pub fn network(&self) -> NetworkId {
+    pub fn network_id(&self) -> NetworkId {
         parse_network_type(self.testnet, self.devnet, self.simnet, self.testnet_suffix)
     }
 }

@@ -345,9 +345,9 @@ impl AddressManager {
     pub fn change_address(
         &self,
         use_existing_change_address: bool,
-        from_addresses: &Option<Vec<&WalletAddress>>,
+        from_addresses: &Vec<&WalletAddress>,
     ) -> Result<(Address, WalletAddress), Box<dyn Error + Send + Sync>> {
-        let wallet_address = if let Some(from_addresses) = from_addresses {
+        let wallet_address = if !from_addresses.is_empty() {
             from_addresses[0].clone()
         } else {
             let internal_index = if use_existing_change_address {
