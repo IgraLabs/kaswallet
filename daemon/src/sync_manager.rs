@@ -6,6 +6,7 @@ use chrono::{DateTime, Duration, Utc};
 use kaspa_addresses::Address;
 use kaspa_consensus_core::constants::SOMPI_PER_KASPA;
 use kaspa_consensus_core::tx::Transaction;
+use kaspa_hashes::Hash;
 use kaspa_wrpc_client::prelude::{
     RpcAddress, RpcApi, RpcMempoolEntryByAddress, RpcUtxosByAddressesEntry,
 };
@@ -14,6 +15,7 @@ use log::{debug, info};
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::ops::Add;
+use std::str::FromStr;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
@@ -88,7 +90,7 @@ impl SyncManager {
         is_send_all: bool,
         payload: Vec<u8>,
         from_addresses: Vec<String>,
-        utxos: Vec<Outpoint>,
+        preselected_utxo_outpoints: Vec<Outpoint>,
         use_existing_change_address: bool,
         fee_policy: Option<FeePolicy>,
     ) -> Result<Vec<Transaction>, Box<dyn Error + Send + Sync>> {
@@ -109,44 +111,84 @@ impl SyncManager {
             let address_manager = self.address_manager.lock().await;
             address_set = address_manager.address_set().await;
         }
-        let from_addresses = match from_addresses.len() {
-            0 => None,
-            _ => {
-                let mut addresses = vec![];
-                for address_string in from_addresses {
-                    let wallet_address = address_set.get(&address_string).ok_or_else(|| {
-                        UserInputError::new(format!(
-                            "From address is not in address set: {}",
-                            address_string
-                        ))
-                    })?;
-                    addresses.push(wallet_address);
-                }
-                Some(addresses)
+
+        if !from_addresses.is_empty() && !preselected_utxo_outpoints.is_empty() {
+            return Err(Box::new(UserInputError::new(
+                "Cannot specify both from_addresses and utxos".to_string(),
+            )));
+        }
+
+        let from_addresses = if from_addresses.is_empty() {
+            None
+        } else {
+            let mut addresses = vec![];
+            for address_string in from_addresses {
+                let wallet_address = address_set.get(&address_string).ok_or_else(|| {
+                    UserInputError::new(format!(
+                        "From address is not in address set: {}",
+                        address_string
+                    ))
+                })?;
+                addresses.push(wallet_address);
             }
+            Some(addresses)
+        };
+        let preselected_utxo_outpoints = if preselected_utxo_outpoints.is_empty() {
+            vec![]
+        } else {
+            let mut preselected_utxos = vec![];
+            for outpoint in preselected_utxo_outpoints {
+                {
+                    // TODO: index utxos by outpoint instead of searching all over an array
+                    let utxos_sorted_by_amount = self.utxos_sorted_by_amount.lock().await;
+                    if let Some(utxo) = utxos_sorted_by_amount.iter().find(|utxo| {
+                        utxo.outpoint.transaction_id.to_string() == outpoint.transaction_id
+                            && utxo.outpoint.index == outpoint.index
+                    }) {
+                        preselected_utxos.push(utxo.clone());
+                    } else {
+                        return Err(Box::new(UserInputError::new(format!(
+                            "UTXO {:?} is not in UTXO set",
+                            outpoint
+                        ))));
+                    }
+                }
+            }
+            preselected_utxos
         };
 
         let (fee_rate, max_fee) = self.calculate_fee_limits(fee_policy).await?;
 
-        let mut change_address: Address;
-        let mut change_wallet_address: WalletAddress;
+        let change_address: Address;
+        let change_wallet_address: WalletAddress;
         {
             let address_manager = self.address_manager.lock().await;
             (change_address, change_wallet_address) = // TODO: check if I really need both.
                 address_manager.change_address(use_existing_change_address, &from_addresses)?;
         }
 
-        let (selected_utxos, spend_value, change_sompi) = self
-            .select_utxos(amount, is_send_all, fee_rate, max_fee, from_addresses)
+        let (selected_utxos, amount_sent_to_recipient, change_sompi) = self
+            .select_utxos(
+                preselected_utxo_outpoints,
+                amount,
+                is_send_all,
+                fee_rate,
+                max_fee,
+                from_addresses,
+            )
             .await?;
 
-        let mut payments = vec![WalletPayment::new(to_address.clone(), amount)];
+        let mut payments = vec![WalletPayment::new(
+            to_address.clone(),
+            amount_sent_to_recipient,
+        )];
         if change_sompi > 0 {
             payments.push(WalletPayment::new(change_address.clone(), change_sompi));
         }
         let unsigned_transaction = self
             .generate_unsigned_transactions(payments, selected_utxos)
             .await?;
+        let payments = payments;
 
         let unsigned_transactions = self
             .maybe_auto_compound_transaction(
@@ -183,6 +225,7 @@ impl SyncManager {
     }
     async fn select_utxos(
         &self,
+        preselected_utxos: Vec<WalletUtxo>,
         amount: u64,
         is_send_all: bool,
         fee_rate: f64,
