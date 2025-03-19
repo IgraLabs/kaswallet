@@ -7,13 +7,11 @@ use kaspa_addresses::Address;
 use kaspa_consensus_core::constants::SOMPI_PER_KASPA;
 use kaspa_consensus_core::tx::Transaction;
 use kaspa_wrpc_client::prelude::{
-    RpcAddress, RpcApi, RpcFeeEstimate, RpcMempoolEntryByAddress, RpcUtxosByAddressesEntry,
+    RpcAddress, RpcApi, RpcMempoolEntryByAddress, RpcUtxosByAddressesEntry,
 };
 use kaspa_wrpc_client::KaspaRpcClient;
-use log::{debug, error, info};
-use std::cmp::min;
+use log::{debug, info};
 use std::collections::{HashMap, HashSet};
-use std::convert::Infallible;
 use std::error::Error;
 use std::ops::Add;
 use std::sync::atomic::AtomicBool;

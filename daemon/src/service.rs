@@ -40,6 +40,7 @@ impl KasWalletService {
         utxos: &Vec<WalletUtxo>,
         fee_rate: f64,
         virtual_daa_score: u64,
+        addresses: Vec<String>,
         include_pending: bool,
         include_dust: bool,
     ) -> HashMap<String, Vec<ProtoUtxo>> {
@@ -60,6 +61,11 @@ impl KasWalletService {
                 .calculate_address(&utxo.address)
                 .unwrap()
                 .address_to_string();
+
+            if !addresses.is_empty() && !addresses.contains(&address) {
+                continue;
+            }
+
             let entry = filtered_bucketed_utxos
                 .entry(address)
                 .or_insert_with(Vec::new);
@@ -335,6 +341,7 @@ impl Wallet for KasWalletService {
                 &utxos,
                 fee_rate,
                 virtual_daa_score,
+                addresses,
                 request.include_pending,
                 request.include_dust,
             )
