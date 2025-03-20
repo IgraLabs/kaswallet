@@ -4,6 +4,7 @@ use crate::model::{Keychain, UserInputError, WalletAddress, WalletUtxo};
 use crate::sync_manager::SyncManager;
 use common::keys::Keys;
 use kaspa_addresses::Address;
+use kaspa_consensus_core::tx::SignableTransaction;
 use kaspa_p2p_lib::pb::TransactionMessage;
 use kaspa_wrpc_client::prelude::RpcApi;
 use kaspa_wrpc_client::KaspaRpcClient;
@@ -91,6 +92,40 @@ impl KasWalletService {
         let virtual_daa_score = block_dag_info.virtual_daa_score;
 
         Ok(virtual_daa_score)
+    }
+
+    fn encode_transactions(transactions: Vec<SignableTransaction>) -> Result<Vec<Vec<u8>>, Status> {
+        let mut encoded_transactions = vec![];
+        for unsigned_transaction in transactions {
+            // TODO: Use protobuf instead of borsh for serialization
+            let encoded_transaction = borsh::to_vec(&unsigned_transaction).map_err(|e| {
+                error!("Failed to encode transaction: {}", e);
+                Status::internal("Internal server error")
+            })?;
+            encoded_transactions.push(encoded_transaction);
+        }
+        Ok(encoded_transactions)
+    }
+
+    fn decode_transactions(
+        encoded_transactions: &Vec<Vec<u8>>,
+    ) -> Result<Vec<SignableTransaction>, Status> {
+        let mut unsigned_transactions = vec![];
+        for encoded_transaction_transaction in encoded_transactions {
+            let unsigned_transaction = borsh::from_slice(&encoded_transaction_transaction)
+                .map_err(|e| Status::invalid_argument("Unable to decode transactions"))?;
+            unsigned_transactions.push(unsigned_transaction);
+        }
+        Ok(unsigned_transactions)
+    }
+    async fn sign_transaction(
+        &self,
+        unsigned_transactions: Vec<SignableTransaction>,
+        password: &String,
+    ) -> Result<Vec<SignableTransaction>, Status> {
+        let mnemonics = self.keys.decrypt_mnemonics(password);
+
+        Ok(unsigned_transactions)
     }
 }
 
@@ -396,23 +431,27 @@ impl Wallet for KasWalletService {
             }
         };
 
-        let mut encoded_unsigned_transactions = vec![];
-        for unsigned_transaction in unsigned_transactions {
-            let encoded_transaction = borsh::to_vec(&unsigned_transaction).map_err(|e| {
-                error!("Failed to encode transaction: {}", e);
-                Status::internal("Internal server error")
-            })?;
-            encoded_unsigned_transactions.push(encoded_transaction);
-        }
-
         Ok(Response::new(CreateUnsignedTransactionsResponse {
-            unsigned_transactions: encoded_unsigned_transactions,
+            unsigned_transactions: Self::encode_transactions(unsigned_transactions)?,
         }))
     }
 
     async fn sign(&self, request: Request<SignRequest>) -> Result<Response<SignResponse>, Status> {
         trace!("Received request: {:?}", request.get_ref());
-        todo!()
+
+        let request = request.into_inner();
+        let encoded_unsigned_transactions = &request.unsigned_transactions;
+        let unsigned_transactions = Self::decode_transactions(encoded_unsigned_transactions)?;
+
+        let signed_transactions = self
+            .sign_transaction(unsigned_transactions, &request.password)
+            .await?;
+
+        let encoded_signed_transactions = Self::encode_transactions(signed_transactions)?;
+
+        Ok(Response::new(SignResponse {
+            signed_transactions: encoded_signed_transactions,
+        }))
     }
 
     async fn broadcast(

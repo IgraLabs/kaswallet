@@ -129,10 +129,15 @@ fn main() {
     let password = prompt_for_password();
     let mnemonics = prompt_or_generate_mnemonics(&args);
 
-    let encrypted_mnemonics: Vec<EncryptedMnemonic> = mnemonics
-        .iter()
-        .map(|mnemonic| EncryptedMnemonic::new(mnemonic, &password))
-        .collect();
+    let mut encrypted_mnemonics = vec![];
+    for mnemonic in mnemonics.iter() {
+        let encrypted_mnemonic = EncryptedMnemonic::new(&mnemonic, &password);
+        if let Err(e) = encrypted_mnemonic {
+            println!("Error encrypting mnemonic: {}", e);
+            return;
+        }
+        encrypted_mnemonics.push(encrypted_mnemonic.unwrap());
+    }
     let x_private_keys: Vec<ExtendedPrivateKey<SecretKey>> = mnemonics
         .iter()
         .map(|mnemonic: &Mnemonic| {

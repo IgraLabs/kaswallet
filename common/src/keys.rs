@@ -1,10 +1,11 @@
 ﻿use crate::encrypted_mnemonic::EncryptedMnemonic;
 use kaspa_bip32::secp256k1::PublicKey;
-use kaspa_bip32::{ExtendedPublicKey, Prefix};
+use kaspa_bip32::{ExtendedPublicKey, Mnemonic, Prefix};
 use serde::{Deserialize, Serialize};
+use std::error::Error;
 use std::fs;
 use std::fs::File;
-use std::io::{Result, Write};
+use std::io::Write;
 use std::path::Path;
 use std::str::FromStr;
 use std::sync::atomic::AtomicU32;
@@ -111,13 +112,13 @@ impl Keys {
         }
     }
 
-    pub fn load(file_path: String, prefix: Prefix) -> Result<Keys> {
+    pub fn load(file_path: String, prefix: Prefix) -> Result<Keys, Box<dyn Error + Send + Sync>> {
         let serialized = fs::read_to_string(&file_path)?;
         let keys_json: KeysJson = serde_json::from_str(&serialized)?;
         Ok(keys_json.to_keys(file_path, prefix))
     }
 
-    pub fn save(&self) -> Result<()> {
+    pub fn save(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
         let keys_json: KeysJson = self.into();
         let serialized = serde_json::to_string_pretty(&keys_json)?;
 
@@ -130,5 +131,17 @@ impl Keys {
         file.write_all(serialized.as_bytes())?;
 
         Ok(())
+    }
+
+    pub fn decrypt_mnemonics(
+        &self,
+        password: &String,
+    ) -> Result<Vec<Mnemonic>, Box<dyn Error + Send + Sync>> {
+        let mut mnemonics = Vec::new();
+        for encrypted_mnemonic in &self.encrypted_mnemonics {
+            let mnemonic = encrypted_mnemonic.decrypt(password)?;
+            mnemonics.push(mnemonic);
+        }
+        Ok(mnemonics)
     }
 }
