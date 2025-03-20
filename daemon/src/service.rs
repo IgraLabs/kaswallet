@@ -1,16 +1,23 @@
 ﻿use crate::address_manager::{AddressManager, AddressSet};
 use crate::args::Args;
-use crate::model::{Keychain, UserInputError, WalletAddress, WalletUtxo};
+use crate::model::{
+    Keychain, UserInputError, WalletAddress, WalletSignableTransaction, WalletUtxo,
+};
 use crate::sync_manager::SyncManager;
 use common::keys::Keys;
 use kaspa_addresses::Address;
+use kaspa_bip32::{ChildNumber, ExtendedPrivateKey, Mnemonic, PrivateKey, SecretKey};
+use kaspa_consensus_core::sign::{sign_with_multiple, sign_with_multiple_v2, Signed};
 use kaspa_consensus_core::tx::SignableTransaction;
 use kaspa_p2p_lib::pb::TransactionMessage;
+use kaspa_wallet_keys::derivation::gen1::WalletDerivationManager;
+use kaspa_wallet_keys::derivation_path;
 use kaspa_wrpc_client::prelude::RpcApi;
 use kaspa_wrpc_client::KaspaRpcClient;
 use log::{error, info, trace};
 use prost::Message;
 use std::collections::HashMap;
+use std::error::Error;
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -94,7 +101,9 @@ impl KasWalletService {
         Ok(virtual_daa_score)
     }
 
-    fn encode_transactions(transactions: Vec<SignableTransaction>) -> Result<Vec<Vec<u8>>, Status> {
+    fn encode_transactions(
+        transactions: Vec<WalletSignableTransaction>,
+    ) -> Result<Vec<Vec<u8>>, Status> {
         let mut encoded_transactions = vec![];
         for unsigned_transaction in transactions {
             // TODO: Use protobuf instead of borsh for serialization
@@ -109,7 +118,7 @@ impl KasWalletService {
 
     fn decode_transactions(
         encoded_transactions: &Vec<Vec<u8>>,
-    ) -> Result<Vec<SignableTransaction>, Status> {
+    ) -> Result<Vec<WalletSignableTransaction>, Status> {
         let mut unsigned_transactions = vec![];
         for encoded_transaction_transaction in encoded_transactions {
             let unsigned_transaction = borsh::from_slice(&encoded_transaction_transaction)
@@ -118,14 +127,68 @@ impl KasWalletService {
         }
         Ok(unsigned_transactions)
     }
-    async fn sign_transaction(
+    async fn sign_transactions(
         &self,
-        unsigned_transactions: Vec<SignableTransaction>,
+        unsigned_transactions: Vec<WalletSignableTransaction>,
         password: &String,
-    ) -> Result<Vec<SignableTransaction>, Status> {
-        let mnemonics = self.keys.decrypt_mnemonics(password);
+    ) -> Result<Vec<WalletSignableTransaction>, Status> {
+        let mnemonics = self.keys.decrypt_mnemonics(password).map_err(|e| {
+            error!("Failed to decrypt mnemonics: {}", e);
+            Status::internal("Invalid password")
+        })?;
+        let extended_private_keys = Self::mnemonics_to_private_keys(mnemonics)?;
 
-        Ok(unsigned_transactions)
+        let mut signed_transactions = vec![];
+        for unsigned_transaction in &unsigned_transactions {
+            let signed_transaction = self
+                .sign_transaction(unsigned_transaction, &extended_private_keys)
+                .map_err(|e| {
+                    Status::invalid_argument(format!("Failed to sign transaction: {}", e))
+                })?;
+            let wallet_signed_transaction = WalletSignableTransaction::new(
+                signed_transaction,
+                unsigned_transaction.derivation_paths.clone(),
+            );
+            signed_transactions.push(wallet_signed_transaction);
+        }
+
+        Ok(signed_transactions)
+    }
+
+    fn sign_transaction(
+        &self,
+        unsigned_transaction: &WalletSignableTransaction,
+        extended_private_keys: &Vec<ExtendedPrivateKey<SecretKey>>,
+    ) -> Result<Signed, Box<dyn Error + Send + Sync>> {
+        let mut private_keys = vec![];
+        for derivation_path in &unsigned_transaction.derivation_paths {
+            for extended_private_key in extended_private_keys.iter() {
+                let private_key = extended_private_key.clone().derive_path(derivation_path)?;
+                private_keys.push(private_key.private_key().secret_bytes());
+            }
+        }
+
+        let mut signable_transaction = &unsigned_transaction.transaction;
+        Ok(sign_with_multiple_v2(
+            signable_transaction.clone().unwrap(),
+            &private_keys,
+        ))
+    }
+
+    fn mnemonics_to_private_keys(
+        mnemonics: Vec<Mnemonic>,
+    ) -> Result<Vec<ExtendedPrivateKey<SecretKey>>, Status> {
+        let mut extended_private_keys = vec![];
+        for mnemonic in mnemonics {
+            let seed = mnemonic.to_seed("");
+            let x_private_key = ExtendedPrivateKey::new(seed).map_err(|e| {
+                error!("Failed to create extended private key: {}", e);
+                Status::internal("Internal server error")
+            })?;
+
+            extended_private_keys.push(x_private_key)
+        }
+        Ok(extended_private_keys)
     }
 }
 
@@ -444,7 +507,7 @@ impl Wallet for KasWalletService {
         let unsigned_transactions = Self::decode_transactions(encoded_unsigned_transactions)?;
 
         let signed_transactions = self
-            .sign_transaction(unsigned_transactions, &request.password)
+            .sign_transactions(unsigned_transactions, &request.password)
             .await?;
 
         let encoded_signed_transactions = Self::encode_transactions(signed_transactions)?;

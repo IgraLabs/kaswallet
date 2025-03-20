@@ -1,7 +1,12 @@
-﻿use kaspa_addresses::Address;
-use kaspa_consensus_core::tx::{ScriptPublicKey, UtxoEntry};
+﻿use borsh::{BorshDeserialize, BorshSerialize};
+use kaspa_addresses::Address;
+use kaspa_bip32::DerivationPath;
+use kaspa_consensus_core::sign::Signed;
+use kaspa_consensus_core::sign::Signed::Partially;
+use kaspa_consensus_core::tx::{ScriptPublicKey, SignableTransaction, UtxoEntry};
 use kaspa_hashes::Hash;
 use kaspa_wrpc_client::prelude::{RpcTransactionOutpoint, RpcUtxoEntry};
+use std::collections::HashSet;
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use wallet_proto::wallet_proto::{
@@ -162,3 +167,27 @@ impl Display for UserInputError {
 }
 
 impl std::error::Error for UserInputError {}
+
+#[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
+pub struct WalletSignableTransaction {
+    pub transaction: Signed,
+    pub derivation_paths: HashSet<DerivationPath>,
+}
+impl WalletSignableTransaction {
+    pub fn new(transaction: Signed, derivation_paths: HashSet<DerivationPath>) -> Self {
+        Self {
+            transaction,
+            derivation_paths,
+        }
+    }
+
+    pub fn new_from_unsigned(
+        transaction: SignableTransaction,
+        derivation_paths: HashSet<DerivationPath>,
+    ) -> Self {
+        Self {
+            transaction: Partially(transaction),
+            derivation_paths,
+        }
+    }
+}

@@ -6,10 +6,7 @@ use common::keys::{Keys, KEY_FILE_VERSION};
 use constant_time_eq::constant_time_eq;
 use kaspa_bip32::mnemonic::Mnemonic;
 use kaspa_bip32::secp256k1::PublicKey;
-use kaspa_bip32::{
-    ExtendedPrivateKey, ExtendedPublicKey, Language, Prefix, SecretKey, SecretKeyExt, WordCount,
-};
-use kaspa_wallet_keys::derivation::gen1::WalletDerivationManager;
+use kaspa_bip32::{ExtendedPrivateKey, ExtendedPublicKey, Language, Prefix, SecretKey, WordCount};
 use std::io;
 use std::path::Path;
 use std::str::FromStr;
@@ -124,7 +121,6 @@ fn main() {
     if !should_continue_if_key_file_exists(&keys_file_path) {
         return;
     }
-    let is_multisig = args.num_public_keys > 1;
 
     let password = prompt_for_password();
     let mnemonics = prompt_or_generate_mnemonics(&args);
@@ -145,24 +141,13 @@ fn main() {
             ExtendedPrivateKey::new(seed).unwrap()
         })
         .collect();
-    let signer_public_keys: Vec<ExtendedPublicKey<PublicKey>> = x_private_keys
+    let x_public_keys: Vec<ExtendedPublicKey<PublicKey>> = x_private_keys
         .iter()
-        .map(|x_private_key| {
-            let (key, attributes) = WalletDerivationManager::derive_extended_key_from_master_key(
-                x_private_key.clone(),
-                is_multisig,
-                0,
-            )
-            .unwrap();
-            ExtendedPublicKey {
-                public_key: key.get_public_key(),
-                attrs: attributes,
-            }
-        })
+        .map(|x_private_key| x_private_key.public_key())
         .collect();
 
     let prefix = Prefix::from(args.network_id());
-    for (i, x_public_key) in signer_public_keys.iter().enumerate() {
+    for (i, x_public_key) in x_public_keys.iter().enumerate() {
         println!(
             "Extended public key of mnemonic#{}: {}",
             i + 1,
@@ -170,16 +155,16 @@ fn main() {
         );
     }
 
-    let mut all_public_keys = signer_public_keys.clone();
+    let mut all_public_keys = x_public_keys.clone();
     while all_public_keys.len() < args.num_public_keys as usize {
         let x_public_key = prompt_for_x_public_key(all_public_keys.len());
         all_public_keys.push(x_public_key);
     }
 
-    let cosigner_index: u16 = if signer_public_keys.len() == 0 {
+    let cosigner_index: u16 = if x_public_keys.len() == 0 {
         0
     } else {
-        minimum_cosigner_index(all_public_keys.clone(), signer_public_keys, prefix)
+        minimum_cosigner_index(all_public_keys.clone(), x_public_keys, prefix)
     };
 
     let keys_file = Keys::new(

@@ -238,7 +238,7 @@ impl AddressManager {
         }
     }
 
-    fn calculate_address_path(
+    pub fn calculate_address_path(
         &self,
         wallet_address: &WalletAddress,
     ) -> Result<DerivationPath, Box<dyn Error + Send + Sync>> {
