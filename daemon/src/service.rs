@@ -124,7 +124,8 @@ impl KasWalletService {
     }
 
     fn is_utxo_dust(&self, utxo: &WalletUtxo, fee_rate: f64) -> bool {
-        todo!()
+        // TODO: actually calculate if utxo is dust
+        false
     }
 }
 
@@ -395,13 +396,14 @@ impl Wallet for KasWalletService {
             }
         };
 
-        let encoded_unsigned_transactions = unsigned_transactions
-            .iter()
-            .map(|unsigned_transaction| {
-                let transaction_message = TransactionMessage::from(unsigned_transaction);
-                transaction_message.encode_to_vec()
-            })
-            .collect();
+        let mut encoded_unsigned_transactions = vec![];
+        for unsigned_transaction in unsigned_transactions {
+            let encoded_transaction = borsh::to_vec(&unsigned_transaction).map_err(|e| {
+                error!("Failed to encode transaction: {}", e);
+                Status::internal("Internal server error")
+            })?;
+            encoded_unsigned_transactions.push(encoded_transaction);
+        }
 
         Ok(Response::new(CreateUnsignedTransactionsResponse {
             unsigned_transactions: encoded_unsigned_transactions,

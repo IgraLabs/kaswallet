@@ -1,5 +1,5 @@
 ﻿use kaspa_addresses::Address;
-use kaspa_consensus_core::tx::ScriptPublicKey;
+use kaspa_consensus_core::tx::{ScriptPublicKey, UtxoEntry};
 use kaspa_hashes::Hash;
 use kaspa_wrpc_client::prelude::{RpcTransactionOutpoint, RpcUtxoEntry};
 use std::fmt;
@@ -80,6 +80,17 @@ impl Into<ProtoUtxoEntry> for WalletUtxoEntry {
     }
 }
 
+impl Into<UtxoEntry> for WalletUtxoEntry {
+    fn into(self) -> UtxoEntry {
+        UtxoEntry {
+            amount: self.amount,
+            script_public_key: self.script_public_key,
+            block_daa_score: self.block_daa_score,
+            is_coinbase: self.is_coinbase,
+        }
+    }
+}
+
 impl From<RpcUtxoEntry> for WalletUtxoEntry {
     fn from(value: RpcUtxoEntry) -> Self {
         Self {
@@ -124,8 +135,8 @@ impl WalletUtxo {
 }
 
 pub struct WalletPayment {
-    address: Address,
-    amount: u64,
+    pub address: Address,
+    pub amount: u64,
 }
 impl WalletPayment {
     pub fn new(address: Address, amount: u64) -> Self {

@@ -3,11 +3,16 @@ use crate::model::{
     UserInputError, WalletAddress, WalletOutpoint, WalletPayment, WalletUtxo, WalletUtxoEntry,
 };
 use chrono::{DateTime, Duration, Utc};
+use common::keys::Keys;
 use kaspa_addresses::Address;
 use kaspa_bip32::secp256k1::PublicKey;
 use kaspa_consensus_core::constants::SOMPI_PER_KASPA;
 use kaspa_consensus_core::network::NetworkId;
-use kaspa_consensus_core::tx::Transaction;
+use kaspa_consensus_core::tx::{
+    SignableTransaction, Transaction, TransactionInput, TransactionOutpoint, TransactionOutput,
+    UtxoEntry,
+};
+use kaspa_txscript::pay_to_address_script;
 use kaspa_wallet_core::tx::MAXIMUM_STANDARD_TRANSACTION_MASS;
 use kaspa_wallet_core::utxo::NetworkParams;
 use kaspa_wrpc_client::prelude::{
@@ -25,7 +30,7 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
 use tokio::task::JoinHandle;
 use tokio::time::interval;
-use wallet_proto::wallet_proto::{fee_policy, FeePolicy, Outpoint};
+use wallet_proto::wallet_proto::{fee_policy, FeePolicy, Outpoint, ScriptPublicKey};
 
 const SYNC_INTERVAL: u64 = 10; // seconds
 
@@ -44,6 +49,7 @@ const MIN_FEE_RATE: f64 = 1.0;
 pub struct SyncManager {
     kaspa_rpc_client: Arc<KaspaRpcClient>,
     address_manager: Arc<Mutex<AddressManager>>,
+    keys: Arc<Keys>,
 
     start_time_of_last_completed_refresh: Mutex<DateTime<Utc>>,
     utxos_sorted_by_amount: Mutex<Vec<WalletUtxo>>,
@@ -62,6 +68,7 @@ impl SyncManager {
         network_id: NetworkId,
         kaspa_rpc_client: Arc<KaspaRpcClient>,
         address_manager: Arc<Mutex<AddressManager>>,
+        keys: Arc<Keys>,
     ) -> Self {
         let (force_sync_sender, force_sync_receiver) = mpsc::channel(1);
 
@@ -73,6 +80,7 @@ impl SyncManager {
         Self {
             kaspa_rpc_client,
             address_manager,
+            keys,
             start_time_of_last_completed_refresh: Mutex::new(DateTime::<Utc>::MIN_UTC),
             utxos_sorted_by_amount: Mutex::new(vec![]),
             mempool_excluded_utxos: Mutex::new(HashMap::new()),
@@ -105,7 +113,7 @@ impl SyncManager {
         preselected_utxo_outpoints: Vec<Outpoint>,
         use_existing_change_address: bool,
         fee_policy: Option<FeePolicy>,
-    ) -> Result<Vec<Transaction>, Box<dyn Error + Send + Sync>> {
+    ) -> Result<Vec<SignableTransaction>, Box<dyn Error + Send + Sync>> {
         let validate_address =
             |address_string, name| -> Result<Address, Box<dyn Error + Send + Sync>> {
                 match Address::try_from(address_string) {
@@ -200,7 +208,7 @@ impl SyncManager {
             payments.push(WalletPayment::new(change_address.clone(), change_sompi));
         }
         let unsigned_transaction = self
-            .generate_unsigned_transactions(payments, selected_utxos)
+            .generate_unsigned_transactions(payments, payload, selected_utxos)
             .await?;
 
         let unsigned_transactions = self
@@ -219,13 +227,13 @@ impl SyncManager {
 
     async fn maybe_auto_compound_transaction(
         &self,
-        unsigned_transaction: Transaction,
+        unsigned_transaction: SignableTransaction,
         to_address: Address,
         change_address: Address,
         change_wallet_address: WalletAddress,
         fee_rate: f64,
         max_fee: u64,
-    ) -> Result<Vec<Transaction>, Box<dyn Error + Send + Sync>> {
+    ) -> Result<Vec<SignableTransaction>, Box<dyn Error + Send + Sync>> {
         // TODO: imeplement actual splitting of transactions
         Ok(vec![unsigned_transaction])
     }
@@ -233,9 +241,35 @@ impl SyncManager {
     async fn generate_unsigned_transactions(
         &self,
         payments: Vec<WalletPayment>,
+        payload: Vec<u8>,
         selected_utxos: Vec<WalletUtxo>,
-    ) -> Result<Transaction, Box<dyn Error + Send + Sync>> {
-        todo!()
+    ) -> Result<SignableTransaction, Box<dyn Error + Send + Sync>> {
+        let mut sorted_extended_public_keys = self.keys.public_keys.clone();
+        sorted_extended_public_keys.sort();
+
+        let mut inputs = vec![];
+        let mut utxo_entries = vec![];
+        for utxo in selected_utxos {
+            let previous_outpoint =
+                TransactionOutpoint::new(utxo.outpoint.transaction_id, utxo.outpoint.index as u32);
+            let input = TransactionInput::new(previous_outpoint, vec![], 0, 0);
+            inputs.push(input);
+
+            let utxo_entry: UtxoEntry = utxo.utxo_entry.into();
+            utxo_entries.push(utxo_entry);
+        }
+
+        let mut outputs = vec![];
+        for payment in payments {
+            let script_public_key = pay_to_address_script(&payment.address);
+            let output = TransactionOutput::new(payment.amount, script_public_key);
+            outputs.push(output);
+        }
+
+        let transaction = Transaction::new(0, inputs, outputs, 0, Default::default(), 0, payload);
+        let signable_transaction = SignableTransaction::with_entries(transaction, utxo_entries);
+
+        Ok(signable_transaction)
     }
     async fn select_utxos(
         &self,

@@ -52,6 +52,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         args.network_id(),
         kaspa_rpc_client.clone(),
         address_manager.clone(),
+        keys.clone(),
     )));
     let sync_manager_handle = SyncManager::start(sync_manager.clone());
 
