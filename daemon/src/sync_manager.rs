@@ -15,6 +15,7 @@ use kaspa_wrpc_client::prelude::{
 };
 use kaspa_wrpc_client::KaspaRpcClient;
 use log::{debug, info};
+use std::cmp::min;
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::ops::Add;
@@ -359,7 +360,18 @@ impl SyncManager {
         max_fee: u64,
         estimated_recipient_value: u64,
     ) -> Result<u64, Box<dyn Error + Send + Sync>> {
-        todo!()
+        let estimated_mass = self.estimate_mass(selected_utxos).await?;
+        let calculated_fee = ((estimated_mass as f64) * (fee_rate)).ceil() as u64;
+        let fee = min(calculated_fee, max_fee);
+        Ok(fee)
+    }
+
+    async fn estimate_mass(
+        &self,
+        selected_utxos: &Vec<WalletUtxo>,
+    ) -> Result<u64, Box<dyn Error + Send + Sync>> {
+        // TODO: Actually estimate mass
+        Ok(2000)
     }
 
     pub async fn get_utxos_sorted_by_amount(&self) -> Vec<WalletUtxo> {
