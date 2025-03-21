@@ -7,17 +7,19 @@ use crate::sync_manager::SyncManager;
 use common::keys::Keys;
 use kaspa_addresses::Address;
 use kaspa_bip32::{ChildNumber, ExtendedPrivateKey, Mnemonic, PrivateKey, SecretKey};
+use kaspa_consensus_core::sign::Signed::Partially;
 use kaspa_consensus_core::sign::{sign_with_multiple, sign_with_multiple_v2, Signed};
 use kaspa_consensus_core::tx::SignableTransaction;
 use kaspa_p2p_lib::pb::TransactionMessage;
 use kaspa_wallet_keys::derivation::gen1::WalletDerivationManager;
 use kaspa_wallet_keys::derivation_path;
-use kaspa_wrpc_client::prelude::RpcApi;
+use kaspa_wrpc_client::prelude::{RpcApi, RpcResult};
 use kaspa_wrpc_client::KaspaRpcClient;
 use log::{error, info, trace};
 use prost::Message;
 use std::collections::HashMap;
 use std::error::Error;
+use std::future::Future;
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -189,6 +191,41 @@ impl KasWalletService {
             extended_private_keys.push(x_private_key)
         }
         Ok(extended_private_keys)
+    }
+
+    async fn submit_transactions(
+        &self,
+        signed_transactions: Vec<WalletSignableTransaction>,
+    ) -> Result<Vec<String>, Status> {
+        let mut transaction_ids = vec![];
+        for signed_transaction in signed_transactions {
+            if let Partially(_) = signed_transaction.transaction {
+                return Err(Status::invalid_argument("Transaction is not fully signed"));
+            }
+
+            let rpc_transaction = (&signed_transaction.transaction.unwrap().tx).into();
+            let submit_result = self
+                .kaspa_rpc_client
+                .submit_transaction(rpc_transaction, false)
+                .await;
+
+            match submit_result {
+                Err(e) => {
+                    return Err(Status::invalid_argument(format!(
+                        "Failed to submit transaction: {}",
+                        e
+                    )))
+                }
+                Ok(rpc_transaction_id) => {
+                    transaction_ids.push(rpc_transaction_id.to_string());
+                }
+            }
+        }
+
+        let mut sync_manager = self.sync_manager.lock().await;
+        sync_manager.force_sync().await.unwrap(); // unwrap is safe - force sync fails only if it wasn't initialized
+
+        Ok(transaction_ids)
     }
 }
 
@@ -522,7 +559,14 @@ impl Wallet for KasWalletService {
         request: Request<BroadcastRequest>,
     ) -> Result<Response<BroadcastResponse>, Status> {
         trace!("Received request: {:?}", request.get_ref());
-        todo!()
+
+        let request = request.into_inner();
+        let encoded_signed_transactions = &request.transactions;
+        let signed_transactions = Self::decode_transactions(encoded_signed_transactions)?;
+
+        let transaction_ids = self.submit_transactions(signed_transactions).await?;
+
+        Ok(Response::new(BroadcastResponse { transaction_ids }))
     }
 
     async fn send(&self, request: Request<SendRequest>) -> Result<Response<SendResponse>, Status> {

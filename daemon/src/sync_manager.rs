@@ -20,7 +20,7 @@ use kaspa_wrpc_client::prelude::{
     RpcAddress, RpcApi, RpcMempoolEntryByAddress, RpcUtxosByAddressesEntry,
 };
 use kaspa_wrpc_client::KaspaRpcClient;
-use log::{debug, info};
+use log::{debug, error, info};
 use std::cmp::min;
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
@@ -60,8 +60,7 @@ pub struct SyncManager {
 
     coinbase_maturity: u64, // Is different in testnet
 
-    force_sync_sender: mpsc::Sender<()>,
-    force_sync_receiver: mpsc::Receiver<()>,
+    force_sync_sender: Option<mpsc::Sender<()>>,
 }
 
 impl SyncManager {
@@ -71,8 +70,6 @@ impl SyncManager {
         address_manager: Arc<Mutex<AddressManager>>,
         keys: Arc<Keys>,
     ) -> Self {
-        let (force_sync_sender, force_sync_receiver) = mpsc::channel(1);
-
         let network_params = NetworkParams::from(network_id);
         let coinbase_maturity = network_params
             .coinbase_transaction_maturity_period_daa
@@ -88,8 +85,7 @@ impl SyncManager {
             used_outpoints: Mutex::new(HashMap::new()),
             first_sync_done: AtomicBool::new(false),
             coinbase_maturity,
-            force_sync_sender,
-            force_sync_receiver,
+            force_sync_sender: None,
         }
     }
 
@@ -423,11 +419,32 @@ impl SyncManager {
         self.utxos_sorted_by_amount.lock().await.clone()
     }
 
+    pub async fn force_sync(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let force_sync_sender = &self.force_sync_sender;
+        if let Some(sender) = force_sync_sender {
+            if let Err(e) = sender.send(()).await {
+                error!("Error sending to force sync channel: {}", e);
+                // Do not return this error, sync will happen anyway
+                // We don't want to disrupt operation because of this
+            }
+        } else {
+            return Err(Box::new(UserInputError::new(
+                "Force sync sender is not initialized".to_string(),
+            )));
+        }
+        Ok(())
+    }
+
     async fn sync_loop(
         sync_manager: Arc<Mutex<SyncManager>>,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let mut force_sync_receiver: mpsc::Receiver<()>;
+        let force_sync_sender: mpsc::Sender<()>;
         {
-            let sync_manager = sync_manager.lock().await;
+            let mut sync_manager = sync_manager.lock().await;
+            (force_sync_sender, force_sync_receiver) = mpsc::channel(1);
+            sync_manager.force_sync_sender = Some(force_sync_sender);
+
             info!("Starting sync loop");
             {
                 let mut address_manager = sync_manager.address_manager.lock().await;
@@ -440,7 +457,10 @@ impl SyncManager {
 
         let mut interval = interval(core::time::Duration::from_secs(SYNC_INTERVAL));
         loop {
-            _ = interval.tick();
+            tokio::select! {
+                _ = interval.tick() => (),
+                _ = force_sync_receiver.recv() => ()
+            }
 
             {
                 let mut sync_manager = sync_manager.lock().await;
