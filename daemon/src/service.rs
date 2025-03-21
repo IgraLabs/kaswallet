@@ -1,25 +1,18 @@
 ﻿use crate::address_manager::{AddressManager, AddressSet};
-use crate::args::Args;
 use crate::model::{
     Keychain, UserInputError, WalletAddress, WalletSignableTransaction, WalletUtxo,
 };
 use crate::sync_manager::SyncManager;
 use common::keys::Keys;
 use kaspa_addresses::Address;
-use kaspa_bip32::{ChildNumber, ExtendedPrivateKey, Mnemonic, PrivateKey, SecretKey};
-use kaspa_consensus_core::sign::Signed::Partially;
-use kaspa_consensus_core::sign::{sign_with_multiple, sign_with_multiple_v2, Signed};
-use kaspa_consensus_core::tx::SignableTransaction;
-use kaspa_p2p_lib::pb::TransactionMessage;
-use kaspa_wallet_keys::derivation::gen1::WalletDerivationManager;
-use kaspa_wallet_keys::derivation_path;
-use kaspa_wrpc_client::prelude::{RpcApi, RpcResult};
+use kaspa_bip32::{ExtendedPrivateKey, Mnemonic, SecretKey};
+use kaspa_consensus_core::sign::Signed::{Fully, Partially};
+use kaspa_consensus_core::sign::{sign_with_multiple_v2, Signed};
+use kaspa_wallet_core::rpc::RpcApi;
 use kaspa_wrpc_client::KaspaRpcClient;
 use log::{error, info, trace};
-use prost::Message;
 use std::collections::HashMap;
 use std::error::Error;
-use std::future::Future;
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -30,12 +23,11 @@ use wallet_proto::wallet_proto::{
     CreateUnsignedTransactionsRequest, CreateUnsignedTransactionsResponse, GetAddressesRequest,
     GetAddressesResponse, GetBalanceRequest, GetBalanceResponse, GetUtxosRequest, GetUtxosResponse,
     GetVersionRequest, GetVersionResponse, NewAddressRequest, NewAddressResponse, SendRequest,
-    SendResponse, SignRequest, SignResponse, Utxo as ProtoUtxo,
+    SendResponse, SignRequest, SignResponse, TransactionDescription, Utxo as ProtoUtxo,
 };
 
 #[derive(Debug)]
 pub struct KasWalletService {
-    args: Args,
     kaspa_rpc_client: Arc<KaspaRpcClient>,
     keys: Arc<Keys>,
     address_manager: Arc<Mutex<AddressManager>>,
@@ -104,7 +96,7 @@ impl KasWalletService {
     }
 
     fn encode_transactions(
-        transactions: Vec<WalletSignableTransaction>,
+        transactions: &Vec<WalletSignableTransaction>,
     ) -> Result<Vec<Vec<u8>>, Status> {
         let mut encoded_transactions = vec![];
         for unsigned_transaction in transactions {
@@ -170,7 +162,7 @@ impl KasWalletService {
             }
         }
 
-        let mut signable_transaction = &unsigned_transaction.transaction;
+        let signable_transaction = &unsigned_transaction.transaction;
         Ok(sign_with_multiple_v2(
             signable_transaction.clone().unwrap(),
             &private_keys,
@@ -195,7 +187,7 @@ impl KasWalletService {
 
     async fn submit_transactions(
         &self,
-        signed_transactions: Vec<WalletSignableTransaction>,
+        signed_transactions: &Vec<WalletSignableTransaction>,
     ) -> Result<Vec<String>, Status> {
         let mut transaction_ids = vec![];
         for signed_transaction in signed_transactions {
@@ -203,7 +195,11 @@ impl KasWalletService {
                 return Err(Status::invalid_argument("Transaction is not fully signed"));
             }
 
-            let rpc_transaction = (&signed_transaction.transaction.unwrap().tx).into();
+            let tx = match &signed_transaction.transaction {
+                Fully(tx) => tx,
+                Partially(tx) => tx,
+            };
+            let rpc_transaction = (&tx.tx).into();
             let submit_result = self
                 .kaspa_rpc_client
                 .submit_transaction(rpc_transaction, false)
@@ -227,18 +223,53 @@ impl KasWalletService {
 
         Ok(transaction_ids)
     }
+
+    async fn create_unsigned_transactions(
+        &self,
+        transaction_description: TransactionDescription,
+    ) -> Result<Vec<WalletSignableTransaction>, Status> {
+        // TODO: implement manual utxo selection
+        if !transaction_description.utxos.is_empty() {
+            return Err(Status::invalid_argument("UTXOs are not supported yet"));
+        }
+
+        self.check_is_synced().await?;
+
+        let sync_manager = self.sync_manager.lock().await;
+
+        let unsigned_transactions_result = sync_manager
+            .create_unsigned_transactions(
+                transaction_description.to_address,
+                transaction_description.amount,
+                transaction_description.is_send_all,
+                transaction_description.payload,
+                transaction_description.from_addresses,
+                transaction_description.utxos,
+                transaction_description.use_existing_change_address,
+                transaction_description.fee_policy,
+            )
+            .await;
+        let unsigned_transactions = match unsigned_transactions_result {
+            Ok(unsigned_transactions) => unsigned_transactions,
+            Err(e) => {
+                return match e.downcast::<UserInputError>() {
+                    Ok(e) => Err(Status::invalid_argument(e.message)),
+                    Err(_) => Err(Status::internal("Internal server error")),
+                }
+            }
+        };
+        Ok(unsigned_transactions)
+    }
 }
 
 impl KasWalletService {
     pub fn new(
-        args: Args,
         kaspa_rpc_client: Arc<KaspaRpcClient>,
         address_manager: Arc<Mutex<AddressManager>>,
         sync_manager: Arc<Mutex<SyncManager>>,
         keys: Arc<Keys>,
     ) -> Self {
         Self {
-            args,
             kaspa_rpc_client,
             address_manager,
             sync_manager,
@@ -500,39 +531,12 @@ impl Wallet for KasWalletService {
             }
         };
 
-        // TODO: implement manual utxo selection
-        if !transaction_description.utxos.is_empty() {
-            return Err(Status::invalid_argument("UTXOs are not supported yet"));
-        }
-
-        self.check_is_synced().await?;
-
-        let sync_manager = self.sync_manager.lock().await;
-
-        let unsigned_transactions_result = sync_manager
-            .create_unsigned_transactions(
-                transaction_description.to_address,
-                transaction_description.amount,
-                transaction_description.is_send_all,
-                transaction_description.payload,
-                transaction_description.from_addresses,
-                transaction_description.utxos,
-                transaction_description.use_existing_change_address,
-                transaction_description.fee_policy,
-            )
-            .await;
-        let unsigned_transactions = match unsigned_transactions_result {
-            Ok(unsigned_transactions) => unsigned_transactions,
-            Err(e) => {
-                return match e.downcast::<UserInputError>() {
-                    Ok(e) => Err(Status::invalid_argument(e.message)),
-                    Err(_) => Err(Status::internal("Internal server error")),
-                }
-            }
-        };
+        let unsigned_transactions = self
+            .create_unsigned_transactions(transaction_description)
+            .await?;
 
         Ok(Response::new(CreateUnsignedTransactionsResponse {
-            unsigned_transactions: Self::encode_transactions(unsigned_transactions)?,
+            unsigned_transactions: Self::encode_transactions(&unsigned_transactions)?,
         }))
     }
 
@@ -547,7 +551,7 @@ impl Wallet for KasWalletService {
             .sign_transactions(unsigned_transactions, &request.password)
             .await?;
 
-        let encoded_signed_transactions = Self::encode_transactions(signed_transactions)?;
+        let encoded_signed_transactions = Self::encode_transactions(&signed_transactions)?;
 
         Ok(Response::new(SignResponse {
             signed_transactions: encoded_signed_transactions,
@@ -562,16 +566,41 @@ impl Wallet for KasWalletService {
 
         let request = request.into_inner();
         let encoded_signed_transactions = &request.transactions;
-        let signed_transactions = Self::decode_transactions(encoded_signed_transactions)?;
+        let signed_transactions = Self::decode_transactions(&encoded_signed_transactions)?;
 
-        let transaction_ids = self.submit_transactions(signed_transactions).await?;
+        let transaction_ids = self.submit_transactions(&signed_transactions).await?;
 
         Ok(Response::new(BroadcastResponse { transaction_ids }))
     }
 
     async fn send(&self, request: Request<SendRequest>) -> Result<Response<SendResponse>, Status> {
         trace!("Received request: {:?}", request.get_ref());
-        todo!()
+
+        let request = request.into_inner();
+        let transaction_description = match request.transaction_description {
+            Some(description) => description,
+            None => {
+                return Err(Status::invalid_argument(
+                    "Transaction description is required",
+                ))
+            }
+        };
+
+        let unsigned_transactions = self
+            .create_unsigned_transactions(transaction_description)
+            .await?;
+
+        let signed_transactions = self
+            .sign_transactions(unsigned_transactions, &request.password)
+            .await?;
+
+        let transaction_ids = self.submit_transactions(&signed_transactions).await?;
+        let encoded_signed_transactions = Self::encode_transactions(&signed_transactions)?;
+
+        Ok(Response::new(SendResponse {
+            transaction_ids,
+            signed_transactions: encoded_signed_transactions,
+        }))
     }
 
     async fn get_version(

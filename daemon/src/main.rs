@@ -57,7 +57,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let sync_manager_handle = SyncManager::start(sync_manager.clone());
 
     let service = service::KasWalletService::new(
-        args.clone(),
         kaspa_rpc_client.clone(),
         address_manager.clone(),
         sync_manager.clone(),

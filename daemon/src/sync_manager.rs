@@ -6,7 +6,6 @@ use crate::model::{
 use chrono::{DateTime, Duration, Utc};
 use common::keys::Keys;
 use kaspa_addresses::Address;
-use kaspa_bip32::secp256k1::PublicKey;
 use kaspa_consensus_core::constants::SOMPI_PER_KASPA;
 use kaspa_consensus_core::network::NetworkId;
 use kaspa_consensus_core::tx::{
@@ -14,7 +13,6 @@ use kaspa_consensus_core::tx::{
     UtxoEntry,
 };
 use kaspa_txscript::pay_to_address_script;
-use kaspa_wallet_core::tx::MAXIMUM_STANDARD_TRANSACTION_MASS;
 use kaspa_wallet_core::utxo::NetworkParams;
 use kaspa_wrpc_client::prelude::{
     RpcAddress, RpcApi, RpcMempoolEntryByAddress, RpcUtxosByAddressesEntry,
@@ -31,7 +29,7 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
 use tokio::task::JoinHandle;
 use tokio::time::interval;
-use wallet_proto::wallet_proto::{fee_policy, FeePolicy, Outpoint, ScriptPublicKey};
+use wallet_proto::wallet_proto::{fee_policy, FeePolicy, Outpoint};
 
 const SYNC_INTERVAL: u64 = 10; // seconds
 
