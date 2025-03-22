@@ -491,11 +491,13 @@ impl SyncManager {
             .kaspa_rpc_client
             .get_mempool_entries_by_addresses(rpc_addresses.clone(), true, true)
             .await?;
+        debug!("Got {} mempool entries", mempool_entries_by_addresses.len());
 
         let get_utxo_by_addresses_response = self
             .kaspa_rpc_client
             .get_utxos_by_addresses(rpc_addresses)
             .await?;
+        debug!("Got {} utxo entries", get_utxo_by_addresses_response.len());
 
         self.update_utxo_set(
             get_utxo_by_addresses_response,

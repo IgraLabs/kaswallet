@@ -145,6 +145,7 @@ impl AddressManager {
         debug!("Collecting addresses from {} to {}", start, end);
 
         let addresses = self.addresses_to_query(start, end)?;
+        debug!("Querying {} addresses", addresses.len());
 
         let get_balances_by_addresses_response = self
             .kaspa_rpc_client

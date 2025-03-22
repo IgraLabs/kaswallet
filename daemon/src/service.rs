@@ -335,14 +335,16 @@ impl Wallet for KasWalletService {
 
         let mut addresses = vec![];
         let address_manager = self.address_manager.lock().await;
-        for i in 0..self.keys.last_used_external_index.load(Relaxed) {
+        for i in 0..=self.keys.last_used_external_index.load(Relaxed) {
             let wallet_address = WalletAddress {
                 index: i,
                 cosigner_index: self.keys.cosigner_index,
                 keychain: Keychain::External,
             };
             match address_manager.calculate_address(&wallet_address) {
-                Ok(address) => addresses.push(address.to_string()),
+                Ok(address) => {
+                    addresses.push(address.to_string());
+                }
                 Err(e) => {
                     return Err(Status::internal(format!(
                         "Failed to calculate address: {}",
