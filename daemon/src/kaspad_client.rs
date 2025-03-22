@@ -9,15 +9,14 @@ pub async fn connect(
     server: Option<String>,
     network_id: NetworkId,
 ) -> Result<Arc<KaspaRpcClient>, Box<dyn Error>> {
-    let mut url = server.unwrap_or_else(|| "localhost".to_string());
-    if !url.contains(":") {
-        url.push_str(&format!(
-            ":{}",
+    let url = match server {
+        Some(server) => server,
+        None => format!(
+            "ws://localhost:{}",
             network_id.network_type.default_borsh_rpc_port()
-        ))
-    }
+        ),
+    };
 
-    url = format!("ws://{}", url);
     info!("Connecting to kaspa node at {}", url);
 
     let options = Some(ConnectOptions {
