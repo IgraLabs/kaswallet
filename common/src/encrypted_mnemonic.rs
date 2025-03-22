@@ -1,11 +1,13 @@
 ﻿use argon2::password_hash::{rand_core::OsRng, SaltString};
 use argon2::{Argon2, PasswordHasher};
-use chacha20poly1305::aead::{AeadMutInPlace, Key};
+use chacha20poly1305::aead::{AeadMutInPlace, Key, Nonce};
 use chacha20poly1305::{aead::KeyInit, AeadCore, XChaCha20Poly1305};
 use kaspa_bip32::mnemonic::Mnemonic;
 use kaspa_bip32::Language;
 use serde::{Deserialize, Serialize};
 use std::error::Error;
+
+const NONCE_SIZE: usize = 24;
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct EncryptedMnemonic {
@@ -36,12 +38,14 @@ impl EncryptedMnemonic {
         let key = Key::<XChaCha20Poly1305>::from_slice(key_bytes);
         let mut cipher = XChaCha20Poly1305::new(&key);
 
-        let mut cipher_bytes = hex::decode(&self.cipher)?;
-        let nonce = XChaCha20Poly1305::generate_nonce(OsRng);
+        let cipher_bytes = hex::decode(&self.cipher)?;
+        let (nonce_bytes, cipher_text) = cipher_bytes.split_at(NONCE_SIZE);
+        let mut cipher_text = cipher_text.to_vec();
+        let nonce = Nonce::<XChaCha20Poly1305>::from_slice(nonce_bytes);
         cipher
-            .decrypt_in_place(&nonce, &[], &mut cipher_bytes)
+            .decrypt_in_place(&nonce, &[], &mut cipher_text)
             .map_err(|e| format!("Decryption failed: {}", e))?;
-        let mnemonic_string = String::from_utf8(cipher_bytes)?;
+        let mnemonic_string = String::from_utf8(cipher_text)?;
 
         let mnemonic = Mnemonic::new(mnemonic_string, Language::English)?;
         Ok(mnemonic)
@@ -61,11 +65,15 @@ impl EncryptedMnemonic {
         let nonce = XChaCha20Poly1305::generate_nonce(OsRng);
 
         let mut buffer = mnemonic.phrase().as_bytes().to_vec();
-        buffer.reserve(16);
+        println!("Just mnemnonic: {:?}", buffer);
+        buffer.reserve(NONCE_SIZE);
+        println!("After reserve: {:?}", buffer);
         cipher
             .encrypt_in_place(&nonce, &[], &mut buffer)
             .map_err(|e| format!("Encryption failed: {}", e))?;
+        println!("after encrypt: {:?}", buffer);
         buffer.splice(0..0, nonce.iter().cloned());
+        println!("after splice: {:?}", buffer);
 
         Ok(buffer)
     }

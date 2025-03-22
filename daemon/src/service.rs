@@ -130,7 +130,7 @@ impl KasWalletService {
     ) -> Result<Vec<WalletSignableTransaction>, Status> {
         let mnemonics = self.keys.decrypt_mnemonics(password).map_err(|e| {
             error!("Failed to decrypt mnemonics: {}", e);
-            Status::internal("Invalid password")
+            Status::invalid_argument("Failed to decrypt mnemonics (probably an invalid password?)")
         })?;
         let extended_private_keys = Self::mnemonics_to_private_keys(mnemonics)?;
 
