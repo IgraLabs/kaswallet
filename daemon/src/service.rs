@@ -4,15 +4,22 @@ use crate::model::{
 };
 use crate::sync_manager::SyncManager;
 use common::keys::Keys;
+use itertools::Itertools;
 use kaspa_addresses::Address;
-use kaspa_bip32::{ExtendedPrivateKey, Mnemonic, SecretKey};
+use kaspa_bip32::{secp256k1, ExtendedPrivateKey, Mnemonic, SecretKey};
+use kaspa_consensus_core::hashing::sighash::{
+    calc_schnorr_signature_hash, SigHashReusedValuesUnsync,
+};
+use kaspa_consensus_core::hashing::sighash_type::SIG_HASH_ALL;
+use kaspa_consensus_core::sign::Signed;
 use kaspa_consensus_core::sign::Signed::{Fully, Partially};
-use kaspa_consensus_core::sign::{sign_with_multiple_v2, Signed};
+use kaspa_consensus_core::tx::SignableTransaction;
 use kaspa_wallet_core::rpc::RpcApi;
 use kaspa_wrpc_client::KaspaRpcClient;
 use log::{error, info, trace};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::error::Error;
+use std::iter::once;
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -165,10 +172,10 @@ impl KasWalletService {
         }
 
         let signable_transaction = &unsigned_transaction.transaction;
-        Ok(sign_with_multiple_v2(
-            signable_transaction.clone().unwrap(),
-            &private_keys,
-        ))
+        let signed_transaction =
+            sign_with_multiple(signable_transaction.clone().unwrap(), &private_keys);
+
+        Ok(signed_transaction)
     }
 
     fn mnemonics_to_private_keys(
@@ -616,5 +623,55 @@ impl Wallet for KasWalletService {
         Ok(Response::new(GetVersionResponse {
             version: env!("CARGO_PKG_VERSION").to_string(),
         }))
+    }
+}
+
+// This is a copy of the sign_with_multiple_v2 function from the wallet core
+// With the following addition: Update the sig_op_count
+pub fn sign_with_multiple(mut mutable_tx: SignableTransaction, privkeys: &[[u8; 32]]) -> Signed {
+    let mut map = BTreeMap::new();
+    for privkey in privkeys {
+        let schnorr_key =
+            secp256k1::Keypair::from_seckey_slice(secp256k1::SECP256K1, privkey).unwrap();
+        let schnorr_public_key = schnorr_key.public_key().x_only_public_key().0;
+        let script_pub_key_script = once(0x20)
+            .chain(schnorr_public_key.serialize().into_iter())
+            .chain(once(0xac))
+            .collect_vec();
+        map.insert(script_pub_key_script, schnorr_key);
+    }
+
+    let reused_values = SigHashReusedValuesUnsync::new();
+    let mut additional_signatures_required = false;
+    for i in 0..mutable_tx.tx.inputs.len() {
+        let script = mutable_tx.entries[i]
+            .as_ref()
+            .unwrap()
+            .script_public_key
+            .script();
+        if let Some(schnorr_key) = map.get(script) {
+            let sig_hash = calc_schnorr_signature_hash(
+                &mutable_tx.as_verifiable(),
+                i,
+                SIG_HASH_ALL,
+                &reused_values,
+            );
+            let msg =
+                secp256k1::Message::from_digest_slice(sig_hash.as_bytes().as_slice()).unwrap();
+            let sig: [u8; 64] = *schnorr_key.sign_schnorr(msg).as_ref();
+            // This represents OP_DATA_65 <SIGNATURE+SIGHASH_TYPE> (since signature length is 64 bytes and SIGHASH_TYPE is one byte)
+            mutable_tx.tx.inputs[i].signature_script = std::iter::once(65u8)
+                .chain(sig)
+                .chain([SIG_HASH_ALL.to_u8()])
+                .collect();
+            mutable_tx.tx.inputs[i].sig_op_count = 1;
+        } else {
+            additional_signatures_required = true;
+        }
+    }
+    if additional_signatures_required {
+        Partially(mutable_tx)
+    } else {
+        Fully(mutable_tx)
     }
 }
