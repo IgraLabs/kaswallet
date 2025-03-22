@@ -116,7 +116,9 @@ impl KasWalletService {
         let mut unsigned_transactions = vec![];
         for encoded_transaction_transaction in encoded_transactions {
             let unsigned_transaction = borsh::from_slice(&encoded_transaction_transaction)
-                .map_err(|e| Status::invalid_argument("Unable to decode transactions"))?;
+                .map_err(|e| {
+                    Status::invalid_argument(format!("Unable to decode transactions: {}", e))
+                })?;
             unsigned_transactions.push(unsigned_transaction);
         }
         Ok(unsigned_transactions)
