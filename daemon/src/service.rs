@@ -11,12 +11,12 @@ use kaspa_consensus_core::hashing::sighash::{
     calc_schnorr_signature_hash, SigHashReusedValuesUnsync,
 };
 use kaspa_consensus_core::hashing::sighash_type::SIG_HASH_ALL;
-use kaspa_consensus_core::sign::Signed;
 use kaspa_consensus_core::sign::Signed::{Fully, Partially};
+use kaspa_consensus_core::sign::{verify, Signed};
 use kaspa_consensus_core::tx::SignableTransaction;
 use kaspa_wallet_core::rpc::RpcApi;
 use kaspa_wrpc_client::KaspaRpcClient;
-use log::{error, info, trace};
+use log::{debug, error, info, trace};
 use std::collections::{BTreeMap, HashMap};
 use std::error::Error;
 use std::iter::once;
@@ -175,6 +175,7 @@ impl KasWalletService {
         let signed_transaction =
             sign_with_multiple(signable_transaction.clone().unwrap(), &private_keys);
 
+        sanity_check_verify(&signed_transaction)?;
         Ok(signed_transaction)
     }
 
@@ -268,6 +269,24 @@ impl KasWalletService {
             }
         };
         Ok(unsigned_transactions)
+    }
+}
+
+fn sanity_check_verify(signed_transaction: &Signed) -> Result<(), Status> {
+    if let Fully(_) = signed_transaction {
+        debug!("Transaction is fully signed");
+    }
+    if let Partially(_) = signed_transaction {
+        debug!("Transaction is partially signed, so can't verify");
+        return Ok(());
+    }
+    let verify_result = verify(&signed_transaction.clone().unwrap().as_verifiable());
+    if let Err(e) = verify_result {
+        error!("Signed transaction does not verify correctly: {}", e);
+        Err(Status::internal("Internal server error"))
+    } else {
+        debug!("Signed transaction verifies correctly");
+        Ok(())
     }
 }
 
@@ -660,11 +679,10 @@ pub fn sign_with_multiple(mut mutable_tx: SignableTransaction, privkeys: &[[u8; 
                 secp256k1::Message::from_digest_slice(sig_hash.as_bytes().as_slice()).unwrap();
             let sig: [u8; 64] = *schnorr_key.sign_schnorr(msg).as_ref();
             // This represents OP_DATA_65 <SIGNATURE+SIGHASH_TYPE> (since signature length is 64 bytes and SIGHASH_TYPE is one byte)
-            mutable_tx.tx.inputs[i].signature_script = std::iter::once(65u8)
+            mutable_tx.tx.inputs[i].signature_script = once(65u8)
                 .chain(sig)
                 .chain([SIG_HASH_ALL.to_u8()])
                 .collect();
-            mutable_tx.tx.inputs[i].sig_op_count = 1;
         } else {
             additional_signatures_required = true;
         }

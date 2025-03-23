@@ -248,7 +248,12 @@ impl SyncManager {
         for utxo in selected_utxos {
             let previous_outpoint =
                 TransactionOutpoint::new(utxo.outpoint.transaction_id, utxo.outpoint.index);
-            let input = TransactionInput::new(previous_outpoint, vec![], 0, 0);
+            let input = TransactionInput::new(
+                previous_outpoint,
+                vec![],
+                0,
+                self.keys.minimum_signatures as u8,
+            );
             inputs.push(input);
 
             let utxo_entry: UtxoEntry = utxo.utxo_entry.into();
@@ -410,7 +415,7 @@ impl SyncManager {
         selected_utxos: &Vec<WalletUtxo>,
     ) -> Result<u64, Box<dyn Error + Send + Sync>> {
         // TODO: Actually estimate mass
-        Ok(2000)
+        Ok(10000)
     }
 
     pub async fn get_utxos_sorted_by_amount(&self) -> Vec<WalletUtxo> {

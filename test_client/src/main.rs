@@ -2,7 +2,7 @@ use kaspa_consensus_core::constants::SOMPI_PER_KASPA;
 use tonic::Request;
 use wallet_proto::wallet_proto::wallet_client::WalletClient;
 use wallet_proto::wallet_proto::{
-    GetAddressesRequest, GetVersionRequest, SendRequest, TransactionDescription,
+    AddressBalances, GetAddressesRequest, GetVersionRequest, SendRequest, TransactionDescription,
 };
 
 #[tokio::main]
@@ -51,13 +51,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("No available balance to transfer");
         return Ok(());
     }
-    let from_address_balance_response = get_balance_response.address_balances[0].clone();
-    let from_address = from_address_balance_response.address;
+    let from_address_balance_response = get_balance_response
+        .address_balances
+        .iter()
+        .find(|address_balance| address_balance.available > 0)
+        .unwrap();
+    let from_address = from_address_balance_response.address.clone();
+    let to_address = get_addresses_response
+        .address
+        .iter()
+        .find(|address| !address.to_string().eq(&from_address))
+        .unwrap();
+    let default_address_balances = &AddressBalances {
+        address: to_address.clone(),
+        available: 0,
+        pending: 0,
+    };
     let to_address_balance_response = get_balance_response
         .address_balances
         .iter()
-        .find(|address_balance| address_balance.available > 0);
-    let to_address_balance_response = to_address_balance_response.unwrap();
+        .find(|address_balance| address_balance.address.eq(to_address))
+        .unwrap_or(&default_address_balances);
     let to_address = to_address_balance_response.address.clone();
     println!(
         "FromAddress={:?}; Balance: {}",
@@ -72,7 +86,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .send(Request::new(SendRequest {
             transaction_description: Some(TransactionDescription {
                 to_address,
-                amount: 100 * SOMPI_PER_KASPA,
+                amount: 1 * SOMPI_PER_KASPA,
                 is_send_all: false,
                 payload: vec![],
                 from_addresses: vec![from_address],
