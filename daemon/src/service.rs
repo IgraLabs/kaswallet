@@ -33,7 +33,6 @@ use wallet_proto::wallet_proto::{
     SendResponse, SignRequest, SignResponse, TransactionDescription, Utxo as ProtoUtxo,
 };
 
-#[derive(Debug)]
 pub struct KasWalletService {
     kaspa_rpc_client: Arc<KaspaRpcClient>,
     keys: Arc<Keys>,
@@ -220,7 +219,7 @@ impl KasWalletService {
                     return Err(Status::invalid_argument(format!(
                         "Failed to submit transaction: {}",
                         e
-                    )))
+                    )));
                 }
                 Ok(rpc_transaction_id) => {
                     transaction_ids.push(rpc_transaction_id.to_string());
@@ -264,8 +263,11 @@ impl KasWalletService {
             Err(e) => {
                 return match e.downcast::<UserInputError>() {
                     Ok(e) => Err(Status::invalid_argument(e.message)),
-                    Err(_) => Err(Status::internal("Internal server error")),
-                }
+                    Err(e) => {
+                        error!("Error creating unsigned transaction: {}", e);
+                        Err(Status::internal("Internal server error"))
+                    }
+                };
             }
         };
         Ok(unsigned_transactions)
@@ -375,7 +377,7 @@ impl Wallet for KasWalletService {
                     return Err(Status::internal(format!(
                         "Failed to calculate address: {}",
                         e
-                    )))
+                    )));
                 }
             }
         }
@@ -557,7 +559,7 @@ impl Wallet for KasWalletService {
             None => {
                 return Err(Status::invalid_argument(
                     "Transaction description is required",
-                ))
+                ));
             }
         };
 
@@ -612,7 +614,7 @@ impl Wallet for KasWalletService {
             None => {
                 return Err(Status::invalid_argument(
                     "Transaction description is required",
-                ))
+                ));
             }
         };
 

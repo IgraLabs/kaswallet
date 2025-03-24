@@ -42,17 +42,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let kaspa_rpc_client = kaspad_client::connect(args.server.clone(), args.network_id()).await?;
 
-    let prefix = args.network_id().network_type.into();
+    let address_prefix = args.network_id().network_type.into();
     let address_manager = Arc::new(Mutex::new(AddressManager::new(
         kaspa_rpc_client.clone(),
         keys.clone(),
-        prefix,
+        address_prefix,
     )));
     let sync_manager = Arc::new(Mutex::new(SyncManager::new(
         args.network_id(),
         kaspa_rpc_client.clone(),
         address_manager.clone(),
         keys.clone(),
+        address_prefix,
     )));
     let sync_manager_handle = SyncManager::start(sync_manager.clone());
 

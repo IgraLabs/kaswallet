@@ -5,7 +5,8 @@ use crate::model::{
 };
 use chrono::{DateTime, Duration, Utc};
 use common::keys::Keys;
-use kaspa_addresses::Address;
+use kaspa_addresses::{Address, Prefix, Version};
+use kaspa_bip32::{secp256k1, ExtendedPrivateKey, PublicKey, PublicKeyBytes, SecretKey, KEY_SIZE};
 use kaspa_consensus_core::constants::SOMPI_PER_KASPA;
 use kaspa_consensus_core::network::NetworkId;
 use kaspa_consensus_core::tx::{
@@ -13,6 +14,8 @@ use kaspa_consensus_core::tx::{
     UtxoEntry,
 };
 use kaspa_txscript::pay_to_address_script;
+use kaspa_wallet_core::prelude::AddressPrefix;
+use kaspa_wallet_core::tx::MassCalculator;
 use kaspa_wallet_core::utxo::NetworkParams;
 use kaspa_wrpc_client::prelude::{
     RpcAddress, RpcApi, RpcMempoolEntryByAddress, RpcUtxosByAddressesEntry,
@@ -44,11 +47,12 @@ const MIN_CHANGE_TARGET: u64 = SOMPI_PER_KASPA * 10;
 // The current minimal fee rate according to mempool standards
 const MIN_FEE_RATE: f64 = 1.0;
 
-#[derive(Debug)]
 pub struct SyncManager {
     kaspa_rpc_client: Arc<KaspaRpcClient>,
     address_manager: Arc<Mutex<AddressManager>>,
+    mass_calculator: MassCalculator,
     keys: Arc<Keys>,
+    address_prefix: AddressPrefix,
 
     start_time_of_last_completed_refresh: Mutex<DateTime<Utc>>,
     utxos_sorted_by_amount: Mutex<Vec<WalletUtxo>>,
@@ -67,16 +71,20 @@ impl SyncManager {
         kaspa_rpc_client: Arc<KaspaRpcClient>,
         address_manager: Arc<Mutex<AddressManager>>,
         keys: Arc<Keys>,
+        address_prefix: Prefix,
     ) -> Self {
         let network_params = NetworkParams::from(network_id);
         let coinbase_maturity = network_params
             .coinbase_transaction_maturity_period_daa
             .load(Relaxed);
+        let mass_calculator = MassCalculator::new(&network_id.network_type.into());
 
         Self {
             kaspa_rpc_client,
             address_manager,
+            mass_calculator,
             keys,
+            address_prefix,
             start_time_of_last_completed_refresh: Mutex::new(DateTime::<Utc>::MIN_UTC),
             utxos_sorted_by_amount: Mutex::new(vec![]),
             mempool_excluded_utxos: Mutex::new(HashMap::new()),
@@ -192,6 +200,7 @@ impl SyncManager {
                 fee_rate,
                 max_fee,
                 from_addresses,
+                &payload,
             )
             .await?;
 
@@ -203,7 +212,7 @@ impl SyncManager {
             payments.push(WalletPayment::new(change_address.clone(), change_sompi));
         }
         let unsigned_transaction = self
-            .generate_unsigned_transactions(payments, payload, selected_utxos)
+            .generate_unsigned_transaction(payments, payload, &selected_utxos)
             .await?;
 
         let unsigned_transactions = self
@@ -233,11 +242,11 @@ impl SyncManager {
         Ok(vec![unsigned_transaction])
     }
 
-    async fn generate_unsigned_transactions(
+    async fn generate_unsigned_transaction(
         &self,
         payments: Vec<WalletPayment>,
         payload: Vec<u8>,
-        selected_utxos: Vec<WalletUtxo>,
+        selected_utxos: &Vec<WalletUtxo>,
     ) -> Result<WalletSignableTransaction, Box<dyn Error + Send + Sync>> {
         let mut sorted_extended_public_keys = self.keys.public_keys.clone();
         sorted_extended_public_keys.sort();
@@ -256,7 +265,7 @@ impl SyncManager {
             );
             inputs.push(input);
 
-            let utxo_entry: UtxoEntry = utxo.utxo_entry.into();
+            let utxo_entry: UtxoEntry = utxo.utxo_entry.clone().into();
             utxo_entries.push(utxo_entry);
             {
                 let address_manager = self.address_manager.lock().await;
@@ -290,6 +299,7 @@ impl SyncManager {
         fee_rate: f64,
         max_fee: u64,
         from_addresses: Vec<&WalletAddress>,
+        payload: &Vec<u8>,
     ) -> Result<(Vec<WalletUtxo>, u64, u64), Box<dyn Error + Send + Sync>> {
         let mut total_value = 0;
         let mut selected_utxos = vec![];
@@ -301,9 +311,7 @@ impl SyncManager {
         let mut iteration = async |utxo: &WalletUtxo,
                                    avoid_preselected: bool|
                -> Result<bool, Box<dyn Error + Send + Sync>> {
-            info!("checking UTXO: {:?}", utxo);
             if !from_addresses.is_empty() && !from_addresses.contains(&&utxo.address) {
-                info!("From_addresses doesn't contain UTXO address");
                 return Ok(true);
             }
             if sync_manager.is_utxo_pending(utxo, dag_info.virtual_daa_score) {
@@ -338,6 +346,7 @@ impl SyncManager {
                     fee_rate,
                     max_fee,
                     estimated_recipient_value,
+                    payload,
                 )
                 .await?;
 
@@ -405,8 +414,11 @@ impl SyncManager {
         fee_rate: f64,
         max_fee: u64,
         estimated_recipient_value: u64,
+        payload: &Vec<u8>,
     ) -> Result<u64, Box<dyn Error + Send + Sync>> {
-        let estimated_mass = self.estimate_mass(selected_utxos).await?;
+        let estimated_mass = self
+            .estimate_mass(selected_utxos, estimated_recipient_value, payload)
+            .await?;
         let calculated_fee = ((estimated_mass as f64) * (fee_rate)).ceil() as u64;
         let fee = min(calculated_fee, max_fee);
         Ok(fee)
@@ -415,9 +427,46 @@ impl SyncManager {
     async fn estimate_mass(
         &self,
         selected_utxos: &Vec<WalletUtxo>,
+        estimated_recipient_value: u64,
+        payload: &Vec<u8>,
     ) -> Result<u64, Box<dyn Error + Send + Sync>> {
-        // TODO: Actually estimate mass
-        Ok(10000)
+        let fake_public_key = &[0u8; 33];
+        // We assume the worst case where the recipient address is ECDSA. In this case the scriptPubKey will be the longest.
+        let fake_address = Address::new(self.address_prefix, Version::PubKeyECDSA, fake_public_key);
+
+        let mut total_value = 0;
+        for utxo in selected_utxos {
+            total_value += utxo.utxo_entry.amount;
+        }
+
+        // This is an approximation for the distribution of value between the recipient output and the change output.
+        let mock_payments = if total_value > estimated_recipient_value {
+            vec![
+                WalletPayment {
+                    address: fake_address.clone(),
+                    amount: estimated_recipient_value,
+                },
+                WalletPayment {
+                    address: fake_address,
+                    amount: total_value - estimated_recipient_value,
+                },
+            ]
+        } else {
+            vec![WalletPayment {
+                address: fake_address,
+                amount: total_value,
+            }]
+        };
+        let mock_transaction = self
+            .generate_unsigned_transaction(mock_payments, payload.clone(), selected_utxos)
+            .await?;
+
+        Ok(self
+            .mass_calculator
+            .calc_compute_mass_for_unsigned_consensus_transaction(
+                &mock_transaction.transaction.unwrap().tx,
+                self.keys.minimum_signatures,
+            ))
     }
 
     pub async fn get_utxos_sorted_by_amount(&self) -> Vec<WalletUtxo> {
