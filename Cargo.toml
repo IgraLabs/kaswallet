@@ -12,6 +12,17 @@ version = "0.1.1"
 edition = "2024"
 authors = ["Kaspa Developers", "IgraNet Developers"]
 license = "ISC"
+repository = "https://github.com/IgraLabs/kaswallet"
+include = [
+    "src/**/*.rs",
+    "src/**/*.s",
+    "src/**/*.r",
+    "proto/**/*.proto",
+    "benches/**/*.rs",
+    "build.rs",
+    "Cargo.toml",
+    "Cargo.lock",
+]
 
 [workspace.dependencies]
 kaswallet-create = { path = "create" }

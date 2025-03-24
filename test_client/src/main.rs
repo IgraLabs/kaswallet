@@ -54,7 +54,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let from_address_balance_response = get_balance_response
         .address_balances
         .iter()
-        .find(|address_balance| address_balance.available > 0)
+        .max_by_key(|address_balance| address_balance.available)
         .unwrap();
     let from_address = from_address_balance_response.address.clone();
     let to_address = get_addresses_response

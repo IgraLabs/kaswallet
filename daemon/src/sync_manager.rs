@@ -301,7 +301,9 @@ impl SyncManager {
         let mut iteration = async |utxo: &WalletUtxo,
                                    avoid_preselected: bool|
                -> Result<bool, Box<dyn Error + Send + Sync>> {
+            info!("checking UTXO: {:?}", utxo);
             if !from_addresses.is_empty() && !from_addresses.contains(&&utxo.address) {
+                info!("From_addresses doesn't contain UTXO address");
                 return Ok(true);
             }
             if sync_manager.is_utxo_pending(utxo, dag_info.virtual_daa_score) {
@@ -369,7 +371,7 @@ impl SyncManager {
                 let utxos_sorted_by_amount = self.utxos_sorted_by_amount.lock().await;
                 for utxo in utxos_sorted_by_amount.iter() {
                     should_continue = iteration(&utxo, false).await?;
-                    if should_continue {
+                    if !should_continue {
                         break;
                     }
                 }
