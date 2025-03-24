@@ -4,7 +4,9 @@ rust-version.workspace = true
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
+include.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [lib]
 name = "wallet_proto"
