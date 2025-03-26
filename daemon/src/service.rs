@@ -3,6 +3,8 @@ use crate::model::{
     Keychain, UserInputError, WalletAddress, WalletSignableTransaction, WalletUtxo,
 };
 use crate::sync_manager::SyncManager;
+use crate::transaction_generator::TransactionGenerator;
+use crate::utxo_manager::UtxoManager;
 use common::keys::Keys;
 use itertools::Itertools;
 use kaspa_addresses::Address;
@@ -37,10 +39,43 @@ pub struct KasWalletService {
     kaspa_rpc_client: Arc<KaspaRpcClient>,
     keys: Arc<Keys>,
     address_manager: Arc<Mutex<AddressManager>>,
+    utxo_manager: Arc<Mutex<UtxoManager>>,
+    transaction_generator: Arc<Mutex<TransactionGenerator>>,
     sync_manager: Arc<Mutex<SyncManager>>,
 }
 
 impl KasWalletService {
+    pub fn new(
+        kaspa_rpc_client: Arc<KaspaRpcClient>,
+        keys: Arc<Keys>,
+        address_manager: Arc<Mutex<AddressManager>>,
+        utxo_manager: Arc<Mutex<UtxoManager>>,
+        transaction_generator: Arc<Mutex<TransactionGenerator>>,
+        sync_manager: Arc<Mutex<SyncManager>>,
+    ) -> Self {
+        Self {
+            kaspa_rpc_client,
+            keys,
+            address_manager,
+            utxo_manager,
+            transaction_generator,
+            sync_manager,
+        }
+    }
+    async fn check_is_synced(&self) -> Result<(), Status> {
+        let sync_manager = self.sync_manager.lock().await;
+        if !sync_manager.is_synced().await {
+            return Err(Status::failed_precondition(
+                "Wallet is not synced yet. Please wait for the sync to complete.",
+            ));
+        }
+        Ok(())
+    }
+
+    fn is_utxo_dust(&self, _utxo: &WalletUtxo, _fee_rate: f64) -> bool {
+        // TODO: actually calculate if utxo is dust
+        false
+    }
     async fn filter_utxos_and_bucket_by_address(
         &self,
         utxos: &Vec<WalletUtxo>,
@@ -54,8 +89,8 @@ impl KasWalletService {
         for utxo in utxos {
             let is_pending: bool;
             {
-                let sync_manager = self.sync_manager.lock().await;
-                is_pending = sync_manager.is_utxo_pending(utxo, virtual_daa_score);
+                let utxo_manager = self.utxo_manager.lock().await;
+                is_pending = utxo_manager.is_utxo_pending(utxo, virtual_daa_score);
             }
             if !include_pending && is_pending {
                 continue;
@@ -244,20 +279,25 @@ impl KasWalletService {
 
         self.check_is_synced().await?;
 
-        let sync_manager = self.sync_manager.lock().await;
-
-        let unsigned_transactions_result = sync_manager
-            .create_unsigned_transactions(
-                transaction_description.to_address,
-                transaction_description.amount,
-                transaction_description.is_send_all,
-                transaction_description.payload,
-                transaction_description.from_addresses,
-                transaction_description.utxos,
-                transaction_description.use_existing_change_address,
-                transaction_description.fee_policy,
-            )
-            .await;
+        let unsigned_transactions_result: Result<
+            Vec<WalletSignableTransaction>,
+            Box<dyn Error + Send + Sync>,
+        >;
+        {
+            let mut transaction_generator = self.transaction_generator.lock().await;
+            unsigned_transactions_result = transaction_generator
+                .create_unsigned_transactions(
+                    transaction_description.to_address,
+                    transaction_description.amount,
+                    transaction_description.is_send_all,
+                    transaction_description.payload,
+                    transaction_description.from_addresses,
+                    transaction_description.utxos,
+                    transaction_description.use_existing_change_address,
+                    transaction_description.fee_policy,
+                )
+                .await;
+        }
         let unsigned_transactions = match unsigned_transactions_result {
             Ok(unsigned_transactions) => unsigned_transactions,
             Err(e) => {
@@ -289,39 +329,6 @@ fn sanity_check_verify(signed_transaction: &Signed) -> Result<(), Status> {
     } else {
         debug!("Signed transaction verifies correctly");
         Ok(())
-    }
-}
-
-impl KasWalletService {
-    pub fn new(
-        kaspa_rpc_client: Arc<KaspaRpcClient>,
-        address_manager: Arc<Mutex<AddressManager>>,
-        sync_manager: Arc<Mutex<SyncManager>>,
-        keys: Arc<Keys>,
-    ) -> Self {
-        Self {
-            kaspa_rpc_client,
-            address_manager,
-            sync_manager,
-            keys,
-        }
-    }
-}
-
-impl KasWalletService {
-    async fn check_is_synced(&self) -> Result<(), Status> {
-        let sync_manager = self.sync_manager.lock().await;
-        if !sync_manager.is_synced().await {
-            return Err(Status::failed_precondition(
-                "Wallet is not synced yet. Please wait for the sync to complete.",
-            ));
-        }
-        Ok(())
-    }
-
-    fn is_utxo_dust(&self, utxo: &WalletUtxo, fee_rate: f64) -> bool {
-        // TODO: actually calculate if utxo is dust
-        false
     }
 }
 
@@ -421,8 +428,8 @@ impl Wallet for KasWalletService {
         let utxos_sorted_by_amount: Vec<WalletUtxo>;
         let utxos_count: usize;
         {
-            let sync_manager = self.sync_manager.lock().await;
-            utxos_sorted_by_amount = sync_manager.get_utxos_sorted_by_amount().await;
+            let utxo_manager = self.utxo_manager.lock().await;
+            utxos_sorted_by_amount = utxo_manager.utxos_sorted_by_amount();
 
             utxos_count = utxos_sorted_by_amount.len();
             for entry in utxos_sorted_by_amount {
@@ -431,7 +438,7 @@ impl Wallet for KasWalletService {
                 let balances = balances_map
                     .entry(address.clone())
                     .or_insert_with(BalancesEntry::new);
-                if sync_manager.is_utxo_pending(&entry, virtual_daa_score) {
+                if utxo_manager.is_utxo_pending(&entry, virtual_daa_score) {
                     balances.add_pending(amount);
                 } else {
                     balances.add_available(amount);
@@ -523,8 +530,8 @@ impl Wallet for KasWalletService {
 
         let utxos: Vec<WalletUtxo>;
         {
-            let sync_manager = self.sync_manager.lock().await;
-            utxos = sync_manager.get_utxos_sorted_by_amount().await;
+            let utxo_manager = self.utxo_manager.lock().await;
+            utxos = utxo_manager.utxos_sorted_by_amount();
         }
 
         let filtered_bucketed_utxos = self

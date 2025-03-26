@@ -1,53 +1,28 @@
 ﻿use crate::address_manager::AddressManager;
-use crate::model::{
-    UserInputError, WalletAddress, WalletOutpoint, WalletPayment, WalletSignableTransaction,
-    WalletUtxo, WalletUtxoEntry,
-};
-use chrono::{DateTime, Duration, Utc};
-use common::keys::Keys;
-use kaspa_addresses::{Address, Prefix, Version};
-use kaspa_bip32::{secp256k1, ExtendedPrivateKey, PublicKey, PublicKeyBytes, SecretKey, KEY_SIZE};
-use kaspa_consensus_core::constants::SOMPI_PER_KASPA;
-use kaspa_consensus_core::network::NetworkId;
-use kaspa_consensus_core::tx::{
-    SignableTransaction, Transaction, TransactionInput, TransactionOutpoint, TransactionOutput,
-    UtxoEntry,
-};
-use kaspa_txscript::pay_to_address_script;
-use kaspa_wallet_core::prelude::AddressPrefix;
-use kaspa_wallet_core::tx::MassCalculator;
-use kaspa_wallet_core::utxo::NetworkParams;
-use kaspa_wrpc_client::prelude::{
-    RpcAddress, RpcApi, RpcMempoolEntryByAddress, RpcUtxosByAddressesEntry,
-};
+use crate::model::UserInputError;
+use crate::transaction_generator::TransactionGenerator;
+use crate::utxo_manager::UtxoManager;
+use chrono::Utc;
+use kaspa_addresses::Address;
+use kaspa_wrpc_client::prelude::{RpcAddress, RpcApi};
 use kaspa_wrpc_client::KaspaRpcClient;
 use log::{debug, error, info};
-use std::cmp::min;
-use std::collections::{HashMap, HashSet};
 use std::error::Error;
-use std::ops::Add;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
 use tokio::task::JoinHandle;
 use tokio::time::interval;
-use wallet_proto::wallet_proto::{fee_policy, FeePolicy, Outpoint};
-use crate::utxo_manager::UtxoManager;
 
 const SYNC_INTERVAL: u64 = 10; // seconds
-
-// The current minimal fee rate according to mempool standards
-const MIN_FEE_RATE: f64 = 1.0;
 
 pub struct SyncManager {
     kaspa_rpc_client: Arc<KaspaRpcClient>,
     address_manager: Arc<Mutex<AddressManager>>,
+    transaction_generator: Arc<Mutex<TransactionGenerator>>,
     utxo_manager: Arc<Mutex<UtxoManager>>,
-    keys: Arc<Keys>,
-    address_prefix: AddressPrefix,
 
-    start_time_of_last_completed_refresh: Mutex<DateTime<Utc>>,
     first_sync_done: AtomicBool,
 
     force_sync_sender: Option<mpsc::Sender<()>>,
@@ -55,25 +30,16 @@ pub struct SyncManager {
 
 impl SyncManager {
     pub fn new(
-        network_id: NetworkId,
         kaspa_rpc_client: Arc<KaspaRpcClient>,
         address_manager: Arc<Mutex<AddressManager>>,
         utxo_manager: Arc<Mutex<UtxoManager>>,
-        keys: Arc<Keys>,
-        address_prefix: Prefix,
+        transaction_generator: Arc<Mutex<TransactionGenerator>>,
     ) -> Self {
-        let network_params = NetworkParams::from(network_id);
-        let coinbase_maturity = network_params
-            .coinbase_transaction_maturity_period_daa
-            .load(Relaxed);
-
         Self {
             kaspa_rpc_client,
             address_manager,
+            transaction_generator,
             utxo_manager,
-            keys,
-            address_prefix,
-            start_time_of_last_completed_refresh: Mutex::new(DateTime::<Utc>::MIN_UTC),
             first_sync_done: AtomicBool::new(false),
             force_sync_sender: None, // TODO: re-establish force-sync
         }
@@ -140,7 +106,7 @@ impl SyncManager {
         }
     }
 
-    async fn refresh_utxos(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn refresh_utxos(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
         debug!("Refreshing UTXOs.");
 
         let refresh_start_time = Utc::now();
@@ -172,14 +138,22 @@ impl SyncManager {
             .await?;
         debug!("Got {} utxo entries", get_utxo_by_addresses_response.len());
 
-        let mut utxo_manager = self.utxo_manager.lock().await;
-        utxo_manager.update_utxo_set(
-            get_utxo_by_addresses_response,
-            mempool_entries_by_addresses,
-        )
-        .await?;
+        {
+            let mut utxo_manager = self.utxo_manager.lock().await;
+            utxo_manager
+                .update_utxo_set(
+                    get_utxo_by_addresses_response,
+                    mempool_entries_by_addresses,
+                    refresh_start_time,
+                )
+                .await?;
+        }
+        {
+            let mut transaction_generator = self.transaction_generator.lock().await;
+            transaction_generator.cleanup_expired_used_outpoints().await;
+        }
 
-        *(self.start_time_of_last_completed_refresh.lock().await) = refresh_start_time;
+        Ok(())
     }
 
     async fn sync(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
@@ -195,59 +169,4 @@ impl SyncManager {
 
         Ok(())
     }
-
-    async fn has_used_outpoint_expired(&self, outpoint_broadcast_time: &DateTime<Utc>) -> bool {
-        // If the node returns a UTXO we previously attempted to spend and enough time has passed, we assume
-        // that the network rejected or lost the previous transaction and allow a reuse. We set this time
-        // interval to a minute.
-        // We also verify that a full refresh UTXO operation started after this time point and has already
-        // completed, in order to make sure that indeed this state reflects a state obtained following the required wait time.
-        return (self.start_time_of_last_completed_refresh.lock().await)
-            .gt(&outpoint_broadcast_time.add(Duration::minutes(1)));
-    }
-
-    // returns:
-    // 1. fee_rate
-    // 2. max_fee
-    async fn calculate_fee_limits(
-        &self,
-        fee_policy: Option<FeePolicy>,
-    ) -> Result<(f64, u64), Box<dyn Error + Send + Sync>> {
-        match fee_policy {
-            Some(fee_policy) => match fee_policy.fee_policy {
-                Some(fee_policy::FeePolicy::MaxFeeRate(requested_max_fee_rate)) => {
-                    if requested_max_fee_rate < MIN_FEE_RATE {
-                        return Err(Box::new(UserInputError::new(format!(
-                            "requested max fee rate {} is too low, minimum fee rate is {}",
-                            requested_max_fee_rate, MIN_FEE_RATE
-                        ))));
-                    }
-
-                    let fee_estimate = self.kaspa_rpc_client.get_fee_estimate().await?;
-                    let fee_rate = f64::min(
-                        fee_estimate.normal_buckets[0].feerate,
-                        requested_max_fee_rate,
-                    );
-                    Ok((fee_rate, u64::MAX))
-                }
-                Some(fee_policy::FeePolicy::ExactFeeRate(requested_exact_fee_rate)) => {
-                    if requested_exact_fee_rate < MIN_FEE_RATE {
-                        return Err(Box::new(UserInputError::new(format!(
-                            "requested max fee rate {} is too low, minimum fee rate is {}",
-                            requested_exact_fee_rate, MIN_FEE_RATE
-                        ))));
-                    }
-
-                    Ok((requested_exact_fee_rate, u64::MAX))
-                }
-                Some(fee_policy::FeePolicy::MaxFee(requested_max_fee)) => {
-                    let fee_estimate = self.kaspa_rpc_client.get_fee_estimate().await?;
-                    Ok((fee_estimate.normal_buckets[0].feerate, requested_max_fee))
-                }
-                None => self.default_fee_rate().await,
-            },
-            None => self.default_fee_rate().await,
-        }
-    }
-
 }

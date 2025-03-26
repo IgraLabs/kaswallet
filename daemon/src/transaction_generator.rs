@@ -1,28 +1,74 @@
+use crate::address_manager::AddressManager;
+use crate::model::{
+    UserInputError, WalletAddress, WalletOutpoint, WalletPayment, WalletSignableTransaction,
+    WalletUtxo,
+};
+use crate::utxo_manager::UtxoManager;
+use chrono::{DateTime, Duration, Utc};
+use common::keys::Keys;
+use kaspa_addresses::{Address, Version};
+use kaspa_consensus_core::constants::SOMPI_PER_KASPA;
+use kaspa_consensus_core::tx::{
+    SignableTransaction, Transaction, TransactionInput, TransactionOutpoint, TransactionOutput,
+    UtxoEntry,
+};
+use kaspa_txscript::pay_to_address_script;
+use kaspa_wallet_core::prelude::AddressPrefix;
+use kaspa_wallet_core::tx::MassCalculator;
+use kaspa_wrpc_client::prelude::RpcApi;
+use kaspa_wrpc_client::KaspaRpcClient;
 use std::cmp::min;
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
-use kaspa_addresses::{Address, Version};
-use kaspa_consensus_core::constants::SOMPI_PER_KASPA;
-use kaspa_consensus_core::tx::{SignableTransaction, Transaction, TransactionInput, TransactionOutpoint, TransactionOutput, UtxoEntry};
-use kaspa_txscript::pay_to_address_script;
-use kaspa_wallet_core::tx::MassCalculator;
-use wallet_proto::wallet_proto::{FeePolicy, Outpoint};
-use crate::model::{UserInputError, WalletAddress, WalletPayment, WalletSignableTransaction, WalletUtxo};
+use std::ops::Add;
+use std::sync::Arc;
+use tokio::sync::Mutex;
+use wallet_proto::wallet_proto::{fee_policy, FeePolicy, Outpoint};
 
-pub struct TransactionGenerator{
-    mass_calculator: MassCalculator,
+// The current minimal fee rate according to mempool standards
+const MIN_FEE_RATE: f64 = 1.0;
+
+// The minimal change amount to target in order to avoid large storage mass (see KIP9 for more details).
+// By having at least 10KAS in the change output we make sure that the storage mass charged for change is
+// at most 1000 gram. Generally, if the payment is above 10KAS as well, the resulting storage mass will be
+// in the order of magnitude of compute mass and wil not incur additional charges.
+// Additionally, every transaction with send value > ~0.1 KAS should succeed (at most ~99K storage mass for payment
+// output, thus overall lower than standard mass upper bound which is 100K gram)
+const MIN_CHANGE_TARGET: u64 = SOMPI_PER_KASPA * 10;
+
+pub struct TransactionGenerator {
+    kaspa_rpc_client: Arc<KaspaRpcClient>,
+    keys: Arc<Keys>,
+    address_manager: Arc<Mutex<AddressManager>>,
+    utxo_manager: Arc<Mutex<UtxoManager>>,
+    mass_calculator: Arc<MassCalculator>,
+    address_prefix: AddressPrefix,
+
+    used_outpoints: HashMap<WalletOutpoint, DateTime<Utc>>,
 }
 
 impl TransactionGenerator {
-    pub fn new() -> Self {
-        let mass_calculator = MassCalculator::new(&network_id.network_type.into());
-        Self{
-            mass_calculator
+    pub fn new(
+        kaspa_rpc_client: Arc<KaspaRpcClient>,
+        keys: Arc<Keys>,
+        address_manager: Arc<Mutex<AddressManager>>,
+        utxo_manager: Arc<Mutex<UtxoManager>>,
+        mass_calculator: Arc<MassCalculator>,
+        address_prefix: AddressPrefix,
+    ) -> Self {
+        Self {
+            kaspa_rpc_client,
+            keys,
+            address_manager,
+            utxo_manager,
+            mass_calculator,
+            address_prefix,
+            used_outpoints: HashMap::new(),
         }
     }
 
     pub async fn create_unsigned_transactions(
-        &self,
+        &mut self,
         to_address: String,
         amount: u64,
         is_send_all: bool,
@@ -76,7 +122,8 @@ impl TransactionGenerator {
         } else {
             let mut preselected_utxos = HashMap::new();
             {
-                let utxos_sorted_by_amount = self.utxos_sorted_by_amount.lock().await;
+                let utxo_manager = self.utxo_manager.lock().await;
+                let utxos_sorted_by_amount: Vec<WalletUtxo> = utxo_manager.utxos_sorted_by_amount();
                 for outpoint in preselected_utxo_outpoints {
                     // TODO: index utxos by outpoint instead of searching all over an array
                     if let Some(utxo) = utxos_sorted_by_amount.iter().find(|utxo| {
@@ -106,7 +153,10 @@ impl TransactionGenerator {
                 address_manager.change_address(use_existing_change_address, &from_addresses)?;
         }
 
-        let (selected_utxos, amount_sent_to_recipient, change_sompi) = self
+        let selected_utxos: Vec<WalletUtxo>;
+        let amount_sent_to_recipient: u64;
+        let change_sompi: u64;
+        (selected_utxos, amount_sent_to_recipient, change_sompi) = self
             .select_utxos(
                 preselected_utxos,
                 HashSet::new(),
@@ -147,11 +197,11 @@ impl TransactionGenerator {
     async fn maybe_auto_compound_transaction(
         &self,
         unsigned_transaction: WalletSignableTransaction,
-        to_address: Address,
-        change_address: Address,
-        change_wallet_address: WalletAddress,
-        fee_rate: f64,
-        max_fee: u64,
+        _to_address: Address,
+        _change_address: Address,
+        _change_wallet_address: WalletAddress,
+        _fee_rate: f64,
+        _max_fee: u64,
     ) -> Result<Vec<WalletSignableTransaction>, Box<dyn Error + Send + Sync>> {
         // TODO: implement actual splitting of transactions
         Ok(vec![unsigned_transaction])
@@ -205,6 +255,197 @@ impl TransactionGenerator {
 
         Ok(wallet_signable_transaction)
     }
+    async fn default_fee_rate(&self) -> Result<(f64, u64), Box<dyn Error + Send + Sync>> {
+        let fee_estimate = self.kaspa_rpc_client.get_fee_estimate().await?;
+        Ok((fee_estimate.normal_buckets[0].feerate, SOMPI_PER_KASPA)) // Default to a bound of max 1 KAS as fee
+    }
+
+    async fn calculate_fee_limits(
+        &self,
+        fee_policy: Option<FeePolicy>,
+    ) -> Result<(f64, u64), Box<dyn Error + Send + Sync>> {
+        // returns (fee_rate, max_fee)
+        match fee_policy {
+            Some(fee_policy) => match fee_policy.fee_policy {
+                Some(fee_policy::FeePolicy::MaxFeeRate(requested_max_fee_rate)) => {
+                    if requested_max_fee_rate < MIN_FEE_RATE {
+                        return Err(Box::new(UserInputError::new(format!(
+                            "requested max fee rate {} is too low, minimum fee rate is {}",
+                            requested_max_fee_rate, MIN_FEE_RATE
+                        ))));
+                    }
+
+                    let fee_estimate = self.kaspa_rpc_client.get_fee_estimate().await?;
+                    let fee_rate = f64::min(
+                        fee_estimate.normal_buckets[0].feerate,
+                        requested_max_fee_rate,
+                    );
+                    Ok((fee_rate, u64::MAX))
+                }
+                Some(fee_policy::FeePolicy::ExactFeeRate(requested_exact_fee_rate)) => {
+                    if requested_exact_fee_rate < MIN_FEE_RATE {
+                        return Err(Box::new(UserInputError::new(format!(
+                            "requested max fee rate {} is too low, minimum fee rate is {}",
+                            requested_exact_fee_rate, MIN_FEE_RATE
+                        ))));
+                    }
+
+                    Ok((requested_exact_fee_rate, u64::MAX))
+                }
+                Some(fee_policy::FeePolicy::MaxFee(requested_max_fee)) => {
+                    let fee_estimate = self.kaspa_rpc_client.get_fee_estimate().await?;
+                    Ok((fee_estimate.normal_buckets[0].feerate, requested_max_fee))
+                }
+                None => self.default_fee_rate().await,
+            },
+            None => self.default_fee_rate().await,
+        }
+    }
+
+    pub async fn select_utxos(
+        &mut self,
+        preselected_utxos: HashMap<WalletOutpoint, WalletUtxo>,
+        allowed_used_outpoints: HashSet<WalletOutpoint>,
+        amount: u64,
+        is_send_all: bool,
+        fee_rate: f64,
+        max_fee: u64,
+        from_addresses: Vec<&WalletAddress>,
+        payload: &Vec<u8>,
+    ) -> Result<(Vec<WalletUtxo>, u64, u64), Box<dyn Error + Send + Sync>> {
+        let mut total_value = 0;
+        let mut selected_utxos = vec![];
+
+        let dag_info = self.kaspa_rpc_client.get_block_dag_info().await?;
+
+        let mut fee = 0;
+        let start_time_of_last_completed_refresh: DateTime<Utc>;
+        {
+            let utxo_manager = self.utxo_manager.lock().await;
+            start_time_of_last_completed_refresh =
+                utxo_manager.start_time_of_last_completed_refresh();
+        }
+        let mut iteration = async |transaction_generator: &mut TransactionGenerator,
+                                   utxo: &WalletUtxo,
+                                   avoid_preselected: bool|
+               -> Result<bool, Box<dyn Error + Send + Sync>> {
+            if !from_addresses.is_empty() && !from_addresses.contains(&&utxo.address) {
+                return Ok(true);
+            }
+            let utxo_manager = transaction_generator.utxo_manager.lock().await;
+            if utxo_manager.is_utxo_pending(utxo, dag_info.virtual_daa_score) {
+                return Ok(true);
+            }
+
+            {
+                if let Some(broadcast_time) =
+                    transaction_generator.used_outpoints.get(&utxo.outpoint)
+                {
+                    if allowed_used_outpoints.contains(&utxo.outpoint) {
+                        if transaction_generator.has_used_outpoint_expired(
+                            &start_time_of_last_completed_refresh,
+                            broadcast_time,
+                        ) {
+                            transaction_generator.used_outpoints.remove(&utxo.outpoint);
+                        }
+                    } else {
+                        return Ok(true);
+                    }
+                }
+            }
+
+            if avoid_preselected {
+                if preselected_utxos.contains_key(&utxo.outpoint) {
+                    return Ok(true);
+                }
+            }
+
+            selected_utxos.push(utxo.clone());
+            total_value += utxo.utxo_entry.amount;
+            let estimated_recipient_value = if is_send_all { total_value } else { amount };
+            fee = transaction_generator
+                .estimate_fee(
+                    &selected_utxos,
+                    fee_rate,
+                    max_fee,
+                    estimated_recipient_value,
+                    payload,
+                )
+                .await?;
+
+            let total_spend = amount + fee;
+            // Two break cases (if not send all):
+            // 		1. total_value == totalSpend, so there's no change needed -> number of outputs = 1, so a single input is sufficient
+            // 		2. total_value > totalSpend, so there will be change and 2 outputs, therefor in order to not struggle with --
+            //		   2.1 go-nodes dust patch we try and find at least 2 inputs (even though the next one is not necessary in terms of spend value)
+            // 		   2.2 KIP9 we try and make sure that the change amount is not too small
+            if is_send_all {
+                return Ok(true);
+            }
+            if total_value == total_spend {
+                return Ok(false);
+            }
+            if total_value >= total_spend + MIN_CHANGE_TARGET && selected_utxos.len() > 1 {
+                return Ok(false);
+            }
+            return Ok(true);
+        };
+
+        let mut should_continue = true;
+        for (_, preselected_utxo) in &preselected_utxos {
+            should_continue = iteration(self, preselected_utxo, false).await?;
+            if !should_continue {
+                break;
+            };
+        }
+        if should_continue {
+            let utxos_sorted_by_amount: Vec<WalletUtxo>;
+            {
+                let utxo_manager = self.utxo_manager.lock().await;
+                utxos_sorted_by_amount = utxo_manager.utxos_sorted_by_amount();
+            }
+            for utxo in utxos_sorted_by_amount {
+                should_continue = iteration(self, &utxo, false).await?;
+                if !should_continue {
+                    break;
+                }
+            }
+        }
+
+        let total_spend: u64;
+        let total_received: u64;
+        if is_send_all {
+            total_spend = total_value;
+            total_received = total_value - fee;
+        } else {
+            total_spend = amount + fee;
+            total_received = amount;
+        }
+
+        if total_value < total_spend {
+            return Err(Box::new(UserInputError::new(format!(
+                "Insufficient funds for send: {} required, while only {} available",
+                amount / SOMPI_PER_KASPA,
+                total_value / SOMPI_PER_KASPA
+            ))));
+        }
+
+        Ok((selected_utxos, total_received, total_value - total_spend))
+    }
+
+    fn has_used_outpoint_expired(
+        &self,
+        start_time_of_last_completed_refresh: &DateTime<Utc>,
+        outpoint_broadcast_time: &DateTime<Utc>,
+    ) -> bool {
+        // If the node returns a UTXO we previously attempted to spend and enough time has passed, we assume
+        // that the network rejected or lost the previous transaction and allow a reuse. We set this time
+        // interval to a minute.
+        // We also verify that a full refresh UTXO operation started after this time point and has already
+        // completed, in order to make sure that indeed this state reflects a state obtained following the required wait time.
+        start_time_of_last_completed_refresh.gt(&outpoint_broadcast_time.add(Duration::minutes(1)))
+    }
+
     async fn estimate_fee(
         &self,
         selected_utxos: &Vec<WalletUtxo>,
@@ -266,9 +507,17 @@ impl TransactionGenerator {
             ))
     }
 
-    async fn default_fee_rate(&self) -> Result<(f64, u64), Box<dyn Error + Send + Sync>> {
-        let fee_estimate = self.kaspa_rpc_client.get_fee_estimate().await?;
-        Ok((fee_estimate.normal_buckets[0].feerate, SOMPI_PER_KASPA)) // Default to a bound of max 1 KAS as fee
+    pub async fn cleanup_expired_used_outpoints(&mut self) {
+        let utxo_manager = self.utxo_manager.lock().await;
+        let start_time_of_last_completed_refresh =
+            utxo_manager.start_time_of_last_completed_refresh();
+        // Cleanup expired used outpoints to avoid a memory leak
+        for (outpoint, broadcast_time) in self.used_outpoints.clone() {
+            if self
+                .has_used_outpoint_expired(&start_time_of_last_completed_refresh, &broadcast_time)
+            {
+                self.used_outpoints.remove(&outpoint);
+            }
+        }
     }
-
 }
