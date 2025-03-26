@@ -19,6 +19,8 @@ mod log;
 mod model;
 mod service;
 mod sync_manager;
+mod utxo_manager;
+mod transaction_generator;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
