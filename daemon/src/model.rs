@@ -9,6 +9,7 @@ use kaspa_wrpc_client::prelude::{RpcTransactionOutpoint, RpcUtxoEntry};
 use std::collections::HashSet;
 use std::fmt;
 use std::fmt::{Display, Formatter};
+use std::str::FromStr;
 use wallet_proto::wallet_proto::{
     Outpoint as ProtoOutpoint, ScriptPublicKey as ProtoScriptPublicKey, Utxo as ProtoUtxo,
     UtxoEntry as ProtoUtxoEntry,
@@ -58,6 +59,15 @@ impl Into<ProtoOutpoint> for WalletOutpoint {
     fn into(self) -> ProtoOutpoint {
         ProtoOutpoint {
             transaction_id: self.transaction_id.to_string(),
+            index: self.index,
+        }
+    }
+}
+
+impl Into<WalletOutpoint> for ProtoOutpoint {
+    fn into(self) -> WalletOutpoint {
+        WalletOutpoint {
+            transaction_id: Hash::from_str(&self.transaction_id).unwrap(),
             index: self.index,
         }
     }

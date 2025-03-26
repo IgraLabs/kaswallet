@@ -11,10 +11,12 @@ use tokio::sync::Mutex;
 
 pub struct UtxoManager {
     address_manager: Arc<Mutex<AddressManager>>,
-    utxos_sorted_by_amount: Vec<WalletUtxo>,
     mempool_excluded_utxos: HashMap<WalletOutpoint, WalletUtxo>,
     start_time_of_last_completed_refresh: DateTime<Utc>,
     coinbase_maturity: u64, // Is different in testnet
+
+    utxos_sorted_by_amount: Vec<WalletUtxo>,
+    utxos_by_outpoint: HashMap<WalletOutpoint, WalletUtxo>,
 }
 
 impl UtxoManager {
@@ -28,15 +30,20 @@ impl UtxoManager {
 
         Self {
             address_manager,
-            utxos_sorted_by_amount: Vec::new(),
             mempool_excluded_utxos: Default::default(),
             start_time_of_last_completed_refresh: DateTime::<Utc>::MIN_UTC,
             coinbase_maturity,
+            utxos_sorted_by_amount: Vec::new(),
+            utxos_by_outpoint: Default::default(),
         }
     }
 
-    pub fn utxos_sorted_by_amount(&self) -> Vec<WalletUtxo> {
-        self.utxos_sorted_by_amount.clone()
+    pub fn utxos_sorted_by_amount(&self) -> &Vec<WalletUtxo> {
+        &self.utxos_sorted_by_amount
+    }
+
+    pub fn utxos_by_outpoint(&self) -> &HashMap<WalletOutpoint, WalletUtxo> {
+        &self.utxos_by_outpoint
     }
 
     pub async fn update_utxo_set(
@@ -78,12 +85,25 @@ impl UtxoManager {
             }
         }
 
-        wallet_utxos.sort_by(|a, b| a.utxo_entry.amount.cmp(&b.utxo_entry.amount));
-        self.utxos_sorted_by_amount = wallet_utxos;
+        self.update_utxos_sorted_by_amount(wallet_utxos.clone());
+        self.update_utxos_by_outpoint(wallet_utxos);
+
         self.mempool_excluded_utxos = mempool_excluded_utxos;
 
         self.start_time_of_last_completed_refresh = refresh_start_time;
         Ok(())
+    }
+
+    fn update_utxos_sorted_by_amount(&mut self, mut wallet_utxos: Vec<WalletUtxo>) {
+        wallet_utxos.sort_by(|a, b| a.utxo_entry.amount.cmp(&b.utxo_entry.amount));
+        self.utxos_sorted_by_amount = wallet_utxos.clone();
+    }
+
+    fn update_utxos_by_outpoint(&mut self, wallet_utxos: Vec<WalletUtxo>) {
+        for wallet_utxo in wallet_utxos {
+            self.utxos_by_outpoint
+                .insert(wallet_utxo.outpoint.clone(), wallet_utxo);
+        }
     }
 
     pub fn is_utxo_pending(&self, utxo: &WalletUtxo, virtual_daa_score: u64) -> bool {

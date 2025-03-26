@@ -278,6 +278,7 @@ impl KasWalletService {
             return Err(Status::invalid_argument("UTXOs are not supported yet"));
         }
 
+        debug!("1"); // TODO: Delete this:
         self.check_is_synced().await?;
 
         let unsigned_transactions_result: Result<
@@ -299,6 +300,7 @@ impl KasWalletService {
                 )
                 .await;
         }
+        debug!("2"); // TODO: Delete this:
         let unsigned_transactions = match unsigned_transactions_result {
             Ok(unsigned_transactions) => unsigned_transactions,
             Err(e) => {
@@ -429,7 +431,7 @@ impl Wallet for KasWalletService {
         let virtual_daa_score = self.get_virtual_daa_score().await?;
         let mut balances_map = HashMap::new();
 
-        let utxos_sorted_by_amount: Vec<WalletUtxo>;
+        let utxos_sorted_by_amount: &Vec<WalletUtxo>;
         let utxos_count: usize;
         {
             let utxo_manager = self.utxo_manager.lock().await;
@@ -535,22 +537,22 @@ impl Wallet for KasWalletService {
 
         let virtual_daa_score = self.get_virtual_daa_score().await?;
 
-        let utxos: Vec<WalletUtxo>;
+        let filtered_bucketed_utxos: HashMap<String, Vec<ProtoUtxo>>;
         {
             let utxo_manager = self.utxo_manager.lock().await;
-            utxos = utxo_manager.utxos_sorted_by_amount();
-        }
+            let utxos = utxo_manager.utxos_sorted_by_amount();
 
-        let filtered_bucketed_utxos = self
-            .filter_utxos_and_bucket_by_address(
-                &utxos,
-                fee_rate,
-                virtual_daa_score,
-                addresses,
-                request.include_pending,
-                request.include_dust,
-            )
-            .await;
+            filtered_bucketed_utxos = self
+                .filter_utxos_and_bucket_by_address(
+                    utxos,
+                    fee_rate,
+                    virtual_daa_score,
+                    addresses,
+                    request.include_pending,
+                    request.include_dust,
+                )
+                .await;
+        }
 
         let addresses_to_utxos = filtered_bucketed_utxos
             .iter()
