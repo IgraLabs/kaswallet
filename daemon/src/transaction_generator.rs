@@ -150,7 +150,7 @@ impl TransactionGenerator {
         {
             let address_manager = self.address_manager.lock().await;
             (change_address, change_wallet_address) = // TODO: check if I really need both.
-                address_manager.change_address(use_existing_change_address, &from_addresses)?;
+                address_manager.change_address(use_existing_change_address, &from_addresses).await?;
         }
 
         let selected_utxos: Vec<WalletUtxo>;

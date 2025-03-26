@@ -6,8 +6,10 @@ use kaspa_bip32::{DerivationPath, ExtendedPublicKey};
 use kaspa_wrpc_client::prelude::*;
 use kaspa_wrpc_client::KaspaRpcClient;
 use log::{debug, info};
+use lru::LruCache;
 use std::collections::HashMap;
 use std::error::Error;
+use std::num::NonZeroUsize;
 use std::str::FromStr;
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
@@ -15,6 +17,7 @@ use tokio::sync::Mutex;
 
 const NUM_INDEXES_TO_QUERY_FOR_FAR_ADDRESSES: u32 = 100;
 const NUM_INDEXES_TO_QUERY_FOR_RECENT_ADDRESSES: u32 = 1000;
+const ADDRESS_CACHE_SIZE: NonZeroUsize = NonZeroUsize::new(1000).unwrap();
 
 pub type AddressSet = HashMap<String, WalletAddress>;
 #[derive(Debug)]
@@ -31,6 +34,8 @@ pub struct AddressManager {
     is_log_final_progress_line_shown: bool,
     max_used_addresses_for_log: u32,
     max_processed_addresses_for_log: u32,
+
+    address_cache: Mutex<LruCache<WalletAddress, Address>>,
 }
 
 impl AddressManager {
@@ -52,6 +57,7 @@ impl AddressManager {
             is_log_final_progress_line_shown: false,
             max_used_addresses_for_log: 0,
             max_processed_addresses_for_log: 0,
+            address_cache: Mutex::new(LruCache::new(ADDRESS_CACHE_SIZE)),
         }
     }
 
@@ -89,7 +95,9 @@ impl AddressManager {
             self.keys_file.cosigner_index,
             Keychain::External,
         );
-        let address = self.calculate_address(&wallet_address)?;
+        let address = self
+            .wallet_address_to_kaspa_address(&wallet_address, true)
+            .await?;
 
         Ok((address.to_string(), wallet_address))
     }
@@ -144,7 +152,7 @@ impl AddressManager {
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         debug!("Collecting addresses from {} to {}", start, end);
 
-        let addresses = self.addresses_to_query(start, end)?;
+        let addresses = self.addresses_to_query(start, end).await?;
         debug!("Querying {} addresses", addresses.len());
 
         let get_balances_by_addresses_response = self
@@ -163,7 +171,7 @@ impl AddressManager {
         Ok(())
     }
 
-    fn addresses_to_query(
+    async fn addresses_to_query(
         &self,
         start: u32,
         end: u32,
@@ -174,7 +182,9 @@ impl AddressManager {
             for cosigner_index in 0..self.extended_public_keys.len() as u16 {
                 for keychain in KEYCHAINS {
                     let wallet_address = WalletAddress::new(index, cosigner_index, keychain);
-                    let address = self.calculate_address(&wallet_address)?;
+                    let address = self
+                        .wallet_address_to_kaspa_address(&wallet_address, false)
+                        .await?;
                     addresses.insert(address.to_string(), wallet_address);
                 }
             }
@@ -226,17 +236,31 @@ impl AddressManager {
         Ok(())
     }
 
-    pub fn calculate_address(
+    pub async fn wallet_address_to_kaspa_address(
         &self,
         wallet_address: &WalletAddress,
+        should_cache: bool,
     ) -> Result<Address, Box<dyn Error + Send + Sync>> {
+        {
+            let mut address_cache = self.address_cache.lock().await;
+            if let Some(address) = address_cache.get(wallet_address) {
+                return Ok(address.clone());
+            }
+        }
         let path = self.calculate_address_path(wallet_address)?;
 
-        if self.is_multisig {
-            self.p2pk_address(path)
+        let address = if self.is_multisig {
+            self.p2pk_address(path)?
         } else {
-            self.multisig_address(path)
+            self.multisig_address(path)?
+        };
+
+        if should_cache {
+            let mut address_cache = self.address_cache.lock().await;
+            address_cache.push(wallet_address.clone(), address.clone());
         }
+
+        Ok(address)
     }
 
     pub fn calculate_address_path(
@@ -343,7 +367,7 @@ impl AddressManager {
         }
     }
 
-    pub fn change_address(
+    pub async fn change_address(
         &self,
         use_existing_change_address: bool,
         from_addresses: &Vec<&WalletAddress>,
@@ -368,7 +392,9 @@ impl AddressManager {
             )
         };
 
-        let address = self.calculate_address(&wallet_address)?;
+        let address = self
+            .wallet_address_to_kaspa_address(&wallet_address, true)
+            .await?;
 
         Ok((address, wallet_address))
     }

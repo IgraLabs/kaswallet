@@ -105,7 +105,8 @@ impl KasWalletService {
                 let address_manager = self.address_manager.lock().await;
                 // TODO: Don't calculate address every time
                 address = address_manager
-                    .calculate_address(&utxo.address)
+                    .wallet_address_to_kaspa_address(&utxo.address, true)
+                    .await
                     .unwrap()
                     .address_to_string();
             }
@@ -376,7 +377,10 @@ impl Wallet for KasWalletService {
                 cosigner_index: self.keys.cosigner_index,
                 keychain: Keychain::External,
             };
-            match address_manager.calculate_address(&wallet_address) {
+            match address_manager
+                .wallet_address_to_kaspa_address(&wallet_address, true)
+                .await
+            {
                 Ok(address) => {
                     addresses.push(address.to_string());
                 }
@@ -451,7 +455,10 @@ impl Wallet for KasWalletService {
         let address_manager = self.address_manager.lock().await;
         let include_balance_per_address = request.get_ref().include_balance_per_address;
         for (wallet_address, balances) in balances_map.clone() {
-            let address = match address_manager.calculate_address(&wallet_address) {
+            let address = match address_manager
+                .wallet_address_to_kaspa_address(&wallet_address, true)
+                .await
+            {
                 Ok(address) => address,
                 Err(e) => {
                     error!("Failed to calculate address: {}", e);
