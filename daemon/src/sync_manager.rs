@@ -41,7 +41,7 @@ impl SyncManager {
             transaction_generator,
             utxo_manager,
             first_sync_done: AtomicBool::new(false),
-            force_sync_sender: None, // TODO: re-establish force-sync
+            force_sync_sender: None,
         }
     }
 
@@ -57,6 +57,8 @@ impl SyncManager {
         })
     }
     pub async fn force_sync(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+        debug!("Force sync called!");
+
         let force_sync_sender = &self.force_sync_sender;
         if let Some(sender) = force_sync_sender {
             if let Err(e) = sender.send(()).await {
