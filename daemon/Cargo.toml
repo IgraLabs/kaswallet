@@ -14,7 +14,7 @@ path = "src/main.rs"
 
 [dependencies]
 common = { path = "../common" }
-wallet_proto = { path = "../wallet_proto" }
+kaswallet-proto = { path = "../kaswallet_proto" }
 clap = { version = "4.5.31", features = ["derive"] }
 kaspa-bip32 = { path = "../../rusty-kaspa/wallet/bip32" }
 kaspa-consensus-core = { path = "../../rusty-kaspa/consensus/core" }

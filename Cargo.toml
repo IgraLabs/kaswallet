@@ -3,7 +3,7 @@ resolver = "2"
 members = [
     "common",
     "create",
-    "daemon", "test_client", "wallet_proto",
+    "daemon", "test_client", "kaswallet_proto",
 ]
 
 [workspace.package]

@@ -1,9 +1,9 @@
 use kaspa_consensus_core::constants::SOMPI_PER_KASPA;
-use tonic::Request;
-use wallet_proto::wallet_proto::wallet_client::WalletClient;
-use wallet_proto::wallet_proto::{
+use kaswallet_proto::kaswallet_proto::wallet_client::WalletClient;
+use kaswallet_proto::kaswallet_proto::{
     AddressBalances, GetAddressesRequest, GetVersionRequest, SendRequest, TransactionDescription,
 };
+use tonic::Request;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -17,7 +17,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     //let new_address_response = client
     //    .new_address(Request::new(
-    //        wallet_proto::wallet_proto::NewAddressRequest {},
+    //        kaswallet_proto::kaswallet_proto::NewAddressRequest {},
     //    ))
     //    .await?;
 
@@ -36,7 +36,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let get_balance_response = &client
         .get_balance(Request::new(
-            wallet_proto::wallet_proto::GetBalanceRequest {
+            kaswallet_proto::kaswallet_proto::GetBalanceRequest {
                 include_balance_per_address: true,
             },
         ))

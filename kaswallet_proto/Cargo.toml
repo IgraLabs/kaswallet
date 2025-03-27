@@ -1,5 +1,5 @@
 [package]
-name = "wallet_proto"
+name = "kaswallet-proto"
 rust-version.workspace = true
 version.workspace = true
 edition.workspace = true
@@ -9,7 +9,7 @@ license.workspace = true
 repository.workspace = true
 
 [lib]
-name = "wallet_proto"
+name = "kaswallet_proto"
 crate-type = ["cdylib", "lib"]
 
 [dependencies]

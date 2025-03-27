@@ -305,11 +305,11 @@ pub mod wallet_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/wallet_proto.Wallet/GetAddresses",
+                "/kaswallet_proto.Wallet/GetAddresses",
             );
             let mut req = request.into_request();
             req.extensions_mut()
-                .insert(GrpcMethod::new("wallet_proto.Wallet", "GetAddresses"));
+                .insert(GrpcMethod::new("kaswallet_proto.Wallet", "GetAddresses"));
             self.inner.unary(req, path, codec).await
         }
         pub async fn new_address(
@@ -329,11 +329,11 @@ pub mod wallet_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/wallet_proto.Wallet/NewAddress",
+                "/kaswallet_proto.Wallet/NewAddress",
             );
             let mut req = request.into_request();
             req.extensions_mut()
-                .insert(GrpcMethod::new("wallet_proto.Wallet", "NewAddress"));
+                .insert(GrpcMethod::new("kaswallet_proto.Wallet", "NewAddress"));
             self.inner.unary(req, path, codec).await
         }
         pub async fn get_balance(
@@ -353,11 +353,11 @@ pub mod wallet_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/wallet_proto.Wallet/GetBalance",
+                "/kaswallet_proto.Wallet/GetBalance",
             );
             let mut req = request.into_request();
             req.extensions_mut()
-                .insert(GrpcMethod::new("wallet_proto.Wallet", "GetBalance"));
+                .insert(GrpcMethod::new("kaswallet_proto.Wallet", "GetBalance"));
             self.inner.unary(req, path, codec).await
         }
         pub async fn get_utxos(
@@ -377,11 +377,11 @@ pub mod wallet_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/wallet_proto.Wallet/GetUtxos",
+                "/kaswallet_proto.Wallet/GetUtxos",
             );
             let mut req = request.into_request();
             req.extensions_mut()
-                .insert(GrpcMethod::new("wallet_proto.Wallet", "GetUtxos"));
+                .insert(GrpcMethod::new("kaswallet_proto.Wallet", "GetUtxos"));
             self.inner.unary(req, path, codec).await
         }
         pub async fn create_unsigned_transactions(
@@ -401,12 +401,15 @@ pub mod wallet_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/wallet_proto.Wallet/CreateUnsignedTransactions",
+                "/kaswallet_proto.Wallet/CreateUnsignedTransactions",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
-                    GrpcMethod::new("wallet_proto.Wallet", "CreateUnsignedTransactions"),
+                    GrpcMethod::new(
+                        "kaswallet_proto.Wallet",
+                        "CreateUnsignedTransactions",
+                    ),
                 );
             self.inner.unary(req, path, codec).await
         }
@@ -423,9 +426,12 @@ pub mod wallet_client {
                     )
                 })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static("/wallet_proto.Wallet/Sign");
+            let path = http::uri::PathAndQuery::from_static(
+                "/kaswallet_proto.Wallet/Sign",
+            );
             let mut req = request.into_request();
-            req.extensions_mut().insert(GrpcMethod::new("wallet_proto.Wallet", "Sign"));
+            req.extensions_mut()
+                .insert(GrpcMethod::new("kaswallet_proto.Wallet", "Sign"));
             self.inner.unary(req, path, codec).await
         }
         pub async fn broadcast(
@@ -445,11 +451,11 @@ pub mod wallet_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/wallet_proto.Wallet/Broadcast",
+                "/kaswallet_proto.Wallet/Broadcast",
             );
             let mut req = request.into_request();
             req.extensions_mut()
-                .insert(GrpcMethod::new("wallet_proto.Wallet", "Broadcast"));
+                .insert(GrpcMethod::new("kaswallet_proto.Wallet", "Broadcast"));
             self.inner.unary(req, path, codec).await
         }
         pub async fn send(
@@ -465,9 +471,12 @@ pub mod wallet_client {
                     )
                 })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static("/wallet_proto.Wallet/Send");
+            let path = http::uri::PathAndQuery::from_static(
+                "/kaswallet_proto.Wallet/Send",
+            );
             let mut req = request.into_request();
-            req.extensions_mut().insert(GrpcMethod::new("wallet_proto.Wallet", "Send"));
+            req.extensions_mut()
+                .insert(GrpcMethod::new("kaswallet_proto.Wallet", "Send"));
             self.inner.unary(req, path, codec).await
         }
         pub async fn get_version(
@@ -487,11 +496,11 @@ pub mod wallet_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/wallet_proto.Wallet/GetVersion",
+                "/kaswallet_proto.Wallet/GetVersion",
             );
             let mut req = request.into_request();
             req.extensions_mut()
-                .insert(GrpcMethod::new("wallet_proto.Wallet", "GetVersion"));
+                .insert(GrpcMethod::new("kaswallet_proto.Wallet", "GetVersion"));
             self.inner.unary(req, path, codec).await
         }
     }
@@ -643,7 +652,7 @@ pub mod wallet_server {
         }
         fn call(&mut self, req: http::Request<B>) -> Self::Future {
             match req.uri().path() {
-                "/wallet_proto.Wallet/GetAddresses" => {
+                "/kaswallet_proto.Wallet/GetAddresses" => {
                     #[allow(non_camel_case_types)]
                     struct GetAddressesSvc<T: Wallet>(pub Arc<T>);
                     impl<
@@ -688,7 +697,7 @@ pub mod wallet_server {
                     };
                     Box::pin(fut)
                 }
-                "/wallet_proto.Wallet/NewAddress" => {
+                "/kaswallet_proto.Wallet/NewAddress" => {
                     #[allow(non_camel_case_types)]
                     struct NewAddressSvc<T: Wallet>(pub Arc<T>);
                     impl<T: Wallet> tonic::server::UnaryService<super::NewAddressRequest>
@@ -731,7 +740,7 @@ pub mod wallet_server {
                     };
                     Box::pin(fut)
                 }
-                "/wallet_proto.Wallet/GetBalance" => {
+                "/kaswallet_proto.Wallet/GetBalance" => {
                     #[allow(non_camel_case_types)]
                     struct GetBalanceSvc<T: Wallet>(pub Arc<T>);
                     impl<T: Wallet> tonic::server::UnaryService<super::GetBalanceRequest>
@@ -774,7 +783,7 @@ pub mod wallet_server {
                     };
                     Box::pin(fut)
                 }
-                "/wallet_proto.Wallet/GetUtxos" => {
+                "/kaswallet_proto.Wallet/GetUtxos" => {
                     #[allow(non_camel_case_types)]
                     struct GetUtxosSvc<T: Wallet>(pub Arc<T>);
                     impl<T: Wallet> tonic::server::UnaryService<super::GetUtxosRequest>
@@ -817,7 +826,7 @@ pub mod wallet_server {
                     };
                     Box::pin(fut)
                 }
-                "/wallet_proto.Wallet/CreateUnsignedTransactions" => {
+                "/kaswallet_proto.Wallet/CreateUnsignedTransactions" => {
                     #[allow(non_camel_case_types)]
                     struct CreateUnsignedTransactionsSvc<T: Wallet>(pub Arc<T>);
                     impl<
@@ -866,7 +875,7 @@ pub mod wallet_server {
                     };
                     Box::pin(fut)
                 }
-                "/wallet_proto.Wallet/Sign" => {
+                "/kaswallet_proto.Wallet/Sign" => {
                     #[allow(non_camel_case_types)]
                     struct SignSvc<T: Wallet>(pub Arc<T>);
                     impl<T: Wallet> tonic::server::UnaryService<super::SignRequest>
@@ -909,7 +918,7 @@ pub mod wallet_server {
                     };
                     Box::pin(fut)
                 }
-                "/wallet_proto.Wallet/Broadcast" => {
+                "/kaswallet_proto.Wallet/Broadcast" => {
                     #[allow(non_camel_case_types)]
                     struct BroadcastSvc<T: Wallet>(pub Arc<T>);
                     impl<T: Wallet> tonic::server::UnaryService<super::BroadcastRequest>
@@ -952,7 +961,7 @@ pub mod wallet_server {
                     };
                     Box::pin(fut)
                 }
-                "/wallet_proto.Wallet/Send" => {
+                "/kaswallet_proto.Wallet/Send" => {
                     #[allow(non_camel_case_types)]
                     struct SendSvc<T: Wallet>(pub Arc<T>);
                     impl<T: Wallet> tonic::server::UnaryService<super::SendRequest>
@@ -995,7 +1004,7 @@ pub mod wallet_server {
                     };
                     Box::pin(fut)
                 }
-                "/wallet_proto.Wallet/GetVersion" => {
+                "/kaswallet_proto.Wallet/GetVersion" => {
                     #[allow(non_camel_case_types)]
                     struct GetVersionSvc<T: Wallet>(pub Arc<T>);
                     impl<T: Wallet> tonic::server::UnaryService<super::GetVersionRequest>
@@ -1071,7 +1080,7 @@ pub mod wallet_server {
         }
     }
     /// Generated gRPC service name
-    pub const SERVICE_NAME: &str = "wallet_proto.Wallet";
+    pub const SERVICE_NAME: &str = "kaswallet_proto.Wallet";
     impl<T> tonic::server::NamedService for WalletServer<T> {
         const NAME: &'static str = SERVICE_NAME;
     }

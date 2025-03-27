@@ -18,6 +18,14 @@ use kaspa_consensus_core::sign::{verify, Signed};
 use kaspa_consensus_core::tx::SignableTransaction;
 use kaspa_wallet_core::rpc::RpcApi;
 use kaspa_wrpc_client::KaspaRpcClient;
+use kaswallet_proto::kaswallet_proto::wallet_server::Wallet;
+use kaswallet_proto::kaswallet_proto::{
+    AddressBalances, AddressToUtxos, BroadcastRequest, BroadcastResponse,
+    CreateUnsignedTransactionsRequest, CreateUnsignedTransactionsResponse, GetAddressesRequest,
+    GetAddressesResponse, GetBalanceRequest, GetBalanceResponse, GetUtxosRequest, GetUtxosResponse,
+    GetVersionRequest, GetVersionResponse, NewAddressRequest, NewAddressResponse, SendRequest,
+    SendResponse, SignRequest, SignResponse, TransactionDescription, Utxo as ProtoUtxo,
+};
 use log::{debug, error, info, trace};
 use std::collections::{BTreeMap, HashMap};
 use std::error::Error;
@@ -26,14 +34,6 @@ use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tonic::{Request, Response, Status};
-use wallet_proto::wallet_proto::wallet_server::Wallet;
-use wallet_proto::wallet_proto::{
-    AddressBalances, AddressToUtxos, BroadcastRequest, BroadcastResponse,
-    CreateUnsignedTransactionsRequest, CreateUnsignedTransactionsResponse, GetAddressesRequest,
-    GetAddressesResponse, GetBalanceRequest, GetBalanceResponse, GetUtxosRequest, GetUtxosResponse,
-    GetVersionRequest, GetVersionResponse, NewAddressRequest, NewAddressResponse, SendRequest,
-    SendResponse, SignRequest, SignResponse, TransactionDescription, Utxo as ProtoUtxo,
-};
 
 pub struct KasWalletService {
     kaspa_rpc_client: Arc<KaspaRpcClient>,

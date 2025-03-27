@@ -17,6 +17,7 @@ use kaspa_wallet_core::prelude::AddressPrefix;
 use kaspa_wallet_core::tx::MassCalculator;
 use kaspa_wrpc_client::prelude::RpcApi;
 use kaspa_wrpc_client::KaspaRpcClient;
+use kaswallet_proto::kaswallet_proto::{fee_policy, FeePolicy, Outpoint};
 use log::debug;
 use std::cmp::min;
 use std::collections::{HashMap, HashSet};
@@ -24,7 +25,6 @@ use std::error::Error;
 use std::ops::Add;
 use std::sync::Arc;
 use tokio::sync::{Mutex, MutexGuard};
-use wallet_proto::wallet_proto::{fee_policy, FeePolicy, Outpoint};
 
 // The current minimal fee rate according to mempool standards
 const MIN_FEE_RATE: f64 = 1.0;

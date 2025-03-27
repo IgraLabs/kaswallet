@@ -6,14 +6,14 @@ use kaspa_consensus_core::sign::Signed::Partially;
 use kaspa_consensus_core::tx::{ScriptPublicKey, SignableTransaction, UtxoEntry};
 use kaspa_hashes::Hash;
 use kaspa_wrpc_client::prelude::{RpcTransactionOutpoint, RpcUtxoEntry};
+use kaswallet_proto::kaswallet_proto::{
+    Outpoint as ProtoOutpoint, ScriptPublicKey as ProtoScriptPublicKey, Utxo as ProtoUtxo,
+    UtxoEntry as ProtoUtxoEntry,
+};
 use std::collections::HashSet;
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
-use wallet_proto::wallet_proto::{
-    Outpoint as ProtoOutpoint, ScriptPublicKey as ProtoScriptPublicKey, Utxo as ProtoUtxo,
-    UtxoEntry as ProtoUtxoEntry,
-};
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum Keychain {

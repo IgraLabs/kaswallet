@@ -7,13 +7,13 @@ use common::keys::Keys;
 use kaspa_bip32::Prefix;
 use kaspa_wallet_core::tx::MassCalculator;
 use kaspa_wallet_core::utxo::NetworkParams;
+use kaswallet_proto::kaswallet_proto::wallet_server::WalletServer;
 use ::log::{error, info};
 use std::error::Error;
 use std::sync::Arc;
 use tokio::select;
 use tokio::sync::Mutex;
 use tonic::transport::Server;
-use wallet_proto::wallet_proto::wallet_server::WalletServer;
 
 mod address_manager;
 mod args;

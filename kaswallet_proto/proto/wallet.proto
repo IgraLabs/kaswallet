@@ -1,6 +1,6 @@
 ﻿syntax = "proto3";
 
-package wallet_proto;
+package kaswallet_proto;
 
 service Wallet {
     rpc GetAddresses (GetAddressesRequest) returns (GetAddressesResponse) {}
