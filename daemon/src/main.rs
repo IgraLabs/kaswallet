@@ -2,13 +2,13 @@ use crate::address_manager::AddressManager;
 use crate::sync_manager::SyncManager;
 use crate::transaction_generator::TransactionGenerator;
 use clap::Parser;
-use common::args::expand_path;
+use common::args::calculate_path;
 use common::keys::Keys;
 use kaspa_bip32::Prefix;
 use kaspa_wallet_core::tx::MassCalculator;
 use kaspa_wallet_core::utxo::NetworkParams;
 use kaswallet_proto::kaswallet_proto::wallet_server::WalletServer;
-use ::log::{error, info};
+use ::log::{debug, error, info};
 use std::error::Error;
 use std::sync::Arc;
 use tokio::select;
@@ -29,13 +29,16 @@ mod utxo_manager;
 async fn main() -> Result<(), Box<dyn Error>> {
     let args = args::Args::parse();
 
-    if let Err(e) = log::init_log(args.logs_path.clone(), args.logs_level.clone()) {
+    let network_id = args.network_id();
+
+    let logs_path = calculate_path(args.logs_path.clone(), network_id, "logs");
+    if let Err(e) = log::init_log(logs_path, args.logs_level.clone()) {
         panic!("Failed to initialize logger: {}", e);
     }
 
-    let network_id = args.network_id();
-    let extended_keys_prefix = Prefix::from(args.network_id());
-    let keys_file_path = expand_path(args.keys_file.clone());
+    let extended_keys_prefix = Prefix::from(network_id);
+    let keys_file_path = calculate_path(args.keys_file.clone(), network_id, "keys.json");
+    debug!("Keys file path: {}", keys_file_path);
     let keys = Keys::load(keys_file_path.clone(), extended_keys_prefix);
 
     if let Err(e) = keys {

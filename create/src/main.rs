@@ -1,6 +1,6 @@
 use crate::args::Args;
 use clap::Parser;
-use common::args::expand_path;
+use common::args::calculate_path;
 use common::encrypted_mnemonic::EncryptedMnemonic;
 use common::keys::{Keys, KEY_FILE_VERSION};
 use constant_time_eq::constant_time_eq;
@@ -117,7 +117,8 @@ fn should_continue_if_key_file_exists(keys_file_path: &str) -> bool {
 }
 fn main() {
     let args = args::Args::parse();
-    let keys_file_path = expand_path(args.keys_file.clone());
+    let network_id = args.network_id();
+    let keys_file_path = calculate_path(args.keys_file.clone(), network_id, "keys.json");
     if !should_continue_if_key_file_exists(&keys_file_path) {
         return;
     }

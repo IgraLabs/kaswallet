@@ -1,5 +1,4 @@
 ﻿use crate::args::LogsLevel;
-use common::args::expand_path;
 use log::LevelFilter;
 use log4rs::append::console::ConsoleAppender;
 use log4rs::append::rolling_file::policy::compound::roll::fixed_window::FixedWindowRoller;
@@ -14,8 +13,6 @@ use std::error::Error;
 use std::path::Path;
 
 pub fn init_log(logs_path: String, logs_level: LogsLevel) -> Result<(), Box<dyn Error>> {
-    let logs_path = expand_path(logs_path);
-
     let general_log_path = Path::new(&logs_path).join("kaswallet.log");
     let err_log_path = Path::new(&logs_path).join("kaswallet.err.log");
 

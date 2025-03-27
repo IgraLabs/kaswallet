@@ -1,6 +1,6 @@
 use kaspa_consensus_core::network::NetworkId;
 use kaspa_wrpc_client::{KaspaRpcClient, WrpcEncoding};
-use log::info;
+use log::{error, info};
 use std::error::Error;
 use std::sync::Arc;
 use workflow_websocket::client::{ConnectOptions, ConnectStrategy};
@@ -34,7 +34,11 @@ pub async fn connect(
         None,
     )?);
 
-    rpc_client.connect(options).await?;
+    rpc_client.connect(options).await.map_err(|e| {
+        let error_message = format!("Failed to connect to kaspa node: {}", e);
+        error!("{}", error_message);
+        e
+    })?;
     info!("Connected to kaspa node successfully");
 
     Ok(rpc_client)

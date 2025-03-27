@@ -16,8 +16,8 @@ pub struct Args {
     #[arg(long, help = "Use the simulation test network")]
     simnet: bool,
 
-    #[arg(long, short = 'k', default_value = common::args::default_keys_path(), help="Path to keys file")]
-    pub keys_file: String,
+    #[arg(long, short = 'k', help = "Path to keys file")]
+    pub keys_file: Option<String>,
 
     /// Import from mnemonic rather than create new
     #[arg(

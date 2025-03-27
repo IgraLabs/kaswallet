@@ -17,23 +17,26 @@ pub fn parse_network_type(
     }
 }
 
-pub fn default_keys_path() -> &'static str {
-    if cfg!(target_os = "windows") {
-        "%USERPROFILE%\\AppData\\Local\\Kaswallet\\key.json"
+pub fn calculate_path(
+    args_file_path: Option<String>,
+    network_id: NetworkId,
+    default_filename: &str,
+) -> String {
+    let path = if let Some(path) = args_file_path {
+        return path;
+    } else if cfg!(target_os = "windows") {
+        format!(
+            "%USERPROFILE%\\AppData\\Local\\Kaswallet\\{}\\{}",
+            network_id, default_filename
+        )
     } else {
-        "~/.kaswallet/keys.json"
-    }
+        format!("~/.kaswallet/{}/{}", network_id, default_filename)
+    };
+
+    expand_path(path)
 }
 
-pub fn default_logs_path() -> &'static str {
-    if cfg!(target_os = "windows") {
-        "%USERPROFILE%\\AppData\\Local\\Kaswallet\\logs"
-    } else {
-        "~/.kaswallet/logs"
-    }
-}
-
-pub fn expand_path(path: String) -> String {
+fn expand_path(path: String) -> String {
     if cfg!(target_os = "windows") {
         let re = Regex::new(r"%([^%]+)%").unwrap();
         re.replace_all(&path, |caps: &regex::Captures| {

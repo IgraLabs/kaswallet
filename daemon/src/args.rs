@@ -18,13 +18,11 @@ pub struct Args {
     #[arg(long, help = "Use the simulation test network")]
     simnet: bool,
 
-    /// Path to keys.json (default: ~/.kwallet/keys.json)
-    #[arg(long, short = 'k', default_value = common::args::default_keys_path(), help="Path to keys file"
-    )]
-    pub keys_file: String,
+    #[arg(long, short = 'k', help = "Path to keys file")]
+    pub keys_file: Option<String>,
 
-    #[arg(long, default_value = common::args::default_logs_path(), help="Path to logs directory")]
-    pub logs_path: String,
+    #[arg(long, help = "Path to logs directory")]
+    pub logs_path: Option<String>,
 
     #[arg(long, short = 'v', default_value = "info", help = "Log level")]
     pub logs_level: LogsLevel,

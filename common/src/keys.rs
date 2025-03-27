@@ -1,6 +1,7 @@
 ﻿use crate::encrypted_mnemonic::EncryptedMnemonic;
 use kaspa_bip32::secp256k1::PublicKey;
 use kaspa_bip32::{ExtendedPublicKey, Mnemonic, Prefix};
+use log::debug;
 use serde::{Deserialize, Serialize};
 use std::error::Error;
 use std::fs;
@@ -66,6 +67,7 @@ impl KeysJson {
             .public_keys
             .iter()
             .map(|x| {
+                debug!("Public Keys: {:?}", x);
                 let x_public_key: ExtendedPublicKey<PublicKey> =
                     ExtendedPublicKey::from_str(x).unwrap();
 
