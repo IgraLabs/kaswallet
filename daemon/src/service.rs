@@ -278,7 +278,6 @@ impl KasWalletService {
             return Err(Status::invalid_argument("UTXOs are not supported yet"));
         }
 
-        debug!("1"); // TODO: Delete this:
         self.check_is_synced().await?;
 
         let unsigned_transactions_result: Result<
@@ -300,7 +299,6 @@ impl KasWalletService {
                 )
                 .await;
         }
-        debug!("2"); // TODO: Delete this:
         let unsigned_transactions = match unsigned_transactions_result {
             Ok(unsigned_transactions) => unsigned_transactions,
             Err(e) => {

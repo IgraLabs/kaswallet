@@ -18,7 +18,6 @@ use kaspa_wallet_core::tx::MassCalculator;
 use kaspa_wrpc_client::prelude::RpcApi;
 use kaspa_wrpc_client::KaspaRpcClient;
 use kaswallet_proto::kaswallet_proto::{fee_policy, FeePolicy, Outpoint};
-use log::debug;
 use std::cmp::min;
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
@@ -79,7 +78,6 @@ impl TransactionGenerator {
         use_existing_change_address: bool,
         fee_policy: Option<FeePolicy>,
     ) -> Result<Vec<WalletSignableTransaction>, Box<dyn Error + Send + Sync>> {
-        debug!("A"); // TODO: Delete this:
         let validate_address =
             |address_string, name| -> Result<Address, Box<dyn Error + Send + Sync>> {
                 match Address::try_from(address_string) {
@@ -98,7 +96,6 @@ impl TransactionGenerator {
             address_set = address_manager.address_set().await;
         }
 
-        debug!("B"); // TODO: Delete this:
         if !from_addresses_strings.is_empty() && !preselected_utxo_outpoints.is_empty() {
             return Err(Box::new(UserInputError::new(
                 "Cannot specify both from_addresses and utxos".to_string(),
@@ -120,7 +117,6 @@ impl TransactionGenerator {
             }
             from_addresses
         };
-        debug!("C"); // TODO: Delete this:
         let preselected_utxos = if preselected_utxo_outpoints.is_empty() {
             HashMap::new()
         } else {
@@ -152,7 +148,6 @@ impl TransactionGenerator {
             (change_address, change_wallet_address) = // TODO: check if I really need both.
                 address_manager.change_address(use_existing_change_address, &from_addresses).await?;
         }
-        debug!("D"); // TODO: Delete this:
 
         let selected_utxos: Vec<WalletUtxo>;
         let amount_sent_to_recipient: u64;
@@ -170,8 +165,6 @@ impl TransactionGenerator {
             )
             .await?;
 
-        debug!("after sekect_utxos"); // TODO: Delete this
-
         let mut payments = vec![WalletPayment::new(
             to_address.clone(),
             amount_sent_to_recipient,
@@ -183,7 +176,6 @@ impl TransactionGenerator {
             .generate_unsigned_transaction(payments, payload, &selected_utxos)
             .await?;
 
-        debug!("E"); // TODO: Delete this:
         let unsigned_transactions = self
             .maybe_auto_compound_transaction(
                 unsigned_transaction,
@@ -217,14 +209,12 @@ impl TransactionGenerator {
         payload: Vec<u8>,
         selected_utxos: &Vec<WalletUtxo>,
     ) -> Result<WalletSignableTransaction, Box<dyn Error + Send + Sync>> {
-        debug!("a"); // TODO: Delete this
         let mut sorted_extended_public_keys = self.keys.public_keys.clone();
         sorted_extended_public_keys.sort();
 
         let mut inputs = vec![];
         let mut utxo_entries = vec![];
         let mut derivation_paths = HashSet::new();
-        debug!("b"); // TODO: Delete this
 
         for utxo in selected_utxos {
             let previous_outpoint =
@@ -246,7 +236,6 @@ impl TransactionGenerator {
             }
         }
 
-        debug!("c"); // TODO: Delete this
         let mut outputs = vec![];
         for payment in payments {
             let script_public_key = pay_to_address_script(&payment.address);
@@ -254,14 +243,12 @@ impl TransactionGenerator {
             outputs.push(output);
         }
 
-        debug!("d"); // TODO: Delete this
         let transaction = Transaction::new(0, inputs, outputs, 0, Default::default(), 0, payload);
         let signable_transaction = SignableTransaction::with_entries(transaction, utxo_entries);
         let wallet_signable_transaction = WalletSignableTransaction::new_from_unsigned(
             signable_transaction.clone(),
             derivation_paths,
         );
-        debug!("e"); // TODO: Delete this
 
         Ok(wallet_signable_transaction)
     }
@@ -323,13 +310,11 @@ impl TransactionGenerator {
         from_addresses: Vec<&WalletAddress>,
         payload: &Vec<u8>,
     ) -> Result<(Vec<WalletUtxo>, u64, u64), Box<dyn Error + Send + Sync>> {
-        debug!("select utxos"); // TODO: Delete this
         let mut total_value = 0;
         let mut selected_utxos = vec![];
 
         let dag_info = self.kaspa_rpc_client.get_block_dag_info().await?;
 
-        debug!("1"); // TODO: Delete this
         let mut fee = 0;
         let start_time_of_last_completed_refresh: DateTime<Utc>;
         {
@@ -337,20 +322,17 @@ impl TransactionGenerator {
             start_time_of_last_completed_refresh =
                 utxo_manager.start_time_of_last_completed_refresh();
         }
-        debug!("2"); // TODO: Delete this
         let mut iteration = async |transaction_generator: &mut TransactionGenerator,
                                    utxo_manager: &MutexGuard<UtxoManager>,
                                    utxo: &WalletUtxo,
                                    avoid_preselected: bool|
                -> Result<bool, Box<dyn Error + Send + Sync>> {
-            debug!("--- iteration ---"); // TODO: Delete this
             if !from_addresses.is_empty() && !from_addresses.contains(&&utxo.address) {
                 return Ok(true);
             }
             if utxo_manager.is_utxo_pending(&utxo, dag_info.virtual_daa_score) {
                 return Ok(true);
             }
-            debug!("b"); // TODO: Delete this
 
             {
                 if let Some(broadcast_time) =
@@ -368,13 +350,11 @@ impl TransactionGenerator {
                     }
                 }
             }
-            debug!("c"); // TODO: Delete this
             if avoid_preselected {
                 if preselected_utxos.contains_key(&utxo.outpoint) {
                     return Ok(true);
                 }
             }
-            debug!("d"); // TODO: Delete this
 
             selected_utxos.push(utxo.clone());
             total_value += utxo.utxo_entry.amount;
@@ -389,7 +369,6 @@ impl TransactionGenerator {
                 )
                 .await?;
 
-            debug!("e"); // TODO: Delete this
             let total_spend = amount + fee;
             // Two break cases (if not send all):
             // 		1. total_value == totalSpend, so there's no change needed -> number of outputs = 1, so a single input is sufficient
@@ -405,7 +384,6 @@ impl TransactionGenerator {
             if total_value >= total_spend + MIN_CHANGE_TARGET && selected_utxos.len() > 1 {
                 return Ok(false);
             }
-            debug!("f"); // TODO: Delete this
             return Ok(true);
         };
         let utxos_sorted_by_amount: &Vec<WalletUtxo>;
@@ -420,7 +398,6 @@ impl TransactionGenerator {
                     break;
                 };
             }
-            debug!("3"); // TODO: Delete this
             if should_continue {
                 utxos_sorted_by_amount = utxo_manager.utxos_sorted_by_amount();
                 for utxo in utxos_sorted_by_amount {
@@ -431,7 +408,6 @@ impl TransactionGenerator {
                 }
             }
         }
-        debug!("4"); // TODO: Delete this
 
         let total_spend: u64;
         let total_received: u64;
@@ -442,7 +418,6 @@ impl TransactionGenerator {
             total_spend = amount + fee;
             total_received = amount;
         }
-        debug!("5"); // TODO: Delete this
 
         if total_value < total_spend {
             return Err(Box::new(UserInputError::new(format!(
@@ -451,7 +426,6 @@ impl TransactionGenerator {
                 total_value / SOMPI_PER_KASPA
             ))));
         }
-        debug!("6"); // TODO: Delete this
 
         Ok((selected_utxos, total_received, total_value - total_spend))
     }
