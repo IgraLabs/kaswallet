@@ -1,9 +1,11 @@
+use std::error::Error;
 use kaspa_consensus_core::constants::SOMPI_PER_KASPA;
 use kaswallet_proto::kaswallet_proto::wallet_client::WalletClient;
 use kaswallet_proto::kaswallet_proto::{
     AddressBalances, GetAddressesRequest, GetVersionRequest, SendRequest, TransactionDescription,
 };
 use tonic::Request;
+use tonic::transport::Channel;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -15,16 +17,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Version={:?}", response.into_inner().version);
 
-    //let new_address_response = client
-    //    .new_address(Request::new(
-    //        kaswallet_proto::kaswallet_proto::NewAddressRequest {},
-    //    ))
-    //    .await?;
-
-    //println!(
-    //    "New Address={:?}",
-    //    new_address_response.into_inner().address
-    //);
 
     let get_addresses_response = client
         .get_addresses(Request::new(GetAddressesRequest {}))
@@ -61,7 +53,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .address
         .iter()
         .find(|address| !address.to_string().eq(&from_address))
-        .unwrap();
+        .map(|address| address.to_string())
+        .unwrap_or(new_address(&mut client).await?);
     let default_address_balances = &AddressBalances {
         address: to_address.clone(),
         available: 0,
@@ -70,7 +63,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let to_address_balance_response = get_balance_response
         .address_balances
         .iter()
-        .find(|address_balance| address_balance.address.eq(to_address))
+        .find(|address_balance| address_balance.address.eq(&to_address))
         .unwrap_or(&default_address_balances);
     let to_address = to_address_balance_response.address.clone();
     println!(
@@ -101,4 +94,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Send response={:?}", send_response);
 
     Ok(())
+}
+
+async fn new_address(client: &mut WalletClient<Channel>) -> Result<String, Box<dyn Error>> {
+    let new_address_response = client
+        .new_address(Request::new(
+            kaswallet_proto::kaswallet_proto::NewAddressRequest {},
+        ))
+        .await?;
+    let address = new_address_response.into_inner().address;
+    println!(
+        "New Address={:?}",
+        address
+    );
+    Ok(address)
 }
