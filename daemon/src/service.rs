@@ -170,11 +170,11 @@ impl KasWalletService {
         unsigned_transactions: Vec<WalletSignableTransaction>,
         password: &String,
     ) -> Result<Vec<WalletSignableTransaction>, Status> {
-        let mnemonics = self.keys.decrypt_mnemonics(password).map_err(|e| {
+        let mut mnemonics = self.keys.decrypt_mnemonics(password).map_err(|e| {
             error!("Failed to decrypt mnemonics: {}", e);
             Status::invalid_argument("Failed to decrypt mnemonics (probably an invalid password?)")
         })?;
-        let extended_private_keys = Self::mnemonics_to_private_keys(mnemonics)?;
+        let extended_private_keys = Self::mnemonics_to_private_keys(&mnemonics)?;
 
         let mut signed_transactions = vec![];
         for unsigned_transaction in &unsigned_transactions {
@@ -188,6 +188,9 @@ impl KasWalletService {
                 unsigned_transaction.derivation_paths.clone(),
             );
             signed_transactions.push(wallet_signed_transaction);
+        }
+        for mut mnemonic in mnemonics{
+            mnemonic.zeroize()
         }
 
         Ok(signed_transactions)
@@ -215,7 +218,7 @@ impl KasWalletService {
     }
 
     fn mnemonics_to_private_keys(
-        mnemonics: Vec<Mnemonic>,
+        mnemonics: &Vec<Mnemonic>,
     ) -> Result<Vec<ExtendedPrivateKey<SecretKey>>, Status> {
         let mut extended_private_keys = vec![];
         for mnemonic in mnemonics {
