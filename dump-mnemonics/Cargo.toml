@@ -1,0 +1,16 @@
+[package]
+name = "kaswallet-dump-mnemonics"
+rust-version.workspace = true
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+include.workspace = true
+
+[dependencies]
+common = { path = "../common" }
+clap = { version = "4.5.31", features = ["derive"] }
+kaspa-bip32 = { git="https://github.com/IgraLabs/rusty-kaspa.git", branch = "for-wallet" }
+kaspa-consensus-core = { git="https://github.com/IgraLabs/rusty-kaspa.git", branch = "for-wallet" }
+rpassword = "7.3.1"

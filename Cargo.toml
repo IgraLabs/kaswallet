@@ -3,7 +3,7 @@ resolver = "2"
 members = [
     "common",
     "create",
-    "daemon",
+    "daemon", "dump-mnemonics",
     "test_client"
 ]
 

@@ -62,7 +62,7 @@ impl From<&Keys> for KeysJson {
 }
 
 impl KeysJson {
-    fn to_keys(&self, file_path: String, prefix: Prefix) -> Keys {
+    fn to_keys(&self, file_path: &str, prefix: Prefix) -> Keys {
         let public_keys: Vec<ExtendedPublicKey<PublicKey>> = self
             .public_keys
             .iter()
@@ -76,7 +76,7 @@ impl KeysJson {
             .collect();
 
         Keys {
-            file_path,
+            file_path: file_path.to_string(),
             version: self.version.clone(),
             encrypted_mnemonics: self.encrypted_mnemonics.clone(),
             public_keys_prefix: prefix,
@@ -114,7 +114,7 @@ impl Keys {
         }
     }
 
-    pub fn load(file_path: String, prefix: Prefix) -> Result<Keys, Box<dyn Error + Send + Sync>> {
+    pub fn load(file_path: &str, prefix: Prefix) -> Result<Keys, Box<dyn Error + Send + Sync>> {
         let serialized = fs::read_to_string(&file_path)?;
         let keys_json: KeysJson = serde_json::from_str(&serialized)?;
         Ok(keys_json.to_keys(file_path, prefix))

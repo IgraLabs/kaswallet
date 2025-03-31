@@ -39,7 +39,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let extended_keys_prefix = Prefix::from(network_id);
     let keys_file_path = calculate_path(args.keys_file.clone(), network_id, "keys.json");
     debug!("Keys file path: {}", keys_file_path);
-    let keys = Keys::load(keys_file_path.clone(), extended_keys_prefix);
+    let keys = Keys::load(&keys_file_path, extended_keys_prefix);
 
     if let Err(e) = keys {
         error!("Failed to load keys from file {}: {}", keys_file_path, e);

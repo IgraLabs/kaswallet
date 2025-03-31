@@ -170,7 +170,7 @@ impl KasWalletService {
         unsigned_transactions: Vec<WalletSignableTransaction>,
         password: &String,
     ) -> Result<Vec<WalletSignableTransaction>, Status> {
-        let mut mnemonics = self.keys.decrypt_mnemonics(password).map_err(|e| {
+        let mnemonics = self.keys.decrypt_mnemonics(password).map_err(|e| {
             error!("Failed to decrypt mnemonics: {}", e);
             Status::invalid_argument("Failed to decrypt mnemonics (probably an invalid password?)")
         })?;
@@ -188,9 +188,6 @@ impl KasWalletService {
                 unsigned_transaction.derivation_paths.clone(),
             );
             signed_transactions.push(wallet_signed_transaction);
-        }
-        for mut mnemonic in mnemonics{
-            mnemonic.zeroize()
         }
 
         Ok(signed_transactions)
