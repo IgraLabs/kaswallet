@@ -3,7 +3,8 @@ resolver = "2"
 members = [
     "common",
     "create",
-    "daemon", "test_client", "kaswallet_proto",
+    "daemon",
+    "test_client"
 ]
 
 [workspace.package]
@@ -24,7 +25,3 @@ include = [
     "Cargo.lock",
 ]
 
-[workspace.dependencies]
-kaswallet-create = { path = "create" }
-kaswallet-daemon = { path = "daemon" }
-rusty-kaspa = { path = "../rusty-kaspa" }

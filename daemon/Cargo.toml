@@ -14,7 +14,7 @@ path = "src/main.rs"
 
 [dependencies]
 common = { path = "../common" }
-kaswallet-proto = { path = "../kaswallet_proto" }
+kaswallet-proto = { git="https://github.com/IgraLabs/kaswallet-proto.git" }
 clap = { version = "4.5.31", features = ["derive"] }
 kaspa-consensus-core = { git="https://github.com/IgraLabs/rusty-kaspa.git", branch = "for-wallet" }
 kaspa-bip32 = { git="https://github.com/IgraLabs/rusty-kaspa.git", branch = "for-wallet" }
