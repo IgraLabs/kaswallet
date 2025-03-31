@@ -11,6 +11,8 @@ include.workspace = true
 [dependencies]
 common = { path = "../common" }
 clap = { version = "4.5.31", features = ["derive"] }
-kaspa-bip32 = { git="https://github.com/IgraLabs/rusty-kaspa.git", branch = "for-wallet" }
 kaspa-consensus-core = { git="https://github.com/IgraLabs/rusty-kaspa.git", branch = "for-wallet" }
+kaspa-bip32 = { git="https://github.com/IgraLabs/rusty-kaspa.git", branch = "for-wallet" }
+# kaspa-consensus-core = { path="../../rusty-kaspa/consensus/core" }
+# kaspa-bip32 = { path="../../rusty-kaspa/wallet/bip32" }
 rpassword = "7.3.1"

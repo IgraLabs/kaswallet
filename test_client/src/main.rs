@@ -17,6 +17,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Version={:?}", response.into_inner().version);
 
+    // new_address(&mut client).await?;
 
     let get_addresses_response = client
         .get_addresses(Request::new(GetAddressesRequest {}))

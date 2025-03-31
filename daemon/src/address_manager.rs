@@ -1,7 +1,6 @@
 ﻿use crate::model::{Keychain, WalletAddress, KEYCHAINS};
 use common::keys::Keys;
 use kaspa_addresses::{Address, Prefix as AddressPrefix, Version as AddressVersion};
-use kaspa_bip32::secp256k1::PublicKey;
 use kaspa_bip32::{DerivationPath, ExtendedPublicKey};
 use kaspa_wrpc_client::prelude::*;
 use kaspa_wrpc_client::KaspaRpcClient;
@@ -13,6 +12,7 @@ use std::num::NonZeroUsize;
 use std::str::FromStr;
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
+use kaspa_bip32::secp256k1::PublicKey;
 use tokio::sync::Mutex;
 
 const NUM_INDEXES_TO_QUERY_FOR_FAR_ADDRESSES: u32 = 100;
@@ -44,7 +44,7 @@ impl AddressManager {
         keys: Arc<Keys>,
         prefix: AddressPrefix,
     ) -> Self {
-        let is_multisig = keys.public_keys.len() > 0;
+        let is_multisig = keys.public_keys.len() > 1;
 
         Self {
             kaspa_rpc_client,
@@ -250,9 +250,9 @@ impl AddressManager {
         let path = self.calculate_address_path(wallet_address)?;
 
         let address = if self.is_multisig {
-            self.p2pk_address(path)?
-        } else {
             self.multisig_address(path)?
+        } else {
+            self.p2pk_address(path)?
         };
 
         if should_cache {

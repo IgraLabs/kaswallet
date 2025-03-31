@@ -371,7 +371,7 @@ impl Wallet for KasWalletService {
 
         let mut addresses = vec![];
         let address_manager = self.address_manager.lock().await;
-        for i in 0..=self.keys.last_used_external_index.load(Relaxed) {
+        for i in 1..=self.keys.last_used_external_index.load(Relaxed) {
             let wallet_address = WalletAddress {
                 index: i,
                 cosigner_index: self.keys.cosigner_index,

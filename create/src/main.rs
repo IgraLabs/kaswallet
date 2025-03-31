@@ -6,13 +6,84 @@ use common::keys::{Keys, KEY_FILE_VERSION};
 use constant_time_eq::constant_time_eq;
 use kaspa_bip32::mnemonic::Mnemonic;
 use kaspa_bip32::secp256k1::PublicKey;
-use kaspa_bip32::{ExtendedPrivateKey, ExtendedPublicKey, Language, Prefix, SecretKey, WordCount};
+use kaspa_bip32::{DerivationPath, ExtendedPrivateKey, ExtendedPublicKey, Language, Prefix, SecretKey, WordCount};
 use std::io;
 use std::path::Path;
 use std::str::FromStr;
 
 mod args;
 
+fn main() {
+    let args = args::Args::parse();
+    let network_id = args.network_id();
+    let keys_file_path = calculate_path(args.keys_file.clone(), network_id, "keys.json");
+    if !should_continue_if_key_file_exists(&keys_file_path) {
+        return;
+    }
+
+    let password = prompt_for_password();
+    let mnemonics = prompt_or_generate_mnemonics(&args);
+    let is_multisig = mnemonics.len() > 1;
+
+    let mut encrypted_mnemonics = vec![];
+    for mnemonic in mnemonics.iter() {
+        let encrypted_mnemonic = EncryptedMnemonic::new(&mnemonic, &password);
+        if let Err(e) = encrypted_mnemonic {
+            println!("Error encrypting mnemonic: {}", e);
+            return;
+        }
+        encrypted_mnemonics.push(encrypted_mnemonic.unwrap());
+    }
+    let master_key_derivation_path = master_key_path(is_multisig);
+    let x_private_keys: Vec<ExtendedPrivateKey<SecretKey>> = mnemonics
+        .iter()
+        .map(|mnemonic: &Mnemonic| {
+            let seed = mnemonic.to_seed("");
+            let master_key = ExtendedPrivateKey::new(seed).unwrap();
+            master_key.derive_path(&master_key_derivation_path).unwrap()
+        })
+        .collect();
+    let x_public_keys: Vec<ExtendedPublicKey<PublicKey>> = x_private_keys
+        .iter()
+        .map(|x_private_key| x_private_key.public_key())
+        .collect();
+
+    let prefix = Prefix::from(args.network_id());
+    for (i, x_public_key) in x_public_keys.iter().enumerate() {
+        println!(
+            "Extended public key of mnemonic#{}: {}",
+            i + 1,
+            x_public_key.to_string(Some(prefix))
+        );
+    }
+
+    let mut all_public_keys = x_public_keys.clone();
+    while all_public_keys.len() < args.num_public_keys as usize {
+        let x_public_key = prompt_for_x_public_key(all_public_keys.len());
+        all_public_keys.push(x_public_key);
+    }
+
+    let cosigner_index: u16 = if x_public_keys.len() == 0 {
+        0
+    } else {
+        minimum_cosigner_index(all_public_keys.clone(), x_public_keys, prefix)
+    };
+
+    let keys_file = Keys::new(
+        keys_file_path.clone(),
+        KEY_FILE_VERSION,
+        encrypted_mnemonics,
+        prefix,
+        all_public_keys,
+        0,
+        0,
+        args.min_signatures,
+        cosigner_index,
+    );
+
+    keys_file.save().unwrap();
+    println!("Keys data written to {}", keys_file_path);
+}
 pub fn prompt_for_mnemonic() -> Mnemonic {
     loop {
         println!("Please enter mnemonic (24 space separated words):");
@@ -115,71 +186,17 @@ fn should_continue_if_key_file_exists(keys_file_path: &str) -> bool {
     }
     true
 }
-fn main() {
-    let args = args::Args::parse();
-    let network_id = args.network_id();
-    let keys_file_path = calculate_path(args.keys_file.clone(), network_id, "keys.json");
-    if !should_continue_if_key_file_exists(&keys_file_path) {
-        return;
-    }
 
-    let password = prompt_for_password();
-    let mnemonics = prompt_or_generate_mnemonics(&args);
-
-    let mut encrypted_mnemonics = vec![];
-    for mnemonic in mnemonics.iter() {
-        let encrypted_mnemonic = EncryptedMnemonic::new(&mnemonic, &password);
-        if let Err(e) = encrypted_mnemonic {
-            println!("Error encrypting mnemonic: {}", e);
-            return;
-        }
-        encrypted_mnemonics.push(encrypted_mnemonic.unwrap());
-    }
-    let x_private_keys: Vec<ExtendedPrivateKey<SecretKey>> = mnemonics
-        .iter()
-        .map(|mnemonic: &Mnemonic| {
-            let seed = mnemonic.to_seed("");
-            ExtendedPrivateKey::new(seed).unwrap()
-        })
-        .collect();
-    let x_public_keys: Vec<ExtendedPublicKey<PublicKey>> = x_private_keys
-        .iter()
-        .map(|x_private_key| x_private_key.public_key())
-        .collect();
-
-    let prefix = Prefix::from(args.network_id());
-    for (i, x_public_key) in x_public_keys.iter().enumerate() {
-        println!(
-            "Extended public key of mnemonic#{}: {}",
-            i + 1,
-            x_public_key.to_string(Some(prefix))
-        );
-    }
-
-    let mut all_public_keys = x_public_keys.clone();
-    while all_public_keys.len() < args.num_public_keys as usize {
-        let x_public_key = prompt_for_x_public_key(all_public_keys.len());
-        all_public_keys.push(x_public_key);
-    }
-
-    let cosigner_index: u16 = if x_public_keys.len() == 0 {
-        0
+const SINGLE_SINGER_PURPOSE:u32 = 44;
+const MULTISIG_PURPOSE:u32 = 45;
+const KASPA_COIN_TYPE: u32 =111111;
+fn master_key_path(is_multisig: bool) -> DerivationPath {
+    let purpose = if is_multisig {
+        MULTISIG_PURPOSE
     } else {
-        minimum_cosigner_index(all_public_keys.clone(), x_public_keys, prefix)
+        SINGLE_SINGER_PURPOSE
     };
-
-    let keys_file = Keys::new(
-        keys_file_path.clone(),
-        KEY_FILE_VERSION,
-        encrypted_mnemonics,
-        prefix,
-        all_public_keys,
-        0,
-        0,
-        args.min_signatures,
-        cosigner_index,
-    );
-
-    keys_file.save().unwrap();
-    println!("Keys data written to {}", keys_file_path);
+    let path_string =format!("m/{}'/{}'/0'",purpose, KASPA_COIN_TYPE);
+    path_string.parse().unwrap()
 }
+
