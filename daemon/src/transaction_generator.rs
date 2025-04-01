@@ -1,20 +1,21 @@
 use crate::address_manager::AddressManager;
 use crate::model::{
-    UserInputError, WalletAddress, WalletOutpoint, WalletPayment, WalletSignableTransaction,
-    WalletUtxo,
+    WalletAddress, WalletOutpoint, WalletPayment, WalletSignableTransaction, WalletUtxo,
+    WalletUtxoEntry,
 };
 use crate::utxo_manager::UtxoManager;
 use chrono::{DateTime, Duration, Utc};
+use common::errors::WalletError;
 use common::keys::Keys;
 use kaspa_addresses::{Address, Version};
-use kaspa_consensus_core::constants::SOMPI_PER_KASPA;
+use kaspa_consensus_core::constants::{SOMPI_PER_KASPA, UNACCEPTED_DAA_SCORE};
 use kaspa_consensus_core::tx::{
     SignableTransaction, Transaction, TransactionInput, TransactionOutpoint, TransactionOutput,
     UtxoEntry,
 };
 use kaspa_txscript::pay_to_address_script;
 use kaspa_wallet_core::prelude::AddressPrefix;
-use kaspa_wallet_core::tx::MassCalculator;
+use kaspa_wallet_core::tx::{MassCalculator, MAXIMUM_STANDARD_TRANSACTION_MASS};
 use kaspa_wrpc_client::prelude::RpcApi;
 use kaspa_wrpc_client::KaspaRpcClient;
 use kaswallet_proto::kaswallet_proto::{fee_policy, FeePolicy, Outpoint};
@@ -44,6 +45,8 @@ pub struct TransactionGenerator {
     mass_calculator: Arc<MassCalculator>,
     address_prefix: AddressPrefix,
 
+    signature_mass_per_input: u64,
+
     used_outpoints: HashMap<WalletOutpoint, DateTime<Utc>>,
 }
 
@@ -56,6 +59,8 @@ impl TransactionGenerator {
         mass_calculator: Arc<MassCalculator>,
         address_prefix: AddressPrefix,
     ) -> Self {
+        let signature_mass_per_input =
+            mass_calculator.calc_compute_mass_for_signature(keys.minimum_signatures);
         Self {
             kaspa_rpc_client,
             keys,
@@ -63,6 +68,7 @@ impl TransactionGenerator {
             utxo_manager,
             mass_calculator,
             address_prefix,
+            signature_mass_per_input,
             used_outpoints: HashMap::new(),
         }
     }
@@ -82,7 +88,7 @@ impl TransactionGenerator {
             |address_string, name| -> Result<Address, Box<dyn Error + Send + Sync>> {
                 match Address::try_from(address_string) {
                     Ok(address) => Ok(address),
-                    Err(e) => Err(Box::new(UserInputError::new(format!(
+                    Err(e) => Err(Box::new(WalletError::UserInputError(format!(
                         "Invalid {} address: {}",
                         name, e
                     )))),
@@ -97,7 +103,7 @@ impl TransactionGenerator {
         }
 
         if !from_addresses_strings.is_empty() && !preselected_utxo_outpoints.is_empty() {
-            return Err(Box::new(UserInputError::new(
+            return Err(Box::new(WalletError::UserInputError(
                 "Cannot specify both from_addresses and utxos".to_string(),
             )));
         }
@@ -108,7 +114,7 @@ impl TransactionGenerator {
             let mut from_addresses = vec![];
             for address_string in from_addresses_strings {
                 let wallet_address = address_set.get(&address_string).ok_or_else(|| {
-                    UserInputError::new(format!(
+                    WalletError::UserInputError(format!(
                         "From address is not in address set: {}",
                         address_string
                     ))
@@ -129,7 +135,7 @@ impl TransactionGenerator {
                         let utxo = utxo.clone();
                         preselected_utxos.insert(utxo.outpoint.clone(), utxo);
                     } else {
-                        return Err(Box::new(UserInputError::new(format!(
+                        return Err(Box::new(WalletError::UserInputError(format!(
                             "UTXO {:?} is not in UTXO set",
                             outpoint
                         ))));
@@ -179,9 +185,9 @@ impl TransactionGenerator {
         let unsigned_transactions = self
             .maybe_auto_compound_transaction(
                 unsigned_transaction,
-                to_address,
-                change_address,
-                change_wallet_address,
+                &to_address,
+                &change_address,
+                &change_wallet_address,
                 fee_rate,
                 max_fee,
             )
@@ -192,15 +198,291 @@ impl TransactionGenerator {
 
     async fn maybe_auto_compound_transaction(
         &self,
-        unsigned_transaction: WalletSignableTransaction,
-        _to_address: Address,
-        _change_address: Address,
-        _change_wallet_address: WalletAddress,
+        transaction: WalletSignableTransaction,
+        to_address: &Address,
+        change_address: &Address,
+        change_wallet_address: &WalletAddress,
+        fee_rate: f64,
+        max_fee: u64,
+    ) -> Result<Vec<WalletSignableTransaction>, Box<dyn Error + Send + Sync>> {
+        self.check_transaction_fee_rate(&transaction, max_fee)?;
+
+        let consensus_transaction = transaction.transaction.unwrap_ref();
+        let consensus_transaction = &consensus_transaction.tx;
+
+        let transaction_mass = self
+            .mass_calculator
+            .calc_compute_mass_for_unsigned_consensus_transaction(
+                &consensus_transaction,
+                self.keys.minimum_signatures,
+            );
+
+        if transaction_mass < MAXIMUM_STANDARD_TRANSACTION_MASS {
+            return Ok(vec![transaction]);
+        }
+
+        let (split_count, input_per_split_count) = self
+            .split_and_input_per_split_counts(
+                &consensus_transaction,
+                transaction_mass,
+                &change_address,
+                fee_rate,
+                max_fee,
+            )
+            .await?;
+
+        let mut split_transactions = vec![];
+        for i in 0..split_count {
+            let start_index = i * input_per_split_count;
+            let end_index = start_index + input_per_split_count;
+
+            let split_transaction = self.create_split_transaction(
+                &consensus_transaction,
+                &change_address,
+                start_index,
+                end_index,
+                fee_rate,
+                max_fee,
+            )?;
+
+            self.check_transaction_fee_rate(&split_transaction, max_fee)?;
+
+            split_transactions.push(split_transaction);
+        }
+
+        let merge_transaction = self
+            .merge_transaction(
+                &split_transactions,
+                &consensus_transaction,
+                to_address,
+                change_address,
+                change_wallet_address,
+                fee_rate,
+                max_fee,
+            )
+            .await?;
+
+        // Recursion will be 2-3 iterations deep even in the rarest` cases, so considered safe..
+        let split_merge_transaction = Box::pin(self.maybe_auto_compound_transaction(
+            merge_transaction,
+            to_address,
+            change_address,
+            change_wallet_address,
+            fee_rate,
+            max_fee,
+        ))
+        .await?;
+
+        let split_transactions = [split_transactions, split_merge_transaction]
+            .concat()
+            .to_vec();
+
+        Ok(split_transactions)
+    }
+    async fn merge_transaction(
+        &self,
+        split_transactions: &Vec<WalletSignableTransaction>,
+        original_consensus_transaction: &Transaction,
+        to_address: &Address,
+        change_address: &Address,
+        change_wallet_address: &WalletAddress,
+        fee_rate: f64,
+        max_fee: u64,
+    ) -> Result<WalletSignableTransaction, Box<dyn Error + Send + Sync>> {
+        let num_outputs = original_consensus_transaction.outputs.len();
+        if ![1, 2].contains(&num_outputs) {
+            // This is a sanity check to make sure originalTransaction has either 1 or 2 outputs:
+            // 1. For the payment itself
+            // 2. (optional) for change
+            return Err(Box::new(WalletError::SanityCheckFailed(format!(
+                "Original transactin has {} outputs, while 1 or 2 are expected",
+                num_outputs
+            ))));
+        }
+
+        let mut total_value = 0u64;
+        let sent_value = original_consensus_transaction.outputs[0].value;
+        let mut utxos = vec![];
+
+        for split_transaction in split_transactions {
+            let split_consensus_transaction = (&split_transaction.transaction).unwrap_ref();
+            let split_consensus_transaction = &split_consensus_transaction.tx;
+            let output = &split_consensus_transaction.outputs[0];
+            let utxo = WalletUtxo {
+                outpoint: WalletOutpoint {
+                    transaction_id: split_transaction.transaction.unwrap_ref().id(),
+                    index: 0,
+                },
+                utxo_entry: WalletUtxoEntry {
+                    amount: output.value,
+                    script_public_key: output.script_public_key.clone(),
+                    block_daa_score: UNACCEPTED_DAA_SCORE,
+                    is_coinbase: false,
+                },
+                address: change_wallet_address.clone(),
+            };
+            utxos.push(utxo);
+        }
+
+        // We're overestimating a bit by assuming that any transaction will have a change output
+        let merge_transaction_fee = self
+            .estimate_fee(
+                &utxos,
+                fee_rate,
+                max_fee,
+                sent_value,
+                &original_consensus_transaction.payload,
+            )
+            .await?;
+
+        total_value -= merge_transaction_fee;
+
+        if total_value < sent_value {
+            let required_amount = sent_value - total_value;
+            // Sometimes the fees from compound transactions make the total output higher than what's
+            // available from selected utxos, in such cases - find one more UTXO and use it.
+            let (additional_utxos, total_value_added) = self
+                .more_utxos_for_merge_transaction(
+                    original_consensus_transaction,
+                    &utxos,
+                    required_amount,
+                    fee_rate,
+                )
+                .await?;
+            utxos = [utxos, additional_utxos].concat();
+            total_value += total_value_added;
+        }
+
+        let mut payments = vec![WalletPayment {
+            address: to_address.clone(),
+            amount: sent_value,
+        }];
+
+        if total_value > sent_value {
+            payments.push(WalletPayment {
+                address: change_address.clone(),
+                amount: total_value - sent_value,
+            });
+        }
+
+        self.generate_unsigned_transaction(
+            payments,
+            original_consensus_transaction.payload.clone(),
+            &utxos,
+        )
+        .await
+    }
+
+    // Returns: (additional_utxos, total_Value_added)
+    async fn more_utxos_for_merge_transaction(
+        &self,
+        original_consensus_transaction: &Transaction,
+        utxos: &Vec<WalletUtxo>,
+        required_amount: u64,
+        fee_rate: f64,
+    ) -> Result<(Vec<WalletUtxo>, u64), Box<dyn Error + Send + Sync>> {
+        let dag_info = self.kaspa_rpc_client.get_block_dag_info().await?;
+
+        let mass_per_input = self
+            .estimate_mass_per_input(&original_consensus_transaction.inputs[0])
+            .await;
+        let fee_per_input = (mass_per_input as f64 * fee_rate).ceil() as u64;
+
+        let utxo_manager = self.utxo_manager.lock().await;
+        let utxos_sorted_by_amount = utxo_manager.utxos_sorted_by_amount();
+        let already_selected_utxos = HashSet::<WalletUtxo>::from_iter(utxos.iter().cloned());
+
+        let mut additional_utxos = vec![];
+        let mut total_value_added = 0;
+        for utxo in utxos_sorted_by_amount {
+            if already_selected_utxos.contains(utxo)
+                || utxo_manager.is_utxo_pending(utxo, dag_info.virtual_daa_score)
+            {
+                continue;
+            }
+
+            additional_utxos.push(utxo.clone());
+            total_value_added += utxo.utxo_entry.amount - fee_per_input;
+            if total_value_added >= required_amount {
+                break;
+            }
+        }
+
+        if total_value_added < required_amount {
+            WalletError::UserInputError("Insufficient amount for merge transaction".to_string());
+        }
+        Ok((additional_utxos, total_value_added))
+    }
+
+    // Returns: (split_count, input_per_split_count)
+    async fn split_and_input_per_split_counts(
+        &self,
+        _consensus_transaction: &Transaction,
+        _transaction_mass: u64,
+        _change_address: &Address,
         _fee_rate: f64,
         _max_fee: u64,
-    ) -> Result<Vec<WalletSignableTransaction>, Box<dyn Error + Send + Sync>> {
-        // TODO: implement actual splitting of transactions
-        Ok(vec![unsigned_transaction])
+    ) -> Result<(usize, usize), Box<dyn Error + Send + Sync>> {
+        todo!()
+    }
+
+    fn create_split_transaction(
+        &self,
+        _consensus_transaction: &Transaction,
+        _change_address: &Address,
+        _start_index: usize,
+        _end_index: usize,
+        _fee_rate: f64,
+        _max_fee: u64,
+    ) -> Result<WalletSignableTransaction, Box<dyn Error + Send + Sync>> {
+        todo!()
+    }
+
+    fn check_transaction_fee_rate(
+        &self,
+        transaction: &WalletSignableTransaction,
+        max_fee: u64,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let signable_transaction = transaction.transaction.unwrap_ref();
+        let total_ins: u64 = signable_transaction
+            .entries
+            .iter()
+            .map(|entry| match entry {
+                None => 0,
+                Some(entry) => entry.amount,
+            })
+            .sum();
+
+        let total_outs: u64 = signable_transaction
+            .tx
+            .outputs
+            .iter()
+            .map(|output| output.value)
+            .sum();
+
+        if total_ins < total_outs {
+            return Err(Box::new(WalletError::SanityCheckFailed(
+                "transaction don't have enough funds to pay for the outputs".to_string(),
+            )));
+        };
+        let fee = total_ins - total_outs;
+        let mass = self
+            .mass_calculator
+            .calc_compute_mass_for_unsigned_consensus_transaction(
+                &signable_transaction.tx,
+                self.keys.minimum_signatures,
+            );
+
+        let fee_rate = fee as f64 / mass as f64;
+
+        if fee_rate < 1.0 {
+            Err(Box::new(WalletError::SanityCheckFailed(format!(
+                "setting max-fee to {} results in a fee rate of {}, which is below the minimum allowed fee rate of 1 sompi/gram",
+                max_fee, fee_rate
+            ))))
+        } else {
+            Ok(())
+        }
     }
 
     async fn generate_unsigned_transaction(
@@ -266,7 +548,7 @@ impl TransactionGenerator {
             Some(fee_policy) => match fee_policy.fee_policy {
                 Some(fee_policy::FeePolicy::MaxFeeRate(requested_max_fee_rate)) => {
                     if requested_max_fee_rate < MIN_FEE_RATE {
-                        return Err(Box::new(UserInputError::new(format!(
+                        return Err(Box::new(WalletError::UserInputError(format!(
                             "requested max fee rate {} is too low, minimum fee rate is {}",
                             requested_max_fee_rate, MIN_FEE_RATE
                         ))));
@@ -281,7 +563,7 @@ impl TransactionGenerator {
                 }
                 Some(fee_policy::FeePolicy::ExactFeeRate(requested_exact_fee_rate)) => {
                     if requested_exact_fee_rate < MIN_FEE_RATE {
-                        return Err(Box::new(UserInputError::new(format!(
+                        return Err(Box::new(WalletError::UserInputError(format!(
                             "requested max fee rate {} is too low, minimum fee rate is {}",
                             requested_exact_fee_rate, MIN_FEE_RATE
                         ))));
@@ -420,7 +702,7 @@ impl TransactionGenerator {
         }
 
         if total_value < total_spend {
-            return Err(Box::new(UserInputError::new(format!(
+            return Err(Box::new(WalletError::UserInputError(format!(
                 "Insufficient funds for send: {} required, while only {} available",
                 amount / SOMPI_PER_KASPA,
                 total_value / SOMPI_PER_KASPA
@@ -499,9 +781,15 @@ impl TransactionGenerator {
         Ok(self
             .mass_calculator
             .calc_compute_mass_for_unsigned_consensus_transaction(
-                &mock_transaction.transaction.unwrap().tx,
+                &mock_transaction.transaction.unwrap_ref().tx,
                 self.keys.minimum_signatures,
             ))
+    }
+
+    pub async fn estimate_mass_per_input(&self, input: &TransactionInput) -> u64 {
+        self.mass_calculator
+            .calc_compute_mass_for_client_transaction_input(&input)
+            + self.signature_mass_per_input
     }
 
     pub async fn cleanup_expired_used_outpoints(&mut self) {

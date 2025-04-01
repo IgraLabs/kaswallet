@@ -1,8 +1,8 @@
 ﻿use crate::address_manager::AddressManager;
-use crate::model::UserInputError;
 use crate::transaction_generator::TransactionGenerator;
 use crate::utxo_manager::UtxoManager;
 use chrono::Utc;
+use common::errors::WalletError;
 use kaspa_addresses::Address;
 use kaspa_wrpc_client::prelude::{RpcAddress, RpcApi};
 use kaspa_wrpc_client::KaspaRpcClient;
@@ -67,7 +67,7 @@ impl SyncManager {
                 // We don't want to disrupt operation because of this
             }
         } else {
-            return Err(Box::new(UserInputError::new(
+            return Err(Box::new(WalletError::SanityCheckFailed(
                 "Force sync sender is not initialized".to_string(),
             )));
         }

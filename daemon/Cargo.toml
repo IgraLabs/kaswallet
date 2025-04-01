@@ -14,22 +14,22 @@ path = "src/main.rs"
 
 [dependencies]
 common = { path = "../common" }
-kaswallet-proto = { git="https://github.com/IgraLabs/kaswallet-proto.git" }
+kaswallet-proto = { git = "https://github.com/IgraLabs/kaswallet-proto.git" }
 clap = { version = "4.5.31", features = ["derive"] }
-kaspa-consensus-core = { git="https://github.com/IgraLabs/rusty-kaspa.git", branch = "for-wallet" }
-kaspa-bip32 = { git="https://github.com/IgraLabs/rusty-kaspa.git", branch = "for-wallet" }
-kaspa-wrpc-client = { git="https://github.com/IgraLabs/rusty-kaspa.git", branch = "for-wallet" }
-kaspa-hashes = { git="https://github.com/IgraLabs/rusty-kaspa.git", branch = "for-wallet" }
-kaspa-txscript = { git="https://github.com/IgraLabs/rusty-kaspa.git", branch = "for-wallet" }
-kaspa-addresses = { git="https://github.com/IgraLabs/rusty-kaspa.git", branch = "for-wallet" }
-kaspa-wallet-core = { git="https://github.com/IgraLabs/rusty-kaspa.git", branch = "for-wallet" }
-# kaspa-consensus-core = { path="../../rusty-kaspa/consensus/core" }
-# kaspa-bip32 = { path="../../rusty-kaspa/wallet/bip32" }
-# kaspa-wrpc-client = { path="../../rusty-kaspa/rpc/wrpc/client" }
-# kaspa-hashes = { path="../../rusty-kaspa/crypto/hashes" }
-# kaspa-txscript = { path="../../rusty-kaspa/crypto/txscript" }
-# kaspa-addresses = { path="../../rusty-kaspa/crypto/addresses" }
-# kaspa-wallet-core = { path="../../rusty-kaspa/wallet/core" }
+# kaspa-consensus-core = { git="https://github.com/IgraLabs/rusty-kaspa.git", branch = "for-wallet" }
+# kaspa-bip32 = { git="https://github.com/IgraLabs/rusty-kaspa.git", branch = "for-wallet" }
+# kaspa-wrpc-client = { git="https://github.com/IgraLabs/rusty-kaspa.git", branch = "for-wallet" }
+# kaspa-hashes = { git="https://github.com/IgraLabs/rusty-kaspa.git", branch = "for-wallet" }
+# kaspa-txscript = { git="https://github.com/IgraLabs/rusty-kaspa.git", branch = "for-wallet" }
+# kaspa-addresses = { git="https://github.com/IgraLabs/rusty-kaspa.git", branch = "for-wallet" }
+# kaspa-wallet-core = { git="https://github.com/IgraLabs/rusty-kaspa.git", branch = "for-wallet" }
+kaspa-consensus-core = { path = "../../rusty-kaspa/consensus/core" }
+kaspa-bip32 = { path = "../../rusty-kaspa/wallet/bip32" }
+kaspa-wrpc-client = { path = "../../rusty-kaspa/rpc/wrpc/client" }
+kaspa-hashes = { path = "../../rusty-kaspa/crypto/hashes" }
+kaspa-txscript = { path = "../../rusty-kaspa/crypto/txscript" }
+kaspa-addresses = { path = "../../rusty-kaspa/crypto/addresses" }
+kaspa-wallet-core = { path = "../../rusty-kaspa/wallet/core" }
 borsh = { version = "1.5.6", features = ["derive"] }
 lru = "0.13.0"
 itertools = "0.14.0"

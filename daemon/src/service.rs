@@ -1,10 +1,9 @@
 ﻿use crate::address_manager::{AddressManager, AddressSet};
-use crate::model::{
-    Keychain, UserInputError, WalletAddress, WalletSignableTransaction, WalletUtxo,
-};
+use crate::model::{Keychain, WalletAddress, WalletSignableTransaction, WalletUtxo};
 use crate::sync_manager::SyncManager;
 use crate::transaction_generator::TransactionGenerator;
 use crate::utxo_manager::UtxoManager;
+use common::errors::WalletError;
 use common::keys::Keys;
 use itertools::Itertools;
 use kaspa_addresses::Address;
@@ -143,10 +142,7 @@ impl KasWalletService {
         let mut encoded_transactions = vec![];
         for unsigned_transaction in transactions {
             // TODO: Use protobuf instead of borsh for serialization
-            let encoded_transaction = borsh::to_vec(&unsigned_transaction).map_err(|e| {
-                error!("Failed to encode transaction: {}", e);
-                Status::internal("Internal server error")
-            })?;
+            let encoded_transaction = borsh::to_vec(&unsigned_transaction)?;
             encoded_transactions.push(encoded_transaction);
         }
         Ok(encoded_transactions)
@@ -177,16 +173,17 @@ impl KasWalletService {
         let extended_private_keys = Self::mnemonics_to_private_keys(&mnemonics)?;
 
         let mut signed_transactions = vec![];
-        for unsigned_transaction in &unsigned_transactions {
+        for unsigned_transaction in unsigned_transactions {
+            let derivation_paths = unsigned_transaction.derivation_paths.clone();
+
             let signed_transaction = self
                 .sign_transaction(unsigned_transaction, &extended_private_keys)
                 .map_err(|e| {
                     Status::invalid_argument(format!("Failed to sign transaction: {}", e))
                 })?;
-            let wallet_signed_transaction = WalletSignableTransaction::new(
-                signed_transaction,
-                unsigned_transaction.derivation_paths.clone(),
-            );
+            let wallet_signed_transaction =
+                WalletSignableTransaction::new(signed_transaction, derivation_paths);
+
             signed_transactions.push(wallet_signed_transaction);
         }
 
@@ -195,7 +192,7 @@ impl KasWalletService {
 
     fn sign_transaction(
         &self,
-        unsigned_transaction: &WalletSignableTransaction,
+        unsigned_transaction: WalletSignableTransaction,
         extended_private_keys: &Vec<ExtendedPrivateKey<SecretKey>>,
     ) -> Result<Signed, Box<dyn Error + Send + Sync>> {
         let mut private_keys = vec![];
@@ -206,9 +203,8 @@ impl KasWalletService {
             }
         }
 
-        let signable_transaction = &unsigned_transaction.transaction;
-        let signed_transaction =
-            sign_with_multiple(signable_transaction.clone().unwrap(), &private_keys);
+        let signable_transaction = unsigned_transaction.transaction;
+        let signed_transaction = sign_with_multiple(signable_transaction.unwrap(), &private_keys);
 
         sanity_check_verify(&signed_transaction)?;
         Ok(signed_transaction)
@@ -302,17 +298,27 @@ impl KasWalletService {
         let unsigned_transactions = match unsigned_transactions_result {
             Ok(unsigned_transactions) => unsigned_transactions,
             Err(e) => {
-                return match e.downcast::<UserInputError>() {
-                    Ok(e) => Err(Status::invalid_argument(e.message)),
+                return match e.downcast::<WalletError>() {
+                    Ok(e) => match e.as_ref() {
+                        WalletError::SanityCheckFailed(e) => {
+                            error!("Sanity check failed: {}", e);
+                            internal_server_error()
+                        }
+                        WalletError::UserInputError(e) => Err(Status::invalid_argument(e)),
+                    },
                     Err(e) => {
                         error!("Error creating unsigned transaction: {}", e);
-                        Err(Status::internal("Internal server error"))
+                        internal_server_error()
                     }
                 };
             }
         };
         Ok(unsigned_transactions)
     }
+}
+
+fn internal_server_error<T>() -> Result<T, Status> {
+    Err(Status::internal("Internal server error"))
 }
 
 fn sanity_check_verify(signed_transaction: &Signed) -> Result<(), Status> {
@@ -323,7 +329,8 @@ fn sanity_check_verify(signed_transaction: &Signed) -> Result<(), Status> {
         debug!("Transaction is partially signed, so can't verify");
         return Ok(());
     }
-    let verify_result = verify(&signed_transaction.clone().unwrap().as_verifiable());
+    let verifiable_transaction = &signed_transaction.unwrap_ref().as_verifiable();
+    let verify_result = verify(verifiable_transaction);
     if let Err(e) = verify_result {
         error!("Signed transaction does not verify correctly: {}", e);
         Err(Status::internal("Internal server error"))

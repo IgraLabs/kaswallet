@@ -11,8 +11,6 @@ use kaswallet_proto::kaswallet_proto::{
     UtxoEntry as ProtoUtxoEntry,
 };
 use std::collections::HashSet;
-use std::fmt;
-use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
@@ -73,7 +71,7 @@ impl Into<WalletOutpoint> for ProtoOutpoint {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct WalletUtxoEntry {
     pub amount: u64,
     pub script_public_key: ScriptPublicKey,
@@ -117,7 +115,7 @@ impl From<RpcUtxoEntry> for WalletUtxoEntry {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct WalletUtxo {
     pub outpoint: WalletOutpoint,
     pub utxo_entry: WalletUtxoEntry,
@@ -158,25 +156,6 @@ impl WalletPayment {
         Self { address, amount }
     }
 }
-
-#[derive(Debug)]
-pub struct UserInputError {
-    pub message: String,
-}
-
-impl UserInputError {
-    pub fn new(message: String) -> Self {
-        UserInputError { message }
-    }
-}
-
-impl Display for UserInputError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.message)
-    }
-}
-
-impl std::error::Error for UserInputError {}
 
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
 pub struct WalletSignableTransaction {
