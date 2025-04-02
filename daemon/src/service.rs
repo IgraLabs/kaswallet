@@ -104,7 +104,7 @@ impl KasWalletService {
                 let address_manager = self.address_manager.lock().await;
                 // TODO: Don't calculate address every time
                 address = address_manager
-                    .wallet_address_to_kaspa_address(&utxo.address, true)
+                    .kaspa_address_from_wallet_address(&utxo.address, true)
                     .await
                     .unwrap()
                     .address_to_string();
@@ -175,14 +175,18 @@ impl KasWalletService {
         let mut signed_transactions = vec![];
         for unsigned_transaction in unsigned_transactions {
             let derivation_paths = unsigned_transaction.derivation_paths.clone();
+            let address_by_input_index = unsigned_transaction.address_by_input_index.clone();
 
             let signed_transaction = self
                 .sign_transaction(unsigned_transaction, &extended_private_keys)
                 .map_err(|e| {
                     Status::invalid_argument(format!("Failed to sign transaction: {}", e))
                 })?;
-            let wallet_signed_transaction =
-                WalletSignableTransaction::new(signed_transaction, derivation_paths);
+            let wallet_signed_transaction = WalletSignableTransaction::new(
+                signed_transaction,
+                derivation_paths,
+                address_by_input_index,
+            );
 
             signed_transactions.push(wallet_signed_transaction);
         }
@@ -385,7 +389,7 @@ impl Wallet for KasWalletService {
                 keychain: Keychain::External,
             };
             match address_manager
-                .wallet_address_to_kaspa_address(&wallet_address, true)
+                .kaspa_address_from_wallet_address(&wallet_address, true)
                 .await
             {
                 Ok(address) => {
@@ -463,7 +467,7 @@ impl Wallet for KasWalletService {
         let include_balance_per_address = request.get_ref().include_balance_per_address;
         for (wallet_address, balances) in balances_map.clone() {
             let address = match address_manager
-                .wallet_address_to_kaspa_address(&wallet_address, true)
+                .kaspa_address_from_wallet_address(&wallet_address, true)
                 .await
             {
                 Ok(address) => address,

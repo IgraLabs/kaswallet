@@ -3,7 +3,9 @@ use kaspa_addresses::Address;
 use kaspa_bip32::DerivationPath;
 use kaspa_consensus_core::sign::Signed;
 use kaspa_consensus_core::sign::Signed::Partially;
-use kaspa_consensus_core::tx::{ScriptPublicKey, SignableTransaction, UtxoEntry};
+use kaspa_consensus_core::tx::{
+    ScriptPublicKey, SignableTransaction, TransactionOutpoint, UtxoEntry,
+};
 use kaspa_hashes::Hash;
 use kaspa_wrpc_client::prelude::{RpcTransactionOutpoint, RpcUtxoEntry};
 use kaswallet_proto::kaswallet_proto::{
@@ -13,7 +15,8 @@ use kaswallet_proto::kaswallet_proto::{
 use std::collections::HashSet;
 use std::str::FromStr;
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[borsh(use_discriminant = true)]
 pub enum Keychain {
     External = 0,
     Internal = 1,
@@ -21,7 +24,7 @@ pub enum Keychain {
 
 pub const KEYCHAINS: [Keychain; 2] = [Keychain::External, Keychain::Internal];
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct WalletAddress {
     pub index: u32,
     pub cosigner_index: u16,
@@ -71,6 +74,15 @@ impl Into<WalletOutpoint> for ProtoOutpoint {
     }
 }
 
+impl From<TransactionOutpoint> for WalletOutpoint {
+    fn from(value: TransactionOutpoint) -> Self {
+        Self {
+            transaction_id: value.transaction_id,
+            index: value.index,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct WalletUtxoEntry {
     pub amount: u64,
@@ -100,6 +112,17 @@ impl Into<UtxoEntry> for WalletUtxoEntry {
             script_public_key: self.script_public_key,
             block_daa_score: self.block_daa_score,
             is_coinbase: self.is_coinbase,
+        }
+    }
+}
+
+impl From<UtxoEntry> for WalletUtxoEntry {
+    fn from(value: UtxoEntry) -> Self {
+        Self {
+            amount: value.amount,
+            script_public_key: value.script_public_key,
+            block_daa_score: value.block_daa_score,
+            is_coinbase: value.is_coinbase,
         }
     }
 }
@@ -161,22 +184,30 @@ impl WalletPayment {
 pub struct WalletSignableTransaction {
     pub transaction: Signed,
     pub derivation_paths: HashSet<DerivationPath>,
+    pub address_by_input_index: Vec<WalletAddress>,
 }
 impl WalletSignableTransaction {
-    pub fn new(transaction: Signed, derivation_paths: HashSet<DerivationPath>) -> Self {
+    pub fn new(
+        transaction: Signed,
+        derivation_paths: HashSet<DerivationPath>,
+        address_by_input_index: Vec<WalletAddress>,
+    ) -> Self {
         Self {
             transaction,
             derivation_paths,
+            address_by_input_index,
         }
     }
 
     pub fn new_from_unsigned(
         transaction: SignableTransaction,
         derivation_paths: HashSet<DerivationPath>,
+        address_by_input_index: Vec<WalletAddress>,
     ) -> Self {
         Self {
             transaction: Partially(transaction),
             derivation_paths,
+            address_by_input_index,
         }
     }
 }

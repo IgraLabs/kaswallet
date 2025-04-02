@@ -1,6 +1,7 @@
 ﻿use crate::model::{Keychain, WalletAddress, KEYCHAINS};
 use common::keys::Keys;
 use kaspa_addresses::{Address, Prefix as AddressPrefix, Version as AddressVersion};
+use kaspa_bip32::secp256k1::PublicKey;
 use kaspa_bip32::{DerivationPath, ExtendedPublicKey};
 use kaspa_wrpc_client::prelude::*;
 use kaspa_wrpc_client::KaspaRpcClient;
@@ -12,7 +13,6 @@ use std::num::NonZeroUsize;
 use std::str::FromStr;
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
-use kaspa_bip32::secp256k1::PublicKey;
 use tokio::sync::Mutex;
 
 const NUM_INDEXES_TO_QUERY_FOR_FAR_ADDRESSES: u32 = 100;
@@ -96,7 +96,7 @@ impl AddressManager {
             Keychain::External,
         );
         let address = self
-            .wallet_address_to_kaspa_address(&wallet_address, true)
+            .kaspa_address_from_wallet_address(&wallet_address, true)
             .await?;
 
         Ok((address.to_string(), wallet_address))
@@ -183,7 +183,7 @@ impl AddressManager {
                 for keychain in KEYCHAINS {
                     let wallet_address = WalletAddress::new(index, cosigner_index, keychain);
                     let address = self
-                        .wallet_address_to_kaspa_address(&wallet_address, false)
+                        .kaspa_address_from_wallet_address(&wallet_address, false)
                         .await?;
                     addresses.insert(address.to_string(), wallet_address);
                 }
@@ -236,7 +236,7 @@ impl AddressManager {
         Ok(())
     }
 
-    pub async fn wallet_address_to_kaspa_address(
+    pub async fn kaspa_address_from_wallet_address(
         &self,
         wallet_address: &WalletAddress,
         should_cache: bool,
@@ -249,6 +249,19 @@ impl AddressManager {
         }
         let path = self.calculate_address_path(wallet_address)?;
 
+        let address = self
+            .kaspa_address_from_path(wallet_address, &path, should_cache)
+            .await?;
+
+        Ok(address)
+    }
+
+    async fn kaspa_address_from_path(
+        &self,
+        wallet_address: &WalletAddress,
+        path: &DerivationPath,
+        should_cache: bool,
+    ) -> Result<Address, Box<dyn Error + Send + Sync>> {
         let address = if self.is_multisig {
             self.multisig_address(path)?
         } else {
@@ -259,7 +272,6 @@ impl AddressManager {
             let mut address_cache = self.address_cache.lock().await;
             address_cache.push(wallet_address.clone(), address.clone());
         }
-
         Ok(address)
     }
 
@@ -286,10 +298,10 @@ impl AddressManager {
 
     fn p2pk_address(
         &self,
-        derivation_path: DerivationPath,
+        derivation_path: &DerivationPath,
     ) -> Result<Address, Box<dyn Error + Send + Sync>> {
         let extended_public_key = self.extended_public_keys.first().unwrap().clone();
-        let derived_key = extended_public_key.derive_path(&derivation_path)?;
+        let derived_key = extended_public_key.derive_path(derivation_path)?;
         let pk = derived_key.public_key();
         let payload = pk.x_only_public_key().0.serialize();
         let address = Address::new(self.prefix, AddressVersion::PubKey, &payload);
@@ -298,14 +310,14 @@ impl AddressManager {
 
     fn multisig_address(
         &self,
-        derivation_path: DerivationPath,
+        derivation_path: &DerivationPath,
     ) -> Result<Address, Box<dyn Error + Send + Sync>> {
         let mut sorted_extended_public_keys = self.extended_public_keys.as_ref().clone();
         sorted_extended_public_keys.sort();
 
         let mut public_keys = vec![];
         for x_public_key in sorted_extended_public_keys.iter() {
-            let derived_key = x_public_key.clone().derive_path(&derivation_path)?;
+            let derived_key = x_public_key.clone().derive_path(derivation_path)?;
             let public_key = derived_key.public_key();
             public_keys.push(public_key.x_only_public_key().0.serialize());
         }
@@ -393,7 +405,7 @@ impl AddressManager {
         };
 
         let address = self
-            .wallet_address_to_kaspa_address(&wallet_address, true)
+            .kaspa_address_from_wallet_address(&wallet_address, true)
             .await?;
 
         Ok((address, wallet_address))
