@@ -1,11 +1,12 @@
 use crate::address_manager::AddressManager;
 use crate::model::{WalletOutpoint, WalletUtxo, WalletUtxoEntry};
 use chrono::{DateTime, Utc};
-use kaspa_wallet_core::utxo::NetworkParams;
-use kaspa_wrpc_client::prelude::{RpcMempoolEntryByAddress, RpcUtxosByAddressesEntry};
+use kaspa_consensus_core::config::params::Params;
+use kaspa_wrpc_client::prelude::{
+    GetBlockDagInfoResponse, RpcMempoolEntryByAddress, RpcUtxosByAddressesEntry,
+};
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
-use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -22,11 +23,12 @@ pub struct UtxoManager {
 impl UtxoManager {
     pub fn new(
         address_manager: Arc<Mutex<AddressManager>>,
-        network_params: &NetworkParams,
+        concensus_params: Params,
+        block_dag_info: GetBlockDagInfoResponse,
     ) -> Self {
-        let coinbase_maturity = network_params
-            .coinbase_transaction_maturity_period_daa
-            .load(Relaxed);
+        let coinbase_maturity = concensus_params
+            .coinbase_maturity()
+            .get(block_dag_info.virtual_daa_score);
 
         Self {
             address_manager,

@@ -5,8 +5,9 @@ use clap::Parser;
 use common::args::calculate_path;
 use common::keys::Keys;
 use kaspa_bip32::Prefix;
+use kaspa_consensus_core::config::params::Params;
 use kaspa_wallet_core::tx::MassCalculator;
-use kaspa_wallet_core::utxo::NetworkParams;
+use kaspa_wrpc_client::prelude::RpcApi;
 use kaswallet_proto::kaswallet_proto::wallet_server::WalletServer;
 use ::log::{debug, error, info};
 use std::error::Error;
@@ -54,10 +55,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
     let keys = Arc::new(keys.unwrap());
     info!("Loaded keys from file {}", keys_file_path);
-    let network_params = NetworkParams::from(network_id);
+    let consensus_params = Params::from(network_id.network_type);
     let mass_calculator = Arc::new(MassCalculator::new(&network_id.network_type.into()));
 
     let kaspa_rpc_client = kaspad_client::connect(args.server.clone(), args.network_id()).await?;
+    let block_dag_info = kaspa_rpc_client.get_block_dag_info().await?;
 
     let address_prefix = network_id.network_type.into();
     let address_manager = Arc::new(Mutex::new(AddressManager::new(
@@ -67,7 +69,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     )));
     let utxo_manager = Arc::new(Mutex::new(utxo_manager::UtxoManager::new(
         address_manager.clone(),
-        network_params,
+        consensus_params,
+        block_dag_info,
     )));
     let transaction_generator = Arc::new(Mutex::new(TransactionGenerator::new(
         kaspa_rpc_client.clone(),
