@@ -131,7 +131,7 @@ impl TransactionGenerator {
             {
                 let utxo_manager = self.utxo_manager.lock().await;
                 let utxos_by_outpoint = utxo_manager.utxos_by_outpoint();
-                for outpoint in preselected_utxo_outpoints {
+                for outpoint in &preselected_utxo_outpoints {
                     if let Some(utxo) = utxos_by_outpoint.get(&outpoint.clone().into()) {
                         let utxo = utxo.clone();
                         preselected_utxos.insert(utxo.outpoint.clone(), utxo);
@@ -187,9 +187,10 @@ impl TransactionGenerator {
             .maybe_auto_compound_transaction(
                 unsigned_transaction,
                 &selected_utxos,
-                &from_addresses,
+                from_addresses,
                 &to_address,
                 is_send_all,
+                &preselected_utxo_outpoints,
                 &change_address,
                 &change_wallet_address,
                 fee_rate,
@@ -204,9 +205,10 @@ impl TransactionGenerator {
         &self,
         original_wallet_transaction: WalletSignableTransaction,
         original_selected_utxos: &Vec<WalletUtxo>,
-        from_addresses: &Vec<&WalletAddress>,
+        from_addresses: Vec<&WalletAddress>,
         to_address: &Address,
         is_send_all: bool,
+        preselected_utxo_outpoints: &Vec<Outpoint>,
         change_address: &Address,
         change_wallet_address: &WalletAddress,
         fee_rate: f64,
@@ -270,9 +272,10 @@ impl TransactionGenerator {
                 &split_transactions,
                 &orignal_consensus_transaction.tx,
                 original_selected_utxos,
-                from_addresses,
+                &from_addresses,
                 to_address,
                 is_send_all,
+                preselected_utxo_outpoints,
                 change_address,
                 change_wallet_address,
                 fee_rate,
@@ -287,6 +290,7 @@ impl TransactionGenerator {
             from_addresses,
             to_address,
             is_send_all,
+            preselected_utxo_outpoints,
             change_address,
             change_wallet_address,
             fee_rate,
@@ -308,6 +312,7 @@ impl TransactionGenerator {
         from_addresses: &Vec<&WalletAddress>,
         to_address: &Address,
         is_send_all: bool,
+        preselected_utxo_outpoints: &Vec<Outpoint>,
         change_address: &Address,
         change_wallet_address: &WalletAddress,
         fee_rate: f64,
@@ -370,6 +375,11 @@ impl TransactionGenerator {
                     required_amount
                 );
                 sent_value -= required_amount;
+            } else if !preselected_utxo_outpoints.is_empty() {
+                return Err(Box::new(WalletError::UserInputError(
+                    "Insufficient funds in pre-selected utxos for merge transaction fees"
+                        .to_string(),
+                )));
             } else {
                 debug!(
                     "Adding more UTXOs to the merge transaction to cover fee; required amount: {}",
@@ -458,10 +468,9 @@ impl TransactionGenerator {
             }
         }
 
-        debug!(total_value_added, required_amount);
         if total_value_added < required_amount {
             Err(Box::new(WalletError::UserInputError(
-                "Insufficient amount for merge transaction".to_string(),
+                "Insufficient funds for merge transaction fees".to_string(),
             )))
         } else {
             Ok((additional_utxos, total_value_added))

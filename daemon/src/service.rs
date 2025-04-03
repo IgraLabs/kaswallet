@@ -102,7 +102,6 @@ impl KasWalletService {
             let address: String;
             {
                 let address_manager = self.address_manager.lock().await;
-                // TODO: Don't calculate address every time
                 address = address_manager
                     .kaspa_address_from_wallet_address(&utxo.address, true)
                     .await
