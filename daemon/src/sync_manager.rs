@@ -132,7 +132,17 @@ impl SyncManager {
             .kaspa_rpc_client
             .get_mempool_entries_by_addresses(rpc_addresses.clone(), true, true)
             .await?;
-        debug!("Got {} mempool entries", mempool_entries_by_addresses.len());
+        debug!(
+            "Got {} mempool sending entries and {} receiving entries",
+            mempool_entries_by_addresses
+                .iter()
+                .map(|me| me.sending.len())
+                .sum::<usize>(),
+            mempool_entries_by_addresses
+                .iter()
+                .map(|me| me.receiving.len())
+                .sum::<usize>()
+        );
 
         let get_utxo_by_addresses_response = self
             .kaspa_rpc_client
