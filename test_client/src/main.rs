@@ -1,11 +1,10 @@
-use std::error::Error;
-use kaspa_consensus_core::constants::SOMPI_PER_KASPA;
 use kaswallet_proto::kaswallet_proto::wallet_client::WalletClient;
 use kaswallet_proto::kaswallet_proto::{
     AddressBalances, GetAddressesRequest, GetVersionRequest, SendRequest, TransactionDescription,
 };
-use tonic::Request;
+use std::error::Error;
 use tonic::transport::Channel;
+use tonic::Request;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -39,6 +38,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "Balance: Available={}, Pending={}",
         get_balance_response.available, get_balance_response.pending
     );
+    for address_balance in &get_balance_response.address_balances {
+        println!(
+            "\tAddress={:?}; Available={}, Pending={}",
+            address_balance.address, address_balance.available, address_balance.pending
+        );
+    }
 
     if get_balance_response.available == 0 {
         println!("No available balance to transfer");
@@ -54,8 +59,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .address
         .iter()
         .find(|address| !address.to_string().eq(&from_address))
-        .map(|address| address.to_string())
-        .unwrap_or(new_address(&mut client).await?);
+        .map(|address| address.to_string());
+    let to_address = if to_address.is_none() {
+        new_address(&mut client).await?
+    } else {
+        to_address.unwrap()
+    };
     let default_address_balances = &AddressBalances {
         address: to_address.clone(),
         available: 0,
@@ -80,8 +89,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .send(Request::new(SendRequest {
             transaction_description: Some(TransactionDescription {
                 to_address,
-                amount: 1 * SOMPI_PER_KASPA,
-                is_send_all: false,
+                amount: 0,
+                is_send_all: true,
                 payload: vec![],
                 from_addresses: vec![from_address],
                 utxos: vec![],
@@ -104,9 +113,6 @@ async fn new_address(client: &mut WalletClient<Channel>) -> Result<String, Box<d
         ))
         .await?;
     let address = new_address_response.into_inner().address;
-    println!(
-        "New Address={:?}",
-        address
-    );
+    println!("New Address={:?}", address);
     Ok(address)
 }

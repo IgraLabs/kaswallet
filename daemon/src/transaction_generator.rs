@@ -19,6 +19,7 @@ use kaspa_wallet_core::tx::{MassCalculator, MAXIMUM_STANDARD_TRANSACTION_MASS};
 use kaspa_wrpc_client::prelude::RpcApi;
 use kaspa_wrpc_client::KaspaRpcClient;
 use kaswallet_proto::kaswallet_proto::{fee_policy, FeePolicy, Outpoint};
+use log::debug;
 use std::cmp::min;
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
@@ -166,7 +167,7 @@ impl TransactionGenerator {
                 is_send_all,
                 fee_rate,
                 max_fee,
-                from_addresses,
+                &from_addresses,
                 &payload,
             )
             .await?;
@@ -185,7 +186,10 @@ impl TransactionGenerator {
         let unsigned_transactions = self
             .maybe_auto_compound_transaction(
                 unsigned_transaction,
+                &selected_utxos,
+                &from_addresses,
                 &to_address,
+                is_send_all,
                 &change_address,
                 &change_wallet_address,
                 fee_rate,
@@ -199,7 +203,10 @@ impl TransactionGenerator {
     async fn maybe_auto_compound_transaction(
         &self,
         original_wallet_transaction: WalletSignableTransaction,
+        original_selected_utxos: &Vec<WalletUtxo>,
+        from_addresses: &Vec<&WalletAddress>,
         to_address: &Address,
+        is_send_all: bool,
         change_address: &Address,
         change_wallet_address: &WalletAddress,
         fee_rate: f64,
@@ -217,6 +224,7 @@ impl TransactionGenerator {
             );
 
         if transaction_mass < MAXIMUM_STANDARD_TRANSACTION_MASS {
+            debug!("No need to auto-compound transaction");
             return Ok(vec![original_wallet_transaction]);
         }
 
@@ -252,12 +260,19 @@ impl TransactionGenerator {
 
             split_transactions.push(split_transaction);
         }
+        debug!(
+            "Transaction split into {} transactions",
+            split_transactions.len()
+        );
 
         let merge_transaction = self
             .merge_transaction(
                 &split_transactions,
                 &orignal_consensus_transaction.tx,
+                original_selected_utxos,
+                from_addresses,
                 to_address,
+                is_send_all,
                 change_address,
                 change_wallet_address,
                 fee_rate,
@@ -268,7 +283,10 @@ impl TransactionGenerator {
         // Recursion will be 2-3 iterations deep even in the rarest` cases, so considered safe..
         let split_merge_transaction = Box::pin(self.maybe_auto_compound_transaction(
             merge_transaction,
+            original_selected_utxos,
+            from_addresses,
             to_address,
+            is_send_all,
             change_address,
             change_wallet_address,
             fee_rate,
@@ -286,7 +304,10 @@ impl TransactionGenerator {
         &self,
         split_transactions: &Vec<WalletSignableTransaction>,
         original_consensus_transaction: &Transaction,
+        original_selected_utxos: &Vec<WalletUtxo>,
+        from_addresses: &Vec<&WalletAddress>,
         to_address: &Address,
+        is_send_all: bool,
         change_address: &Address,
         change_wallet_address: &WalletAddress,
         fee_rate: f64,
@@ -304,8 +325,8 @@ impl TransactionGenerator {
         }
 
         let mut total_value = 0u64;
-        let sent_value = original_consensus_transaction.outputs[0].value;
-        let mut utxos = vec![];
+        let mut sent_value = original_consensus_transaction.outputs[0].value;
+        let mut utxos_from_split_transactions = vec![];
 
         for split_transaction in split_transactions {
             let split_consensus_transaction = (&split_transaction.transaction).unwrap_ref();
@@ -324,13 +345,14 @@ impl TransactionGenerator {
                 },
                 address: change_wallet_address.clone(),
             };
-            utxos.push(utxo);
+            utxos_from_split_transactions.push(utxo);
+            total_value += output.value;
         }
 
         // We're overestimating a bit by assuming that any transaction will have a change output
         let merge_transaction_fee = self
             .estimate_fee(
-                &utxos,
+                &utxos_from_split_transactions,
                 fee_rate,
                 max_fee,
                 sent_value,
@@ -342,18 +364,38 @@ impl TransactionGenerator {
 
         if total_value < sent_value {
             let required_amount = sent_value - total_value;
-            // Sometimes the fees from compound transactions make the total output higher than what's
-            // available from selected utxos, in such cases - find one more UTXO and use it.
-            let (additional_utxos, total_value_added) = self
-                .more_utxos_for_merge_transaction(
-                    original_consensus_transaction,
-                    &utxos,
-                    required_amount,
-                    fee_rate,
-                )
-                .await?;
-            utxos = [utxos, additional_utxos].concat();
-            total_value += total_value_added;
+            if is_send_all {
+                debug!(
+                    "Reducing sent value by {} to accomodate for merge transaction fee",
+                    required_amount
+                );
+                sent_value -= required_amount;
+            } else {
+                debug!(
+                    "Adding more UTXOs to the merge transaction to cover fee; required amount: {}",
+                    required_amount
+                );
+                // Sometimes the fees from compound transactions make the total output higher than what's
+                // available from selected utxos, in such cases - find one more UTXO and use it.
+                let (additional_utxos, total_value_added) = self
+                    .more_utxos_for_merge_transaction(
+                        original_consensus_transaction,
+                        original_selected_utxos,
+                        from_addresses,
+                        required_amount,
+                        fee_rate,
+                    )
+                    .await?;
+
+                debug!(
+                    "Adding {} UTXOs to the merge transaction with total_value_added: {}",
+                    additional_utxos.len(),
+                    total_value_added
+                );
+                utxos_from_split_transactions =
+                    [utxos_from_split_transactions, additional_utxos].concat();
+                total_value += total_value_added;
+            }
         }
 
         let mut payments = vec![WalletPayment {
@@ -370,7 +412,7 @@ impl TransactionGenerator {
 
         self.generate_unsigned_transaction(
             payments,
-            &utxos,
+            &utxos_from_split_transactions,
             original_consensus_transaction.payload.clone(),
         )
         .await
@@ -380,7 +422,8 @@ impl TransactionGenerator {
     async fn more_utxos_for_merge_transaction(
         &self,
         original_consensus_transaction: &Transaction,
-        utxos: &Vec<WalletUtxo>,
+        original_selected_utxos: &Vec<WalletUtxo>,
+        from_addresses: &Vec<&WalletAddress>,
         required_amount: u64,
         fee_rate: f64,
     ) -> Result<(Vec<WalletUtxo>, u64), Box<dyn Error + Send + Sync>> {
@@ -393,7 +436,8 @@ impl TransactionGenerator {
 
         let utxo_manager = self.utxo_manager.lock().await;
         let utxos_sorted_by_amount = utxo_manager.utxos_sorted_by_amount();
-        let already_selected_utxos = HashSet::<WalletUtxo>::from_iter(utxos.iter().cloned());
+        let already_selected_utxos =
+            HashSet::<WalletUtxo>::from_iter(original_selected_utxos.iter().cloned());
 
         let mut additional_utxos = vec![];
         let mut total_value_added = 0;
@@ -401,6 +445,9 @@ impl TransactionGenerator {
             if already_selected_utxos.contains(utxo)
                 || utxo_manager.is_utxo_pending(utxo, dag_info.virtual_daa_score)
             {
+                continue;
+            }
+            if !from_addresses.is_empty() && !from_addresses.contains(&&utxo.address) {
                 continue;
             }
 
@@ -411,10 +458,14 @@ impl TransactionGenerator {
             }
         }
 
+        debug!(total_value_added, required_amount);
         if total_value_added < required_amount {
-            WalletError::UserInputError("Insufficient amount for merge transaction".to_string());
+            Err(Box::new(WalletError::UserInputError(
+                "Insufficient amount for merge transaction".to_string(),
+            )))
+        } else {
+            Ok((additional_utxos, total_value_added))
         }
-        Ok((additional_utxos, total_value_added))
     }
 
     // Returns: (split_count, input_per_split_count)
@@ -548,7 +599,7 @@ impl TransactionGenerator {
 
         if total_ins < total_outs {
             return Err(Box::new(WalletError::SanityCheckFailed(
-                "transaction don't have enough funds to pay for the outputs".to_string(),
+                "transaction doesn't have enough funds to pay for the outputs".to_string(),
             )));
         };
         let fee = total_ins - total_outs;
@@ -562,7 +613,7 @@ impl TransactionGenerator {
         let fee_rate = fee as f64 / mass as f64;
 
         if fee_rate < 1.0 {
-            Err(Box::new(WalletError::SanityCheckFailed(format!(
+            Err(Box::new(WalletError::UserInputError(format!(
                 "setting max-fee to {} results in a fee rate of {}, which is below the minimum allowed fee rate of 1 sompi/gram",
                 max_fee, fee_rate
             ))))
@@ -623,6 +674,8 @@ impl TransactionGenerator {
 
         Ok(wallet_signable_transaction)
     }
+
+    // Returns: (fee_rate, max_fee)
     async fn default_fee_rate(&self) -> Result<(f64, u64), Box<dyn Error + Send + Sync>> {
         let fee_estimate = self.kaspa_rpc_client.get_fee_estimate().await?;
         Ok((fee_estimate.normal_buckets[0].feerate, SOMPI_PER_KASPA)) // Default to a bound of max 1 KAS as fee
@@ -678,9 +731,17 @@ impl TransactionGenerator {
         is_send_all: bool,
         fee_rate: f64,
         max_fee: u64,
-        from_addresses: Vec<&WalletAddress>,
+        from_addresses: &Vec<&WalletAddress>,
         payload: &Vec<u8>,
     ) -> Result<(Vec<WalletUtxo>, u64, u64), Box<dyn Error + Send + Sync>> {
+        debug!(
+            "Selecting UTXOs for payment: from_address:{}, amount: {}, is_send_all: {}, fee_rate: {}, max_fee: {}",
+            from_addresses.len(),
+            amount,
+            is_send_all,
+            fee_rate,
+            max_fee
+        );
         let mut total_value = 0;
         let mut selected_utxos = vec![];
 
@@ -797,6 +858,14 @@ impl TransactionGenerator {
                 total_value / SOMPI_PER_KASPA
             ))));
         }
+
+        debug!(
+            "Selected {} UTXOS with total_received: {}, total_value: {}, total_spend: {}",
+            selected_utxos.len(),
+            total_received,
+            total_value,
+            total_spend
+        );
 
         Ok((selected_utxos, total_received, total_value - total_spend))
     }

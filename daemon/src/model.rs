@@ -13,6 +13,7 @@ use kaswallet_proto::kaswallet_proto::{
     UtxoEntry as ProtoUtxoEntry,
 };
 use std::collections::HashSet;
+use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
@@ -45,6 +46,11 @@ impl WalletAddress {
 pub struct WalletOutpoint {
     pub transaction_id: Hash,
     pub index: u32,
+}
+impl Display for WalletOutpoint {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("({},{})", self.index, self.transaction_id))
+    }
 }
 
 impl From<RpcTransactionOutpoint> for WalletOutpoint {

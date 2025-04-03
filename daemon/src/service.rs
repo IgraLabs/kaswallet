@@ -308,7 +308,10 @@ impl KasWalletService {
                             error!("Sanity check failed: {}", e);
                             internal_server_error()
                         }
-                        WalletError::UserInputError(e) => Err(Status::invalid_argument(e)),
+                        WalletError::UserInputError(e) => {
+                            debug!("User input error: {}", e);
+                            Err(Status::invalid_argument(e))
+                        }
                     },
                     Err(e) => {
                         error!("Error creating unsigned transaction: {}", e);

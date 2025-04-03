@@ -28,6 +28,12 @@ mod utxo_manager;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let args = args::Args::parse();
+    #[cfg(debug_assertions)]
+    {
+        if args.enable_tokio_console {
+            console_subscriber::init();
+        }
+    }
 
     let network_id = args.network_id();
 

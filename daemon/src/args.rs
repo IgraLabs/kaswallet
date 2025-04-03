@@ -37,6 +37,10 @@ pub struct Args {
         help = "Address to listen on"
     )]
     pub listen: String,
+
+    #[arg(long, help = "Enable tokio console")]
+    #[cfg(debug_assertions)]
+    pub enable_tokio_console: bool,
 }
 
 #[derive(Debug, Clone, ValueEnum, Default)]
