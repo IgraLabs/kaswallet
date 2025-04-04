@@ -17,7 +17,7 @@ common = { path = "../common" }
 clap = { version = "4.5.31", features = ["derive"] }
 rpassword = "7.3.1"
 constant_time_eq = "0.4.0"
-# kaspa-consensus-core = { git="https://github.com/IgraLabs/rusty-kaspa.git", branch = "for-wallet" }
-# kaspa-bip32 = { git="https://github.com/IgraLabs/rusty-kaspa.git", branch = "for-wallet" }
-kaspa-consensus-core = { path = "../../rusty-kaspa/consensus/core" }
-kaspa-bip32 = { path = "../../rusty-kaspa/wallet/bip32" }
+kaspa-consensus-core = { git = "https://github.com/IgraLabs/rusty-kaspa.git", branch = "for-wallet" }
+kaspa-bip32 = { git = "https://github.com/IgraLabs/rusty-kaspa.git", branch = "for-wallet" }
+# kaspa-consensus-core = { path = "../../rusty-kaspa/consensus/core" }
+# kaspa-bip32 = { path = "../../rusty-kaspa/wallet/bip32" }
