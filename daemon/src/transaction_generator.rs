@@ -889,6 +889,11 @@ impl TransactionGenerator {
                 total_value / SOMPI_PER_KASPA
             ))));
         }
+        if is_send_all && total_value == 0 {
+            return Err(Box::new(WalletError::UserInputError(
+                "No funds to send".to_string(),
+            )));
+        }
 
         debug!(
             "Selected {} UTXOS with total_received: {}, total_value: {}, total_spend: {}",
