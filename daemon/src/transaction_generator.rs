@@ -372,7 +372,7 @@ impl TransactionGenerator {
 
         let mut available_value = total_value - merge_transaction_fee;
 
-        let sent_value = if !is_send_all {
+        let mut sent_value = if !is_send_all {
             amount
         } else {
             utxos_from_split_transactions
@@ -388,6 +388,7 @@ impl TransactionGenerator {
                     required_amount
                 );
                 available_value -= required_amount;
+                sent_value -= required_amount;
                 vec![]
             } else if !preselected_utxo_outpoints.is_empty() {
                 return Err(Box::new(WalletError::UserInputError(
