@@ -16,14 +16,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Version={:?}", response.into_inner().version);
 
-    // new_address(&mut client).await?;
-
     let get_addresses_response = client
         .get_addresses(Request::new(GetAddressesRequest {}))
         .await?
         .into_inner();
     for address in &get_addresses_response.address {
         println!("Address={:?}", address);
+    }
+
+    if get_addresses_response.address.len() == 0 {
+        new_address(&mut client).await?;
     }
 
     let get_balance_response = &client
