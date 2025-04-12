@@ -690,7 +690,6 @@ pub fn sign_with_multiple(mut mutable_tx: SignableTransaction, privkeys: &[[u8; 
             .chain(schnorr_public_key.serialize().into_iter())
             .chain(once(0xac))
             .collect_vec();
-        info!(hex::encode(&script_pub_key_script));
         map.insert(script_pub_key_script, schnorr_key);
     }
 
