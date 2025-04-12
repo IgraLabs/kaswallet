@@ -89,8 +89,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .send(Request::new(SendRequest {
             transaction_description: Some(TransactionDescription {
                 to_address,
-                amount: 0,
-                is_send_all: true,
+                amount: 20000,
+                is_send_all: false,
                 payload: vec![],
                 from_addresses: vec![from_address],
                 utxos: vec![],

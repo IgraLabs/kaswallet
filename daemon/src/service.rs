@@ -7,7 +7,7 @@ use common::errors::WalletError;
 use common::keys::Keys;
 use itertools::Itertools;
 use kaspa_addresses::Address;
-use kaspa_bip32::{secp256k1, ExtendedPrivateKey, Mnemonic, SecretKey};
+use kaspa_bip32::{secp256k1, DerivationPath, ExtendedPrivateKey, Mnemonic, SecretKey};
 use kaspa_consensus_core::hashing::sighash::{
     calc_schnorr_signature_hash, SigHashReusedValuesUnsync,
 };
@@ -216,17 +216,21 @@ impl KasWalletService {
     fn mnemonics_to_private_keys(
         mnemonics: &Vec<Mnemonic>,
     ) -> Result<Vec<ExtendedPrivateKey<SecretKey>>, Status> {
-        let mut extended_private_keys = vec![];
+        let mut private_keys = vec![];
         for mnemonic in mnemonics {
             let seed = mnemonic.to_seed("");
             let x_private_key = ExtendedPrivateKey::new(seed).map_err(|e| {
                 error!("Failed to create extended private key: {}", e);
                 Status::internal("Internal server error")
             })?;
+            let master_key_derivation_path = master_key_path(mnemonics.len() > 1);
+            let private_key = x_private_key
+                .derive_path(&master_key_derivation_path)
+                .unwrap();
 
-            extended_private_keys.push(x_private_key)
+            private_keys.push(private_key)
         }
-        Ok(extended_private_keys)
+        Ok(private_keys)
     }
 
     async fn submit_transactions(
@@ -686,6 +690,7 @@ pub fn sign_with_multiple(mut mutable_tx: SignableTransaction, privkeys: &[[u8; 
             .chain(schnorr_public_key.serialize().into_iter())
             .chain(once(0xac))
             .collect_vec();
+        info!(hex::encode(&script_pub_key_script));
         map.insert(script_pub_key_script, schnorr_key);
     }
 
@@ -721,4 +726,18 @@ pub fn sign_with_multiple(mut mutable_tx: SignableTransaction, privkeys: &[[u8; 
     } else {
         Fully(mutable_tx)
     }
+}
+
+// TODO: combine with the function in create
+const SINGLE_SINGER_PURPOSE: u32 = 44;
+const MULTISIG_PURPOSE: u32 = 45;
+const KASPA_COIN_TYPE: u32 = 111111;
+fn master_key_path(is_multisig: bool) -> DerivationPath {
+    let purpose = if is_multisig {
+        MULTISIG_PURPOSE
+    } else {
+        SINGLE_SINGER_PURPOSE
+    };
+    let path_string = format!("m/{}'/{}'/0'", purpose, KASPA_COIN_TYPE);
+    path_string.parse().unwrap()
 }
