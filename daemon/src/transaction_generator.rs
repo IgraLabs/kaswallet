@@ -335,7 +335,6 @@ impl TransactionGenerator {
         }
 
         let mut total_value = 0u64;
-        debug!("total_value: {}, sent_value: {}", total_value, amount);
         let mut utxos_from_split_transactions = vec![];
 
         for split_transaction in split_transactions {
@@ -369,16 +368,24 @@ impl TransactionGenerator {
                 &original_consensus_transaction.payload,
             )
             .await?;
+        debug!("merge_transaction_fee: {}", merge_transaction_fee);
 
         let mut available_value = total_value - merge_transaction_fee;
+        debug!("available_value: {}", available_value);
 
         let mut sent_value = if !is_send_all {
             amount
         } else {
-            utxos_from_split_transactions
+            let total_value_from_split_transactions: u64 = utxos_from_split_transactions
                 .iter()
                 .map(|utxo| utxo.utxo_entry.amount)
-                .sum()
+                .sum();
+            debug!(
+                "total_value_from_split_transactions: {}",
+                total_value_from_split_transactions
+            );
+
+            total_value_from_split_transactions - merge_transaction_fee
         };
         let additional_utxos = if available_value < sent_value {
             let required_amount = sent_value - available_value;
@@ -436,6 +443,10 @@ impl TransactionGenerator {
                 amount: available_value - sent_value,
             });
         }
+        debug!(
+            "Creating merge transaction with {} payments",
+            payments.len()
+        );
 
         self.generate_unsigned_transaction(
             payments,
