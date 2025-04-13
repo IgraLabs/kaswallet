@@ -657,7 +657,12 @@ impl Wallet for KasWalletService {
             .sign_transactions(unsigned_transactions, &request.password)
             .await?;
 
-        let transaction_ids = self.submit_transactions(&signed_transactions).await?;
+        let submit_transactions_result = self.submit_transactions(&signed_transactions).await;
+        if let Err(e) = submit_transactions_result {
+            error!("Failed to submit transactions: {}", e);
+            return Err(e);
+        }
+        let transaction_ids = submit_transactions_result?;
         let encoded_signed_transactions = Self::encode_transactions(&signed_transactions)?;
 
         Ok(Response::new(SendResponse {
