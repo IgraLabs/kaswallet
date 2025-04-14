@@ -1,3 +1,5 @@
+use futures::stream::FuturesUnordered;
+use futures::StreamExt;
 use kaswallet_proto::kaswallet_proto::wallet_client::WalletClient;
 use kaswallet_proto::kaswallet_proto::{
     AddressBalances, GetAddressesRequest, GetAddressesResponse, GetBalanceResponse,
@@ -21,7 +23,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
         "stress" => {
             println!("Running stress test");
-            stress_test(client).await?
+            stress_test(&mut client).await?
+        }
+        "parallel" => {
+            println!("Running stress test in parallel");
+            stress_test_parallel(&mut client).await?
         }
         _ => {
             return Err(format!("Unknown scenario {}", scenario).into());
@@ -31,12 +37,60 @@ async fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-async fn stress_test(mut client: WalletClient<Channel>) -> Result<(), Box<dyn Error>> {
-    let num_iterations = 1000;
-
-    for i in 0..num_iterations {}
+const STRESS_TESTS_NUM_ITERATIONS: usize = 1000;
+async fn stress_test(client: &mut WalletClient<Channel>) -> Result<(), Box<dyn Error>> {
+    let address = prepare_stress_test(client).await?;
+    for _ in 0..STRESS_TESTS_NUM_ITERATIONS {
+        test_send(client, &address, &address).await?
+    }
 
     Ok(())
+}
+
+async fn stress_test_parallel(client: &mut WalletClient<Channel>) -> Result<(), Box<dyn Error>> {
+    let address = prepare_stress_test(client).await?;
+    let mut futures = FuturesUnordered::new();
+    for _ in 0..STRESS_TESTS_NUM_ITERATIONS {
+        let mut client = client.clone();
+        let address = address.clone();
+        let future = async move { test_send(&mut client, &address, &address).await };
+        futures.push(future);
+    }
+
+    let mut iterations_finished = 0;
+    while let Some(result) = futures.next().await {
+        match result {
+            Ok(_) => println!("Send success"),
+            Err(e) => println!("Send error: {:?}", e),
+        };
+        iterations_finished += 1;
+        println!(
+            "Completed {} out of {} iterations",
+            iterations_finished, STRESS_TESTS_NUM_ITERATIONS
+        );
+    }
+
+    Ok(())
+}
+
+// returns address
+async fn prepare_stress_test(client: &mut WalletClient<Channel>) -> Result<String, Box<dyn Error>> {
+    let balances_response = test_get_ballance(client).await?;
+    let address_balance = balances_response
+        .address_balances
+        .iter()
+        .filter(|ab| ab.available > 0)
+        .next();
+    if address_balance.is_none() {
+        return Err("No available balance to transfer".into());
+    }
+    let address_balance = address_balance.unwrap();
+
+    println!(
+        "Running with address {} which has balance of {}",
+        address_balance.address, address_balance.available
+    );
+    Ok(address_balance.address.clone())
 }
 
 async fn sanity_test(client: &mut WalletClient<Channel>) -> Result<(), Box<dyn Error>> {
