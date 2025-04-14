@@ -1,51 +1,54 @@
 use kaswallet_proto::kaswallet_proto::wallet_client::WalletClient;
 use kaswallet_proto::kaswallet_proto::{
-    AddressBalances, GetAddressesRequest, GetVersionRequest, SendRequest, TransactionDescription,
+    AddressBalances, GetAddressesRequest, GetAddressesResponse, GetBalanceResponse,
+    GetVersionRequest, SendRequest, TransactionDescription,
 };
 use std::error::Error;
 use tonic::transport::Channel;
 use tonic::Request;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<(), Box<dyn Error>> {
     let mut client = WalletClient::connect("http://localhost:8082").await?;
 
-    let response = client
-        .get_version(Request::new(GetVersionRequest {}))
-        .await?;
-
-    println!("Version={:?}", response.into_inner().version);
-
-    let get_addresses_response = client
-        .get_addresses(Request::new(GetAddressesRequest {}))
-        .await?
-        .into_inner();
-    for address in &get_addresses_response.address {
-        println!("Address={:?}", address);
+    let scenario = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "sanity".to_string());
+    match scenario.as_str() {
+        "sanity" => {
+            println!("Running sanity test");
+            sanity_test(&mut client).await?
+        }
+        "stress" => {
+            println!("Running stress test");
+            stress_test(client).await?
+        }
+        _ => {
+            return Err(format!("Unknown scenario {}", scenario).into());
+        }
     }
+
+    Ok(())
+}
+
+async fn stress_test(mut client: WalletClient<Channel>) -> Result<(), Box<dyn Error>> {
+    let num_iterations = 1000;
+
+    for i in 0..num_iterations {}
+
+    Ok(())
+}
+
+async fn sanity_test(client: &mut WalletClient<Channel>) -> Result<(), Box<dyn Error>> {
+    test_version(client).await?;
+
+    let get_addresses_response = test_get_addresses(client).await?;
 
     if get_addresses_response.address.len() == 0 {
-        new_address(&mut client).await?;
+        new_address(client).await?;
     }
 
-    let get_balance_response = &client
-        .get_balance(Request::new(
-            kaswallet_proto::kaswallet_proto::GetBalanceRequest {
-                include_balance_per_address: true,
-            },
-        ))
-        .await?
-        .into_inner();
-    println!(
-        "Balance: Available={}, Pending={}",
-        get_balance_response.available, get_balance_response.pending
-    );
-    for address_balance in &get_balance_response.address_balances {
-        println!(
-            "\tAddress={:?}; Available={}, Pending={}",
-            address_balance.address, address_balance.available, address_balance.pending
-        );
-    }
+    let get_balance_response = test_get_ballance(client).await?;
 
     if get_balance_response.available == 0 {
         println!("No available balance to transfer");
@@ -63,7 +66,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .find(|address| !address.to_string().eq(&from_address))
         .map(|address| address.to_string());
     let to_address = if to_address.is_none() {
-        new_address(&mut client).await?
+        new_address(client).await?
     } else {
         to_address.unwrap()
     };
@@ -87,14 +90,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         to_address, to_address_balance_response.available
     );
 
+    test_send(client, &from_address, &to_address).await?;
+
+    Ok(())
+}
+
+async fn test_send(
+    client: &mut WalletClient<Channel>,
+    from_address: &String,
+    to_address: &String,
+) -> Result<(), Box<dyn Error>> {
     let send_response = &client
         .send(Request::new(SendRequest {
             transaction_description: Some(TransactionDescription {
-                to_address,
+                to_address: to_address.clone(),
                 amount: 0,
                 is_send_all: true,
                 payload: vec![],
-                from_addresses: vec![from_address],
+                from_addresses: vec![from_address.clone()],
                 utxos: vec![],
                 use_existing_change_address: false,
                 fee_policy: None,
@@ -104,7 +117,52 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?
         .into_inner();
     println!("Send response={:?}", send_response);
+    Ok(())
+}
 
+async fn test_get_ballance(
+    client: &mut WalletClient<Channel>,
+) -> Result<GetBalanceResponse, Box<dyn Error>> {
+    let get_balance_response = client
+        .get_balance(Request::new(
+            kaswallet_proto::kaswallet_proto::GetBalanceRequest {
+                include_balance_per_address: true,
+            },
+        ))
+        .await?
+        .into_inner();
+    println!(
+        "Balance: Available={}, Pending={}",
+        get_balance_response.available, get_balance_response.pending
+    );
+    for address_balance in &get_balance_response.address_balances {
+        println!(
+            "\tAddress={:?}; Available={}, Pending={}",
+            address_balance.address, address_balance.available, address_balance.pending
+        );
+    }
+    Ok(get_balance_response)
+}
+
+async fn test_get_addresses(
+    client: &mut WalletClient<Channel>,
+) -> Result<GetAddressesResponse, Box<dyn Error>> {
+    let get_addresses_response = client
+        .get_addresses(Request::new(GetAddressesRequest {}))
+        .await?
+        .into_inner();
+    for address in &get_addresses_response.address {
+        println!("Address={:?}", address);
+    }
+    Ok(get_addresses_response)
+}
+
+async fn test_version(client: &mut WalletClient<Channel>) -> Result<(), Box<dyn Error>> {
+    let response = client
+        .get_version(Request::new(GetVersionRequest {}))
+        .await?;
+
+    println!("Version={:?}", response.into_inner().version);
     Ok(())
 }
 
