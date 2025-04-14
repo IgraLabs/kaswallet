@@ -665,6 +665,7 @@ impl TransactionGenerator {
         selected_utxos: &Vec<WalletUtxo>,
         payload: Vec<u8>,
     ) -> Result<WalletSignableTransaction, Box<dyn Error + Send + Sync>> {
+        for payment in &payments {}
         let mut sorted_extended_public_keys = self.keys.public_keys.clone();
         sorted_extended_public_keys.sort();
 
@@ -695,10 +696,12 @@ impl TransactionGenerator {
         }
 
         let mut outputs = vec![];
+        let mut addresses_by_output_index = vec![];
         for payment in payments {
             let script_public_key = pay_to_address_script(&payment.address);
             let output = TransactionOutput::new(payment.amount, script_public_key);
             outputs.push(output);
+            addresses_by_output_index.push(payment.address.clone());
         }
 
         let transaction = Transaction::new(0, inputs, outputs, 0, Default::default(), 0, payload);
@@ -707,6 +710,7 @@ impl TransactionGenerator {
             signable_transaction.clone(),
             derivation_paths,
             address_by_input_index,
+            addresses_by_output_index,
         );
 
         Ok(wallet_signable_transaction)

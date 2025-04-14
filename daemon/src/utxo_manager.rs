@@ -1,5 +1,7 @@
 use crate::address_manager::AddressManager;
-use crate::model::{WalletOutpoint, WalletUtxo, WalletUtxoEntry};
+use crate::model::{
+    WalletAddress, WalletOutpoint, WalletSignableTransaction, WalletUtxo, WalletUtxoEntry,
+};
 use chrono::{DateTime, Utc};
 use kaspa_consensus_core::config::params::Params;
 use kaspa_wrpc_client::prelude::{
@@ -46,6 +48,68 @@ impl UtxoManager {
 
     pub fn utxos_by_outpoint(&self) -> &HashMap<WalletOutpoint, WalletUtxo> {
         &self.utxos_by_outpoint
+    }
+
+    pub async fn apply_transaction(&mut self, transaction: &WalletSignableTransaction) {
+        let tx = &transaction.transaction.unwrap_ref().tx;
+
+        for input in &tx.inputs {
+            let outpoint = input.previous_outpoint;
+            self.remove_utxo(&outpoint.into());
+        }
+
+        for (i, output) in tx.outputs.iter().enumerate() {
+            let address = transaction.address_by_output_index[i].clone();
+            let wallet_address: Option<WalletAddress>;
+            {
+                let address_manager = self.address_manager.lock().await;
+                wallet_address = address_manager
+                    .wallet_address_from_string(&address.to_string())
+                    .await;
+            }
+            if wallet_address.is_none() {
+                // this means payment is not to this wallet
+                continue;
+            }
+            let wallet_address = wallet_address.unwrap();
+            let outpoint = WalletOutpoint {
+                transaction_id: tx.id(),
+                index: i as u32,
+            };
+            let utxo = WalletUtxo::new(
+                outpoint.clone(),
+                WalletUtxoEntry {
+                    amount: output.value,
+                    script_public_key: output.script_public_key.clone(),
+                    block_daa_score: 0,
+                    is_coinbase: false,
+                },
+                wallet_address,
+            );
+            self.insert_utxo(outpoint, utxo);
+        }
+    }
+
+    fn insert_utxo(&mut self, outpoint: WalletOutpoint, utxo: WalletUtxo) {
+        self.utxos_by_outpoint.insert(outpoint, utxo.clone());
+        let position = self
+            .utxos_sorted_by_amount
+            .binary_search_by(|existing_utxo| {
+                existing_utxo.utxo_entry.amount.cmp(&utxo.utxo_entry.amount)
+            })
+            .unwrap_or_else(|e| e); // Use the insertion point if not found
+        self.utxos_sorted_by_amount.insert(position, utxo);
+    }
+
+    fn remove_utxo(&mut self, outpoint: &WalletOutpoint) {
+        let utxo = self.utxos_by_outpoint.remove(outpoint).unwrap();
+        let position = self
+            .utxos_sorted_by_amount
+            .binary_search_by(|existing_utxo| {
+                existing_utxo.utxo_entry.amount.cmp(&utxo.utxo_entry.amount)
+            })
+            .unwrap();
+        self.utxos_sorted_by_amount.remove(position);
     }
 
     pub async fn update_utxo_set(

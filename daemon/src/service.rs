@@ -41,6 +41,7 @@ pub struct KasWalletService {
     utxo_manager: Arc<Mutex<UtxoManager>>,
     transaction_generator: Arc<Mutex<TransactionGenerator>>,
     sync_manager: Arc<Mutex<SyncManager>>,
+    submit_transaction_mutex: Mutex<()>,
 }
 
 impl KasWalletService {
@@ -59,6 +60,7 @@ impl KasWalletService {
             utxo_manager,
             transaction_generator,
             sync_manager,
+            submit_transaction_mutex: Mutex::new(()),
         }
     }
     async fn check_is_synced(&self) -> Result<(), Status> {
@@ -175,6 +177,7 @@ impl KasWalletService {
         for unsigned_transaction in unsigned_transactions {
             let derivation_paths = unsigned_transaction.derivation_paths.clone();
             let address_by_input_index = unsigned_transaction.address_by_input_index.clone();
+            let address_by_output_index = unsigned_transaction.address_by_output_index.clone();
 
             let signed_transaction = self
                 .sign_transaction(unsigned_transaction, &extended_private_keys)
@@ -185,6 +188,7 @@ impl KasWalletService {
                 signed_transaction,
                 derivation_paths,
                 address_by_input_index,
+                address_by_output_index,
             );
 
             signed_transactions.push(wallet_signed_transaction);
@@ -237,6 +241,8 @@ impl KasWalletService {
         &self,
         signed_transactions: &Vec<WalletSignableTransaction>,
     ) -> Result<Vec<String>, Status> {
+        let _submit_transaction_mutex = self.submit_transaction_mutex.lock().await;
+
         let mut transaction_ids = vec![];
         for signed_transaction in signed_transactions {
             if let Partially(_) = signed_transaction.transaction {
@@ -266,8 +272,15 @@ impl KasWalletService {
             }
         }
 
+        {
+            let mut utxo_manager = self.utxo_manager.lock().await;
+            for transaction in signed_transactions {
+                utxo_manager.apply_transaction(transaction).await;
+            }
+        }
+
         let mut sync_manager = self.sync_manager.lock().await;
-        sync_manager.force_sync().await.unwrap(); // unwrap is safe - force sync fails only if it wasn't initialized
+        //        sync_manager.force_sync().await.unwrap(); // unwrap is safe - force sync fails only if it wasn't initialized
 
         Ok(transaction_ids)
     }

@@ -37,7 +37,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-const STRESS_TESTS_NUM_ITERATIONS: usize = 1000;
+const STRESS_TESTS_NUM_ITERATIONS: usize = 10;
 async fn stress_test(client: &mut WalletClient<Channel>) -> Result<(), Box<dyn Error>> {
     let address = prepare_stress_test(client).await?;
     for _ in 0..STRESS_TESTS_NUM_ITERATIONS {

@@ -191,17 +191,20 @@ pub struct WalletSignableTransaction {
     pub transaction: Signed,
     pub derivation_paths: HashSet<DerivationPath>,
     pub address_by_input_index: Vec<WalletAddress>,
+    pub address_by_output_index: Vec<Address>,
 }
 impl WalletSignableTransaction {
     pub fn new(
         transaction: Signed,
         derivation_paths: HashSet<DerivationPath>,
         address_by_input_index: Vec<WalletAddress>,
+        address_by_output_index: Vec<Address>,
     ) -> Self {
         Self {
             transaction,
             derivation_paths,
             address_by_input_index,
+            address_by_output_index,
         }
     }
 
@@ -209,11 +212,13 @@ impl WalletSignableTransaction {
         transaction: SignableTransaction,
         derivation_paths: HashSet<DerivationPath>,
         address_by_input_index: Vec<WalletAddress>,
+        address_by_output_index: Vec<Address>,
     ) -> Self {
         Self {
             transaction: Partially(transaction),
             derivation_paths,
             address_by_input_index,
+            address_by_output_index,
         }
     }
 }

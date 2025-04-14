@@ -65,6 +65,15 @@ impl AddressManager {
         *self.next_sync_start_index.lock().await > self.last_used_index().await
     }
 
+    pub async fn wallet_address_from_string(&self, address_string: &str) -> Option<WalletAddress> {
+        let addresses = self.addresses.lock().await;
+        let address = addresses.get(address_string);
+        match address {
+            None => None,
+            Some(wallet_address) => Some(wallet_address.clone()),
+        }
+    }
+
     pub async fn address_set(&self) -> AddressSet {
         let addresses = self.addresses.lock().await;
         addresses.clone()
