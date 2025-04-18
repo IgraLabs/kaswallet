@@ -4,65 +4,37 @@ use kaspa_addresses::{Address, Prefix as AddressPrefix, Version as AddressVersio
 use kaspa_bip32::secp256k1::PublicKey;
 use kaspa_bip32::{DerivationPath, ExtendedPublicKey};
 use kaspa_wrpc_client::prelude::*;
-use kaspa_wrpc_client::KaspaRpcClient;
-use log::{debug, info};
-use lru::LruCache;
 use std::collections::HashMap;
 use std::error::Error;
-use std::num::NonZeroUsize;
 use std::str::FromStr;
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-const NUM_INDEXES_TO_QUERY_FOR_FAR_ADDRESSES: u32 = 100;
-const NUM_INDEXES_TO_QUERY_FOR_RECENT_ADDRESSES: u32 = 1000;
-const ADDRESS_CACHE_SIZE: NonZeroUsize = NonZeroUsize::new(1000).unwrap();
-
 pub type AddressSet = HashMap<String, WalletAddress>;
 #[derive(Debug)]
 pub struct AddressManager {
-    kaspa_rpc_client: Arc<KaspaRpcClient>,
-
     keys_file: Arc<Keys>,
     extended_public_keys: Arc<Vec<ExtendedPublicKey<PublicKey>>>,
     addresses: Mutex<AddressSet>,
-    next_sync_start_index: Mutex<u32>,
     is_multisig: bool,
     prefix: AddressPrefix,
 
-    is_log_final_progress_line_shown: bool,
-    max_used_addresses_for_log: u32,
-    max_processed_addresses_for_log: u32,
-
-    address_cache: Mutex<LruCache<WalletAddress, Address>>,
+    address_cache: Mutex<HashMap<WalletAddress, Address>>,
 }
 
 impl AddressManager {
-    pub fn new(
-        kaspa_rpc_client: Arc<KaspaRpcClient>,
-        keys: Arc<Keys>,
-        prefix: AddressPrefix,
-    ) -> Self {
+    pub fn new(keys: Arc<Keys>, prefix: AddressPrefix) -> Self {
         let is_multisig = keys.public_keys.len() > 1;
 
         Self {
-            kaspa_rpc_client,
             keys_file: keys.clone(),
             extended_public_keys: Arc::new(keys.public_keys.clone()),
             addresses: Mutex::new(HashMap::new()),
-            next_sync_start_index: Mutex::new(0),
             is_multisig,
             prefix,
-            is_log_final_progress_line_shown: false,
-            max_used_addresses_for_log: 0,
-            max_processed_addresses_for_log: 0,
-            address_cache: Mutex::new(LruCache::new(ADDRESS_CACHE_SIZE)),
+            address_cache: Mutex::new(HashMap::new()),
         }
-    }
-
-    pub async fn is_synced(&self) -> bool {
-        *self.next_sync_start_index.lock().await > self.last_used_index().await
     }
 
     pub async fn wallet_address_from_string(&self, address_string: &str) -> Option<WalletAddress> {
@@ -111,76 +83,7 @@ impl AddressManager {
         Ok((address.to_string(), wallet_address))
     }
 
-    pub async fn collect_recent_addresses(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
-        debug!("Collecting recent addresses");
-
-        let mut index: u32 = 0;
-        let mut max_used_index: u32 = 0;
-
-        while index < max_used_index + NUM_INDEXES_TO_QUERY_FOR_RECENT_ADDRESSES {
-            let collect_addresses_result = self
-                .collect_addresses(index, index + NUM_INDEXES_TO_QUERY_FOR_RECENT_ADDRESSES)
-                .await;
-            if let Err(e) = collect_addresses_result {
-                return Err(e);
-            }
-            index += NUM_INDEXES_TO_QUERY_FOR_RECENT_ADDRESSES;
-
-            max_used_index = self.last_used_index().await;
-
-            self.update_address_collection_progress_log(index, max_used_index);
-        }
-
-        let mut next_sync_start_index = self.next_sync_start_index.lock().await;
-        if index > *next_sync_start_index {
-            *next_sync_start_index = index;
-        }
-        Ok(())
-    }
-
-    pub async fn collect_far_addresses(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
-        debug!("Collecting far addresses");
-
-        let mut next_sync_start_index = self.next_sync_start_index.lock().await;
-
-        self.collect_addresses(
-            *next_sync_start_index,
-            *next_sync_start_index + NUM_INDEXES_TO_QUERY_FOR_FAR_ADDRESSES,
-        )
-        .await?;
-
-        *next_sync_start_index += NUM_INDEXES_TO_QUERY_FOR_FAR_ADDRESSES;
-
-        Ok(())
-    }
-
-    async fn collect_addresses(
-        &self,
-        start: u32,
-        end: u32,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        debug!("Collecting addresses from {} to {}", start, end);
-
-        let addresses = self.addresses_to_query(start, end).await?;
-        debug!("Querying {} addresses", addresses.len());
-
-        let get_balances_by_addresses_response = self
-            .kaspa_rpc_client
-            .get_balances_by_addresses(
-                addresses
-                    .iter()
-                    .map(|(address_string, _)| Address::constructor(address_string))
-                    .collect(),
-            )
-            .await?;
-
-        self.update_addresses_and_last_used_indexes(addresses, get_balances_by_addresses_response)
-            .await?;
-
-        Ok(())
-    }
-
-    async fn addresses_to_query(
+    pub async fn addresses_to_query(
         &self,
         start: u32,
         end: u32,
@@ -202,7 +105,7 @@ impl AddressManager {
         Ok(addresses)
     }
 
-    async fn update_addresses_and_last_used_indexes(
+    pub async fn update_addresses_and_last_used_indexes(
         &self,
         address_set: AddressSet,
         get_balances_by_addresses_response: Vec<RpcBalancesByAddressesEntry>,
@@ -251,7 +154,7 @@ impl AddressManager {
         should_cache: bool,
     ) -> Result<Address, Box<dyn Error + Send + Sync>> {
         {
-            let mut address_cache = self.address_cache.lock().await;
+            let address_cache = self.address_cache.lock().await;
             if let Some(address) = address_cache.get(wallet_address) {
                 return Ok(address.clone());
             }
@@ -279,7 +182,7 @@ impl AddressManager {
 
         if should_cache {
             let mut address_cache = self.address_cache.lock().await;
-            address_cache.push(wallet_address.clone(), address.clone());
+            address_cache.insert(wallet_address.clone(), address.clone());
         }
         Ok(address)
     }
@@ -338,54 +241,6 @@ impl AddressManager {
         let script_pub_key = kaspa_txscript::pay_to_script_hash_script(redeem_script.as_slice());
         let address = kaspa_txscript::extract_script_pub_key_address(&script_pub_key, self.prefix)?;
         Ok(address)
-    }
-
-    async fn last_used_index(&self) -> u32 {
-        let last_used_external_index = self.keys_file.last_used_external_index.load(Relaxed);
-        let last_used_internal_index = self.keys_file.last_used_internal_index.load(Relaxed);
-
-        if last_used_external_index > last_used_internal_index {
-            last_used_external_index
-        } else {
-            last_used_internal_index
-        }
-    }
-
-    fn update_address_collection_progress_log(
-        &mut self,
-        processed_addresses: u32,
-        max_used_addresses: u32,
-    ) {
-        if max_used_addresses > self.max_used_addresses_for_log {
-            self.max_used_addresses_for_log = max_used_addresses;
-            if self.is_log_final_progress_line_shown {
-                info!("An additional set of previously used addresses found, processing...");
-                self.max_processed_addresses_for_log = 0;
-                self.is_log_final_progress_line_shown = false;
-            }
-        }
-
-        if processed_addresses > self.max_processed_addresses_for_log {
-            self.max_processed_addresses_for_log = processed_addresses
-        }
-
-        if self.max_processed_addresses_for_log >= self.max_used_addresses_for_log {
-            if !self.is_log_final_progress_line_shown {
-                info!("Finished scanning recent addresses");
-                self.is_log_final_progress_line_shown = true;
-            }
-        } else {
-            let percent_processed = self.max_processed_addresses_for_log as f64
-                / self.max_used_addresses_for_log as f64
-                * 100.0;
-
-            info!(
-                "{} addressed of {} of processed ({:.2})",
-                self.max_processed_addresses_for_log,
-                self.max_used_addresses_for_log,
-                percent_processed
-            );
-        }
     }
 
     pub async fn change_address(

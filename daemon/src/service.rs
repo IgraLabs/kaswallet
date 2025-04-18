@@ -31,7 +31,7 @@ use std::error::Error;
 use std::iter::once;
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, MutexGuard};
 use tonic::{Request, Response, Status};
 
 pub struct KasWalletService {
@@ -40,7 +40,7 @@ pub struct KasWalletService {
     address_manager: Arc<Mutex<AddressManager>>,
     utxo_manager: Arc<Mutex<UtxoManager>>,
     transaction_generator: Arc<Mutex<TransactionGenerator>>,
-    sync_manager: Arc<Mutex<SyncManager>>,
+    sync_manager: Arc<SyncManager>,
     submit_transaction_mutex: Mutex<()>,
 }
 
@@ -51,7 +51,7 @@ impl KasWalletService {
         address_manager: Arc<Mutex<AddressManager>>,
         utxo_manager: Arc<Mutex<UtxoManager>>,
         transaction_generator: Arc<Mutex<TransactionGenerator>>,
-        sync_manager: Arc<Mutex<SyncManager>>,
+        sync_manager: Arc<SyncManager>,
     ) -> Self {
         Self {
             kaspa_rpc_client,
@@ -64,8 +64,7 @@ impl KasWalletService {
         }
     }
     async fn check_is_synced(&self) -> Result<(), Status> {
-        let sync_manager = self.sync_manager.lock().await;
-        if !sync_manager.is_synced().await {
+        if !self.sync_manager.is_synced().await {
             return Err(Status::failed_precondition(
                 "Wallet is not synced yet. Please wait for the sync to complete.",
             ));
@@ -239,6 +238,7 @@ impl KasWalletService {
 
     async fn submit_transactions(
         &self,
+        utxo_manager: &mut MutexGuard<'_, UtxoManager>,
         signed_transactions: &Vec<WalletSignableTransaction>,
     ) -> Result<Vec<String>, Status> {
         let _submit_transaction_mutex = self.submit_transaction_mutex.lock().await;
@@ -254,39 +254,38 @@ impl KasWalletService {
                 Partially(tx) => tx,
             };
             let rpc_transaction = (&tx.tx).into();
-            let submit_result = self
-                .kaspa_rpc_client
-                .submit_transaction(rpc_transaction, false)
-                .await;
+            {
+                // lock utxo_manager at this point, so that if sync happens in the middle - it doesn't
+                // interfere with apply_transaction
+                let submit_result = self
+                    .kaspa_rpc_client
+                    .submit_transaction(rpc_transaction, false)
+                    .await;
 
-            match submit_result {
-                Err(e) => {
-                    return Err(Status::invalid_argument(format!(
-                        "Failed to submit transaction: {}",
-                        e
-                    )));
+                match submit_result {
+                    Err(e) => {
+                        return Err(Status::invalid_argument(format!(
+                            "Failed to submit transaction: {}",
+                            e
+                        )));
+                    }
+                    Ok(rpc_transaction_id) => {
+                        transaction_ids.push(rpc_transaction_id.to_string());
+                    }
                 }
-                Ok(rpc_transaction_id) => {
-                    transaction_ids.push(rpc_transaction_id.to_string());
+
+                for transaction in signed_transactions {
+                    utxo_manager.apply_transaction(transaction).await;
                 }
             }
         }
-
-        {
-            let mut utxo_manager = self.utxo_manager.lock().await;
-            for transaction in signed_transactions {
-                utxo_manager.apply_transaction(transaction).await;
-            }
-        }
-
-        let mut sync_manager = self.sync_manager.lock().await;
-        sync_manager.force_sync().await.unwrap(); // unwrap is safe - force sync fails only if it wasn't initialized
 
         Ok(transaction_ids)
     }
 
     async fn create_unsigned_transactions(
         &self,
+        utxo_manager: &MutexGuard<'_, UtxoManager>,
         transaction_description: TransactionDescription,
     ) -> Result<Vec<WalletSignableTransaction>, Status> {
         // TODO: implement manual utxo selection
@@ -304,6 +303,7 @@ impl KasWalletService {
             let mut transaction_generator = self.transaction_generator.lock().await;
             unsigned_transactions_result = transaction_generator
                 .create_unsigned_transactions(
+                    utxo_manager,
                     transaction_description.to_address,
                     transaction_description.amount,
                     transaction_description.is_send_all,
@@ -607,8 +607,9 @@ impl Wallet for KasWalletService {
             }
         };
 
+        let utxo_manager = self.utxo_manager.lock().await;
         let unsigned_transactions = self
-            .create_unsigned_transactions(transaction_description)
+            .create_unsigned_transactions(&utxo_manager, transaction_description)
             .await?;
 
         Ok(Response::new(CreateUnsignedTransactionsResponse {
@@ -644,13 +645,16 @@ impl Wallet for KasWalletService {
         let encoded_signed_transactions = &request.transactions;
         let signed_transactions = Self::decode_transactions(&encoded_signed_transactions)?;
 
-        let transaction_ids = self.submit_transactions(&signed_transactions).await?;
+        let mut utxo_manager = self.utxo_manager.lock().await;
+        let transaction_ids = self
+            .submit_transactions(&mut utxo_manager, &signed_transactions)
+            .await?;
 
         Ok(Response::new(BroadcastResponse { transaction_ids }))
     }
 
     async fn send(&self, request: Request<SendRequest>) -> Result<Response<SendResponse>, Status> {
-        trace!("Received request: {:?}", request.get_ref());
+        trace!("Received request: {:?}", request.get_ref()); // TODO: return to trace
 
         let request = request.into_inner();
         let transaction_description = match request.transaction_description {
@@ -661,21 +665,36 @@ impl Wallet for KasWalletService {
                 ));
             }
         };
+        debug!(
+            "Got a request for transaction: {:?}",
+            transaction_description
+        );
 
+        debug!("Creating unsigned transactions...");
+        // lock utxo_manager at this point, so that if sync happens in the middle - it doesn't
+        // interfere with apply_transaction
+        let mut utxo_manager = self.utxo_manager.lock().await;
         let unsigned_transactions = self
-            .create_unsigned_transactions(transaction_description)
+            .create_unsigned_transactions(&utxo_manager, transaction_description)
             .await?;
+        debug!("Created {} transactions", unsigned_transactions.len());
 
+        debug!("Signing transactions...");
         let signed_transactions = self
             .sign_transactions(unsigned_transactions, &request.password)
             .await?;
+        debug!("Transactions got signed!");
 
-        let submit_transactions_result = self.submit_transactions(&signed_transactions).await;
+        debug!("Submitting transactions...");
+        let submit_transactions_result = self
+            .submit_transactions(&mut utxo_manager, &signed_transactions)
+            .await;
         if let Err(e) = submit_transactions_result {
             error!("Failed to submit transactions: {}", e);
             return Err(e);
         }
         let transaction_ids = submit_transactions_result?;
+        debug!("Transactions submitted: {:?}", transaction_ids);
         let encoded_signed_transactions = Self::encode_transactions(&signed_transactions)?;
 
         Ok(Response::new(SendResponse {

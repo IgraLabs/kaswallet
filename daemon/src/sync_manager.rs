@@ -1,114 +1,102 @@
-﻿use crate::address_manager::AddressManager;
+﻿use crate::address_manager::{AddressManager, AddressSet};
 use crate::transaction_generator::TransactionGenerator;
 use crate::utxo_manager::UtxoManager;
 use chrono::Utc;
-use common::errors::WalletError;
+use common::keys::Keys;
 use kaspa_addresses::Address;
 use kaspa_wrpc_client::prelude::{RpcAddress, RpcApi};
 use kaspa_wrpc_client::KaspaRpcClient;
-use log::{debug, error, info};
+use log::{debug, info};
+use std::cmp::max;
 use std::error::Error;
-use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering::Relaxed;
+use std::sync::atomic::{AtomicBool, AtomicU32};
 use std::sync::Arc;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tokio::time::interval;
 
 const SYNC_INTERVAL: u64 = 10; // seconds
 
+const NUM_INDEXES_TO_QUERY_FOR_FAR_ADDRESSES: u32 = 100;
+const NUM_INDEXES_TO_QUERY_FOR_RECENT_ADDRESSES: u32 = 1000;
+
 pub struct SyncManager {
     kaspa_rpc_client: Arc<KaspaRpcClient>,
+    keys_file: Arc<Keys>,
     address_manager: Arc<Mutex<AddressManager>>,
     transaction_generator: Arc<Mutex<TransactionGenerator>>,
     utxo_manager: Arc<Mutex<UtxoManager>>,
 
     first_sync_done: AtomicBool,
-
-    force_sync_sender: Option<mpsc::Sender<()>>,
+    next_sync_start_index: AtomicU32,
+    is_log_final_progress_line_shown: AtomicBool,
+    max_used_addresses_for_log: AtomicU32,
+    max_processed_addresses_for_log: AtomicU32,
 }
 
 impl SyncManager {
     pub fn new(
         kaspa_rpc_client: Arc<KaspaRpcClient>,
+        keys_file: Arc<Keys>,
         address_manager: Arc<Mutex<AddressManager>>,
         utxo_manager: Arc<Mutex<UtxoManager>>,
         transaction_generator: Arc<Mutex<TransactionGenerator>>,
     ) -> Self {
         Self {
             kaspa_rpc_client,
+            keys_file,
             address_manager,
             transaction_generator,
             utxo_manager,
             first_sync_done: AtomicBool::new(false),
-            force_sync_sender: None,
+            next_sync_start_index: 0.into(),
+            is_log_final_progress_line_shown: false.into(),
+            max_used_addresses_for_log: 0.into(),
+            max_processed_addresses_for_log: 0.into(),
         }
     }
 
     pub async fn is_synced(&self) -> bool {
-        self.address_manager.lock().await.is_synced().await && self.first_sync_done.load(Relaxed)
+        self.next_sync_start_index.load(Relaxed) > self.last_used_index().await
+            && self.first_sync_done.load(Relaxed)
     }
 
-    pub fn start(sync_manager: Arc<Mutex<SyncManager>>) -> JoinHandle<()> {
+    async fn last_used_index(&self) -> u32 {
+        let last_used_external_index = self.keys_file.last_used_external_index.load(Relaxed);
+        let last_used_internal_index = self.keys_file.last_used_internal_index.load(Relaxed);
+
+        max(last_used_external_index, last_used_internal_index)
+    }
+
+    pub fn start(sync_manager: Arc<SyncManager>) -> JoinHandle<()> {
         tokio::spawn(async move {
-            if let Err(e) = Self::sync_loop(sync_manager).await {
+            if let Err(e) = sync_manager.sync_loop().await {
                 panic!("Error in sync loop: {}", e);
             }
         })
     }
-    pub async fn force_sync(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
-        debug!("Force sync called!");
 
-        let force_sync_sender = &self.force_sync_sender;
-        if let Some(sender) = force_sync_sender {
-            if let Err(e) = sender.send(()).await {
-                error!("Error sending to force sync channel: {}", e);
-                // Do not return this error, sync will happen anyway
-                // We don't want to disrupt operation because of this
-            }
-        } else {
-            return Err(Box::new(WalletError::SanityCheckFailed(
-                "Force sync sender is not initialized".to_string(),
-            )));
-        }
-        Ok(())
-    }
-
-    async fn sync_loop(
-        sync_manager: Arc<Mutex<SyncManager>>,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        let mut force_sync_receiver: mpsc::Receiver<()>;
-        let force_sync_sender: mpsc::Sender<()>;
+    async fn sync_loop(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
         {
-            let mut sync_manager = sync_manager.lock().await;
-            (force_sync_sender, force_sync_receiver) = mpsc::channel(1);
-            sync_manager.force_sync_sender = Some(force_sync_sender);
-
             info!("Starting sync loop");
-            {
-                let mut address_manager = sync_manager.address_manager.lock().await;
-                address_manager.collect_recent_addresses().await?;
-            }
-            sync_manager.refresh_utxos().await?;
-            sync_manager.first_sync_done.store(true, Relaxed);
+            self.collect_recent_addresses().await?;
+            self.refresh_utxos().await?;
+            self.first_sync_done.store(true, Relaxed);
             info!("Finished initial sync");
         }
 
         let mut interval = interval(core::time::Duration::from_secs(SYNC_INTERVAL));
         loop {
-            tokio::select! {
-                _ = interval.tick() => (),
-                _ = force_sync_receiver.recv() => ()
-            }
+            interval.tick().await;
 
             {
-                let mut sync_manager = sync_manager.lock().await;
-                sync_manager.sync().await?;
+                self.sync().await?;
             }
         }
     }
 
-    async fn refresh_utxos(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn refresh_utxos(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
         debug!("Refreshing UTXOs.");
 
         let refresh_start_time = Utc::now();
@@ -122,6 +110,10 @@ impl SyncManager {
             .iter()
             .map(|address_string| Address::constructor(address_string))
             .collect();
+
+        // Lock utxo_manager at this stage, so that nobody tries to generate transactions while
+        // we update the utxo set
+        let mut utxo_manager = self.utxo_manager.lock().await;
 
         // It's important to check the mempool before calling `GetUTXOsByAddresses`:
         // If we would do it the other way around an output can be spent in the mempool
@@ -150,35 +142,150 @@ impl SyncManager {
             .await?;
         debug!("Got {} utxo entries", get_utxo_by_addresses_response.len());
 
-        {
-            let mut utxo_manager = self.utxo_manager.lock().await;
-            utxo_manager
-                .update_utxo_set(
-                    get_utxo_by_addresses_response,
-                    mempool_entries_by_addresses,
-                    refresh_start_time,
-                )
-                .await?;
-        }
+        utxo_manager
+            .update_utxo_set(
+                get_utxo_by_addresses_response,
+                mempool_entries_by_addresses,
+                refresh_start_time,
+            )
+            .await?;
         {
             let mut transaction_generator = self.transaction_generator.lock().await;
-            transaction_generator.cleanup_expired_used_outpoints().await;
+            transaction_generator
+                .cleanup_expired_used_outpoints(&utxo_manager)
+                .await;
         }
 
         Ok(())
     }
 
-    async fn sync(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn sync(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
         debug!("Starting sync cycle");
         {
-            let mut address_manager = self.address_manager.lock().await;
-            address_manager.collect_far_addresses().await?;
-            address_manager.collect_recent_addresses().await?;
+            self.collect_far_addresses().await?;
+            self.collect_recent_addresses().await?;
         }
         self.refresh_utxos().await?;
 
         debug!("Sync cycle completed successfully");
 
         Ok(())
+    }
+
+    pub async fn collect_recent_addresses(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
+        debug!("Collecting recent addresses");
+
+        let mut index: u32 = 0;
+        let mut max_used_index: u32 = 0;
+
+        while index < max_used_index + NUM_INDEXES_TO_QUERY_FOR_RECENT_ADDRESSES {
+            let collect_addresses_result = self
+                .collect_addresses(index, index + NUM_INDEXES_TO_QUERY_FOR_RECENT_ADDRESSES)
+                .await;
+            if let Err(e) = collect_addresses_result {
+                return Err(e);
+            }
+            index += NUM_INDEXES_TO_QUERY_FOR_RECENT_ADDRESSES;
+
+            max_used_index = self.last_used_index().await;
+
+            self.update_address_collection_progress_log(index, max_used_index);
+        }
+
+        let next_sync_start_index = self.next_sync_start_index.load(Relaxed);
+        if index > next_sync_start_index {
+            self.next_sync_start_index.store(index, Relaxed);
+        }
+        Ok(())
+    }
+
+    pub async fn collect_far_addresses(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
+        debug!("Collecting far addresses");
+
+        let next_sync_start_index = self.next_sync_start_index.load(Relaxed);
+
+        self.collect_addresses(
+            next_sync_start_index,
+            next_sync_start_index + NUM_INDEXES_TO_QUERY_FOR_FAR_ADDRESSES,
+        )
+        .await?;
+
+        self.next_sync_start_index
+            .fetch_add(NUM_INDEXES_TO_QUERY_FOR_FAR_ADDRESSES, Relaxed);
+
+        Ok(())
+    }
+
+    async fn collect_addresses(
+        &self,
+        start: u32,
+        end: u32,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        debug!("Collecting addresses from {} to {}", start, end);
+
+        let addresses: AddressSet;
+        {
+            let address_manager = self.address_manager.lock().await;
+            addresses = address_manager.addresses_to_query(start, end).await?;
+        }
+        debug!("Querying {} addresses", addresses.len());
+
+        let get_balances_by_addresses_response = self
+            .kaspa_rpc_client
+            .get_balances_by_addresses(
+                addresses
+                    .iter()
+                    .map(|(address_string, _)| Address::constructor(address_string))
+                    .collect(),
+            )
+            .await?;
+
+        let address_manager = self.address_manager.lock().await;
+        address_manager
+            .update_addresses_and_last_used_indexes(addresses, get_balances_by_addresses_response)
+            .await?;
+
+        Ok(())
+    }
+
+    pub fn update_address_collection_progress_log(
+        &self,
+        processed_addresses: u32,
+        max_used_addresses: u32,
+    ) {
+        if max_used_addresses > self.max_used_addresses_for_log.load(Relaxed) {
+            self.max_used_addresses_for_log
+                .store(max_used_addresses, Relaxed);
+            if self.is_log_final_progress_line_shown.load(Relaxed) {
+                info!("An additional set of previously used addresses found, processing...");
+                self.max_processed_addresses_for_log.store(0, Relaxed);
+                self.is_log_final_progress_line_shown.store(false, Relaxed);
+            }
+        }
+
+        if processed_addresses > self.max_processed_addresses_for_log.load(Relaxed) {
+            self.max_processed_addresses_for_log
+                .store(processed_addresses, Relaxed)
+        }
+
+        if self.max_processed_addresses_for_log.load(Relaxed)
+            >= self.max_used_addresses_for_log.load(Relaxed)
+        {
+            if !self.is_log_final_progress_line_shown.load(Relaxed) {
+                info!("Finished scanning recent addresses");
+                self.is_log_final_progress_line_shown.store(true, Relaxed);
+            }
+        } else {
+            let percent_processed = self.max_processed_addresses_for_log.load(Relaxed) as f64
+                / self.max_used_addresses_for_log.load(Relaxed) as f64
+                * 100.0;
+
+            info!(
+                "{} addressed of {} of processed ({:.2})",
+                self.max_processed_addresses_for_log.load(Relaxed),
+                self.max_used_addresses_for_log.load(Relaxed),
+                percent_processed
+            );
+        }
     }
 }

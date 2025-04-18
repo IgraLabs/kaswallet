@@ -63,7 +63,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let address_prefix = network_id.network_type.into();
     let address_manager = Arc::new(Mutex::new(AddressManager::new(
-        kaspa_rpc_client.clone(),
         keys.clone(),
         address_prefix,
     )));
@@ -76,16 +75,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
         kaspa_rpc_client.clone(),
         keys.clone(),
         address_manager.clone(),
-        utxo_manager.clone(),
         mass_calculator.clone(),
         address_prefix,
     )));
-    let sync_manager = Arc::new(Mutex::new(SyncManager::new(
+    let sync_manager = Arc::new(SyncManager::new(
         kaspa_rpc_client.clone(),
+        keys.clone(),
         address_manager.clone(),
         utxo_manager.clone(),
         transaction_generator.clone(),
-    )));
+    ));
     let sync_manager_handle = SyncManager::start(sync_manager.clone());
 
     let service = service::KasWalletService::new(

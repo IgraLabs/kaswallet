@@ -42,7 +42,6 @@ pub struct TransactionGenerator {
     kaspa_rpc_client: Arc<KaspaRpcClient>,
     keys: Arc<Keys>,
     address_manager: Arc<Mutex<AddressManager>>,
-    utxo_manager: Arc<Mutex<UtxoManager>>,
     mass_calculator: Arc<MassCalculator>,
     address_prefix: AddressPrefix,
 
@@ -56,7 +55,6 @@ impl TransactionGenerator {
         kaspa_rpc_client: Arc<KaspaRpcClient>,
         keys: Arc<Keys>,
         address_manager: Arc<Mutex<AddressManager>>,
-        utxo_manager: Arc<Mutex<UtxoManager>>,
         mass_calculator: Arc<MassCalculator>,
         address_prefix: AddressPrefix,
     ) -> Self {
@@ -66,7 +64,6 @@ impl TransactionGenerator {
             kaspa_rpc_client,
             keys,
             address_manager,
-            utxo_manager,
             mass_calculator,
             address_prefix,
             signature_mass_per_input,
@@ -76,6 +73,7 @@ impl TransactionGenerator {
 
     pub async fn create_unsigned_transactions(
         &mut self,
+        utxo_manager: &MutexGuard<'_, UtxoManager>,
         to_address: String,
         amount: u64,
         is_send_all: bool,
@@ -128,22 +126,19 @@ impl TransactionGenerator {
             HashMap::new()
         } else {
             let mut preselected_utxos = HashMap::new();
-            {
-                let utxo_manager = self.utxo_manager.lock().await;
-                let utxos_by_outpoint = utxo_manager.utxos_by_outpoint();
-                for outpoint in &preselected_utxo_outpoints {
-                    if let Some(utxo) = utxos_by_outpoint.get(&outpoint.clone().into()) {
-                        let utxo = utxo.clone();
-                        preselected_utxos.insert(utxo.outpoint.clone(), utxo);
-                    } else {
-                        return Err(Box::new(WalletError::UserInputError(format!(
-                            "UTXO {:?} is not in UTXO set",
-                            outpoint
-                        ))));
-                    }
+            let utxos_by_outpoint = utxo_manager.utxos_by_outpoint();
+            for outpoint in &preselected_utxo_outpoints {
+                if let Some(utxo) = utxos_by_outpoint.get(&outpoint.clone().into()) {
+                    let utxo = utxo.clone();
+                    preselected_utxos.insert(utxo.outpoint.clone(), utxo);
+                } else {
+                    return Err(Box::new(WalletError::UserInputError(format!(
+                        "UTXO {:?} is not in UTXO set",
+                        outpoint
+                    ))));
                 }
-                preselected_utxos
             }
+            preselected_utxos
         };
 
         let (fee_rate, max_fee) = self.calculate_fee_limits(fee_policy).await?;
@@ -161,6 +156,7 @@ impl TransactionGenerator {
         let change_sompi: u64;
         (selected_utxos, amount_sent_to_recipient, change_sompi) = self
             .select_utxos(
+                utxo_manager,
                 &preselected_utxos,
                 HashSet::new(),
                 amount,
@@ -185,6 +181,7 @@ impl TransactionGenerator {
 
         let unsigned_transactions = self
             .maybe_auto_compound_transaction(
+                utxo_manager,
                 unsigned_transaction,
                 &selected_utxos,
                 from_addresses,
@@ -204,6 +201,7 @@ impl TransactionGenerator {
 
     async fn maybe_auto_compound_transaction(
         &self,
+        utxo_manager: &MutexGuard<'_, UtxoManager>,
         original_wallet_transaction: WalletSignableTransaction,
         original_selected_utxos: &Vec<WalletUtxo>,
         from_addresses: Vec<&WalletAddress>,
@@ -271,6 +269,7 @@ impl TransactionGenerator {
 
         let merge_transaction = self
             .merge_transaction(
+                &utxo_manager,
                 &split_transactions,
                 &orignal_consensus_transaction.tx,
                 original_selected_utxos,
@@ -288,6 +287,7 @@ impl TransactionGenerator {
 
         // Recursion will be 2-3 iterations deep even in the rarest cases, so considered safe...
         let split_merge_transaction = Box::pin(self.maybe_auto_compound_transaction(
+            utxo_manager,
             merge_transaction,
             original_selected_utxos,
             from_addresses,
@@ -310,6 +310,7 @@ impl TransactionGenerator {
     }
     async fn merge_transaction(
         &self,
+        utxo_manager: &MutexGuard<'_, UtxoManager>,
         split_transactions: &Vec<WalletSignableTransaction>,
         original_consensus_transaction: &Transaction,
         original_selected_utxos: &Vec<WalletUtxo>,
@@ -411,6 +412,7 @@ impl TransactionGenerator {
                 // available from selected utxos, in such cases - find one more UTXO and use it.
                 let (additional_utxos, total_value_added) = self
                     .more_utxos_for_merge_transaction(
+                        utxo_manager,
                         original_consensus_transaction,
                         original_selected_utxos,
                         from_addresses,
@@ -459,6 +461,7 @@ impl TransactionGenerator {
     // Returns: (additional_utxos, total_Value_added)
     async fn more_utxos_for_merge_transaction(
         &self,
+        utxo_manager: &MutexGuard<'_, UtxoManager>,
         original_consensus_transaction: &Transaction,
         original_selected_utxos: &Vec<WalletUtxo>,
         from_addresses: &Vec<&WalletAddress>,
@@ -472,7 +475,6 @@ impl TransactionGenerator {
             .await;
         let fee_per_input = (mass_per_input as f64 * fee_rate).ceil() as u64;
 
-        let utxo_manager = self.utxo_manager.lock().await;
         let utxos_sorted_by_amount = utxo_manager.utxos_sorted_by_amount();
         let already_selected_utxos =
             HashSet::<WalletUtxo>::from_iter(original_selected_utxos.iter().cloned());
@@ -665,7 +667,6 @@ impl TransactionGenerator {
         selected_utxos: &Vec<WalletUtxo>,
         payload: Vec<u8>,
     ) -> Result<WalletSignableTransaction, Box<dyn Error + Send + Sync>> {
-        for payment in &payments {}
         let mut sorted_extended_public_keys = self.keys.public_keys.clone();
         sorted_extended_public_keys.sort();
 
@@ -766,6 +767,7 @@ impl TransactionGenerator {
 
     pub async fn select_utxos(
         &mut self,
+        utxo_manager: &MutexGuard<'_, UtxoManager>,
         preselected_utxos: &HashMap<WalletOutpoint, WalletUtxo>,
         allowed_used_outpoints: HashSet<WalletOutpoint>,
         amount: u64,
@@ -790,12 +792,8 @@ impl TransactionGenerator {
 
         let mut fee = 0;
         let mut fee_per_utxo = None;
-        let start_time_of_last_completed_refresh: DateTime<Utc>;
-        {
-            let utxo_manager = self.utxo_manager.lock().await;
-            start_time_of_last_completed_refresh =
-                utxo_manager.start_time_of_last_completed_refresh();
-        }
+        let start_time_of_last_completed_refresh =
+            utxo_manager.start_time_of_last_completed_refresh();
         let mut iteration = async |transaction_generator: &mut TransactionGenerator,
                                    utxo_manager: &MutexGuard<UtxoManager>,
                                    utxo: &WalletUtxo,
@@ -865,25 +863,19 @@ impl TransactionGenerator {
             }
             return Ok(true);
         };
-        let utxos_sorted_by_amount: &Vec<WalletUtxo>;
-        {
-            let utxo_manager_mutex = self.utxo_manager.clone();
-            let utxo_manager = utxo_manager_mutex.lock().await;
-
-            let mut should_continue = true;
-            for (_, preselected_utxo) in preselected_utxos {
-                should_continue = iteration(self, &utxo_manager, preselected_utxo, false).await?;
+        let mut should_continue = true;
+        for (_, preselected_utxo) in preselected_utxos {
+            should_continue = iteration(self, &utxo_manager, preselected_utxo, false).await?;
+            if !should_continue {
+                break;
+            };
+        }
+        if should_continue {
+            let utxos_sorted_by_amount = utxo_manager.utxos_sorted_by_amount();
+            for utxo in utxos_sorted_by_amount {
+                should_continue = iteration(self, &utxo_manager, utxo, true).await?;
                 if !should_continue {
                     break;
-                };
-            }
-            if should_continue {
-                utxos_sorted_by_amount = utxo_manager.utxos_sorted_by_amount();
-                for utxo in utxos_sorted_by_amount {
-                    should_continue = iteration(self, &utxo_manager, utxo, true).await?;
-                    if !should_continue {
-                        break;
-                    }
                 }
             }
         }
@@ -1003,8 +995,10 @@ impl TransactionGenerator {
             + self.signature_mass_per_input
     }
 
-    pub async fn cleanup_expired_used_outpoints(&mut self) {
-        let utxo_manager = self.utxo_manager.lock().await;
+    pub async fn cleanup_expired_used_outpoints(
+        &mut self,
+        utxo_manager: &MutexGuard<'_, UtxoManager>,
+    ) {
         let start_time_of_last_completed_refresh =
             utxo_manager.start_time_of_last_completed_refresh();
         // Cleanup expired used outpoints to avoid a memory leak
