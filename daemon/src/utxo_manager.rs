@@ -2,7 +2,6 @@ use crate::address_manager::AddressManager;
 use crate::model::{
     WalletAddress, WalletOutpoint, WalletSignableTransaction, WalletUtxo, WalletUtxoEntry,
 };
-use chrono::{DateTime, Utc};
 use kaspa_consensus_core::config::params::Params;
 use kaspa_wrpc_client::prelude::{
     GetBlockDagInfoResponse, RpcMempoolEntryByAddress, RpcUtxosByAddressesEntry,
@@ -15,7 +14,6 @@ use tokio::sync::Mutex;
 pub struct UtxoManager {
     address_manager: Arc<Mutex<AddressManager>>,
     mempool_excluded_utxos: HashMap<WalletOutpoint, WalletUtxo>,
-    start_time_of_last_completed_refresh: DateTime<Utc>,
     coinbase_maturity: u64, // Is different in testnet
 
     utxos_sorted_by_amount: Vec<WalletUtxo>,
@@ -35,7 +33,6 @@ impl UtxoManager {
         Self {
             address_manager,
             mempool_excluded_utxos: Default::default(),
-            start_time_of_last_completed_refresh: DateTime::<Utc>::MIN_UTC,
             coinbase_maturity,
             utxos_sorted_by_amount: Vec::new(),
             utxos_by_outpoint: Default::default(),
@@ -116,7 +113,6 @@ impl UtxoManager {
         &mut self,
         rpc_utxo_entries: Vec<RpcUtxosByAddressesEntry>,
         rpc_mempool_utxo_entries: Vec<RpcMempoolEntryByAddress>,
-        refresh_start_time: DateTime<Utc>,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         let mut wallet_utxos: Vec<WalletUtxo> = vec![];
 
@@ -156,7 +152,6 @@ impl UtxoManager {
 
         self.mempool_excluded_utxos = mempool_excluded_utxos;
 
-        self.start_time_of_last_completed_refresh = refresh_start_time;
         Ok(())
     }
 
@@ -179,9 +174,5 @@ impl UtxoManager {
         }
 
         utxo.utxo_entry.block_daa_score + self.coinbase_maturity > virtual_daa_score
-    }
-
-    pub fn start_time_of_last_completed_refresh(&self) -> DateTime<Utc> {
-        self.start_time_of_last_completed_refresh
     }
 }

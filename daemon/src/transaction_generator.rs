@@ -4,7 +4,6 @@ use crate::model::{
     WalletUtxoEntry,
 };
 use crate::utxo_manager::UtxoManager;
-use chrono::{DateTime, Duration, Utc};
 use common::errors::WalletError;
 use common::keys::Keys;
 use kaspa_addresses::{Address, Version};
@@ -23,7 +22,6 @@ use log::debug;
 use std::cmp::min;
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
-use std::ops::Add;
 use std::sync::Arc;
 use tokio::sync::{Mutex, MutexGuard};
 
@@ -46,8 +44,6 @@ pub struct TransactionGenerator {
     address_prefix: AddressPrefix,
 
     signature_mass_per_input: u64,
-
-    used_outpoints: HashMap<WalletOutpoint, DateTime<Utc>>,
 }
 
 impl TransactionGenerator {
@@ -67,7 +63,6 @@ impl TransactionGenerator {
             mass_calculator,
             address_prefix,
             signature_mass_per_input,
-            used_outpoints: HashMap::new(),
         }
     }
 
@@ -158,7 +153,6 @@ impl TransactionGenerator {
             .select_utxos(
                 utxo_manager,
                 &preselected_utxos,
-                HashSet::new(),
                 amount,
                 is_send_all,
                 fee_rate,
@@ -769,7 +763,6 @@ impl TransactionGenerator {
         &mut self,
         utxo_manager: &MutexGuard<'_, UtxoManager>,
         preselected_utxos: &HashMap<WalletOutpoint, WalletUtxo>,
-        allowed_used_outpoints: HashSet<WalletOutpoint>,
         amount: u64,
         is_send_all: bool,
         fee_rate: f64,
@@ -792,8 +785,6 @@ impl TransactionGenerator {
 
         let mut fee = 0;
         let mut fee_per_utxo = None;
-        let start_time_of_last_completed_refresh =
-            utxo_manager.start_time_of_last_completed_refresh();
         let mut iteration = async |transaction_generator: &mut TransactionGenerator,
                                    utxo_manager: &MutexGuard<UtxoManager>,
                                    utxo: &WalletUtxo,
@@ -806,22 +797,7 @@ impl TransactionGenerator {
                 return Ok(true);
             }
 
-            {
-                if let Some(broadcast_time) =
-                    transaction_generator.used_outpoints.get(&utxo.outpoint)
-                {
-                    if allowed_used_outpoints.contains(&utxo.outpoint) {
-                        if transaction_generator.has_used_outpoint_expired(
-                            &start_time_of_last_completed_refresh,
-                            broadcast_time,
-                        ) {
-                            transaction_generator.used_outpoints.remove(&utxo.outpoint);
-                        }
-                    } else {
-                        return Ok(true);
-                    }
-                }
-            }
+            {}
             if avoid_preselected {
                 if preselected_utxos.contains_key(&utxo.outpoint) {
                     return Ok(true);
@@ -914,19 +890,6 @@ impl TransactionGenerator {
         Ok((selected_utxos, total_received, total_value - total_spend))
     }
 
-    fn has_used_outpoint_expired(
-        &self,
-        start_time_of_last_completed_refresh: &DateTime<Utc>,
-        outpoint_broadcast_time: &DateTime<Utc>,
-    ) -> bool {
-        // If the node returns a UTXO we previously attempted to spend and enough time has passed, we assume
-        // that the network rejected or lost the previous transaction and allow a reuse. We set this time
-        // interval to a minute.
-        // We also verify that a full refresh UTXO operation started after this time point and has already
-        // completed, in order to make sure that indeed this state reflects a state obtained following the required wait time.
-        start_time_of_last_completed_refresh.gt(&outpoint_broadcast_time.add(Duration::minutes(1)))
-    }
-
     async fn estimate_fee(
         &self,
         selected_utxos: &Vec<WalletUtxo>,
@@ -993,21 +956,5 @@ impl TransactionGenerator {
         self.mass_calculator
             .calc_compute_mass_for_client_transaction_input(&input)
             + self.signature_mass_per_input
-    }
-
-    pub async fn cleanup_expired_used_outpoints(
-        &mut self,
-        utxo_manager: &MutexGuard<'_, UtxoManager>,
-    ) {
-        let start_time_of_last_completed_refresh =
-            utxo_manager.start_time_of_last_completed_refresh();
-        // Cleanup expired used outpoints to avoid a memory leak
-        for (outpoint, broadcast_time) in self.used_outpoints.clone() {
-            if self
-                .has_used_outpoint_expired(&start_time_of_last_completed_refresh, &broadcast_time)
-            {
-                self.used_outpoints.remove(&outpoint);
-            }
-        }
     }
 }

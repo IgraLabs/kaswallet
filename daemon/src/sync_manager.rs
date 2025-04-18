@@ -1,7 +1,5 @@
 ﻿use crate::address_manager::{AddressManager, AddressSet};
-use crate::transaction_generator::TransactionGenerator;
 use crate::utxo_manager::UtxoManager;
-use chrono::Utc;
 use common::keys::Keys;
 use kaspa_addresses::Address;
 use kaspa_wrpc_client::prelude::{RpcAddress, RpcApi};
@@ -25,7 +23,6 @@ pub struct SyncManager {
     kaspa_rpc_client: Arc<KaspaRpcClient>,
     keys_file: Arc<Keys>,
     address_manager: Arc<Mutex<AddressManager>>,
-    transaction_generator: Arc<Mutex<TransactionGenerator>>,
     utxo_manager: Arc<Mutex<UtxoManager>>,
 
     first_sync_done: AtomicBool,
@@ -41,13 +38,11 @@ impl SyncManager {
         keys_file: Arc<Keys>,
         address_manager: Arc<Mutex<AddressManager>>,
         utxo_manager: Arc<Mutex<UtxoManager>>,
-        transaction_generator: Arc<Mutex<TransactionGenerator>>,
     ) -> Self {
         Self {
             kaspa_rpc_client,
             keys_file,
             address_manager,
-            transaction_generator,
             utxo_manager,
             first_sync_done: AtomicBool::new(false),
             next_sync_start_index: 0.into(),
@@ -98,9 +93,6 @@ impl SyncManager {
 
     async fn refresh_utxos(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
         debug!("Refreshing UTXOs.");
-
-        let refresh_start_time = Utc::now();
-
         let address_strings: Vec<String>;
         {
             let address_manager = self.address_manager.lock().await;
@@ -143,18 +135,8 @@ impl SyncManager {
         debug!("Got {} utxo entries", get_utxo_by_addresses_response.len());
 
         utxo_manager
-            .update_utxo_set(
-                get_utxo_by_addresses_response,
-                mempool_entries_by_addresses,
-                refresh_start_time,
-            )
+            .update_utxo_set(get_utxo_by_addresses_response, mempool_entries_by_addresses)
             .await?;
-        {
-            let mut transaction_generator = self.transaction_generator.lock().await;
-            transaction_generator
-                .cleanup_expired_used_outpoints(&utxo_manager)
-                .await;
-        }
 
         Ok(())
     }

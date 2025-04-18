@@ -83,7 +83,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
         keys.clone(),
         address_manager.clone(),
         utxo_manager.clone(),
-        transaction_generator.clone(),
     ));
     let sync_manager_handle = SyncManager::start(sync_manager.clone());
 
