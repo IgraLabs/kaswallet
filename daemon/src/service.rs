@@ -280,7 +280,7 @@ impl KasWalletService {
         }
 
         let mut sync_manager = self.sync_manager.lock().await;
-        //        sync_manager.force_sync().await.unwrap(); // unwrap is safe - force sync fails only if it wasn't initialized
+        sync_manager.force_sync().await.unwrap(); // unwrap is safe - force sync fails only if it wasn't initialized
 
         Ok(transaction_ids)
     }
