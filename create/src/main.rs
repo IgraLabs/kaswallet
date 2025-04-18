@@ -2,11 +2,11 @@ use crate::args::Args;
 use clap::Parser;
 use common::args::calculate_path;
 use common::encrypted_mnemonic::EncryptedMnemonic;
-use common::keys::{Keys, KEY_FILE_VERSION};
+use common::keys::{master_key_path, Keys, KEY_FILE_VERSION};
 use constant_time_eq::constant_time_eq;
 use kaspa_bip32::mnemonic::Mnemonic;
 use kaspa_bip32::secp256k1::PublicKey;
-use kaspa_bip32::{DerivationPath, ExtendedPrivateKey, ExtendedPublicKey, Language, Prefix, SecretKey, WordCount};
+use kaspa_bip32::{ExtendedPrivateKey, ExtendedPublicKey, Language, Prefix, SecretKey, WordCount};
 use std::io;
 use std::path::Path;
 use std::str::FromStr;
@@ -186,17 +186,3 @@ fn should_continue_if_key_file_exists(keys_file_path: &str) -> bool {
     }
     true
 }
-
-const SINGLE_SINGER_PURPOSE:u32 = 44;
-const MULTISIG_PURPOSE:u32 = 45;
-const KASPA_COIN_TYPE: u32 =111111;
-fn master_key_path(is_multisig: bool) -> DerivationPath {
-    let purpose = if is_multisig {
-        MULTISIG_PURPOSE
-    } else {
-        SINGLE_SINGER_PURPOSE
-    };
-    let path_string =format!("m/{}'/{}'/0'",purpose, KASPA_COIN_TYPE);
-    path_string.parse().unwrap()
-}
-

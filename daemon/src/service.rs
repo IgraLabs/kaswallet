@@ -4,10 +4,10 @@ use crate::sync_manager::SyncManager;
 use crate::transaction_generator::TransactionGenerator;
 use crate::utxo_manager::UtxoManager;
 use common::errors::WalletError;
-use common::keys::Keys;
+use common::keys::{master_key_path, Keys};
 use itertools::Itertools;
 use kaspa_addresses::Address;
-use kaspa_bip32::{secp256k1, DerivationPath, ExtendedPrivateKey, Mnemonic, SecretKey};
+use kaspa_bip32::{secp256k1, ExtendedPrivateKey, Mnemonic, SecretKey};
 use kaspa_consensus_core::hashing::sighash::{
     calc_schnorr_signature_hash, SigHashReusedValuesUnsync,
 };
@@ -31,6 +31,7 @@ use std::error::Error;
 use std::iter::once;
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
+use std::time::Instant;
 use tokio::sync::{Mutex, MutexGuard};
 use tonic::{Request, Response, Status};
 
@@ -655,6 +656,7 @@ impl Wallet for KasWalletService {
 
     async fn send(&self, request: Request<SendRequest>) -> Result<Response<SendResponse>, Status> {
         trace!("Received request: {:?}", request.get_ref()); // TODO: return to trace
+        let send_start = Instant::now();
 
         let request = request.into_inner();
         let transaction_description = match request.transaction_description {
@@ -697,6 +699,10 @@ impl Wallet for KasWalletService {
         debug!("Transactions submitted: {:?}", transaction_ids);
         let encoded_signed_transactions = Self::encode_transactions(&signed_transactions)?;
 
+        println!(
+            "Total time to serve send request: {:?}",
+            send_start.elapsed()
+        );
         Ok(Response::new(SendResponse {
             transaction_ids,
             signed_transactions: encoded_signed_transactions,
@@ -762,18 +768,4 @@ pub fn sign_with_multiple(mut mutable_tx: SignableTransaction, privkeys: &[[u8; 
     } else {
         Fully(mutable_tx)
     }
-}
-
-// TODO: combine with the function in create
-const SINGLE_SINGER_PURPOSE: u32 = 44;
-const MULTISIG_PURPOSE: u32 = 45;
-const KASPA_COIN_TYPE: u32 = 111111;
-fn master_key_path(is_multisig: bool) -> DerivationPath {
-    let purpose = if is_multisig {
-        MULTISIG_PURPOSE
-    } else {
-        SINGLE_SINGER_PURPOSE
-    };
-    let path_string = format!("m/{}'/{}'/0'", purpose, KASPA_COIN_TYPE);
-    path_string.parse().unwrap()
 }

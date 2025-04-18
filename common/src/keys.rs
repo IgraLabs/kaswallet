@@ -1,6 +1,6 @@
 ﻿use crate::encrypted_mnemonic::EncryptedMnemonic;
 use kaspa_bip32::secp256k1::PublicKey;
-use kaspa_bip32::{ExtendedPublicKey, Mnemonic, Prefix};
+use kaspa_bip32::{DerivationPath, ExtendedPublicKey, Mnemonic, Prefix};
 use log::debug;
 use serde::{Deserialize, Serialize};
 use std::error::Error;
@@ -13,6 +13,19 @@ use std::sync::atomic::AtomicU32;
 use std::sync::atomic::Ordering::Relaxed;
 
 pub const KEY_FILE_VERSION: i32 = 1;
+
+const SINGLE_SINGER_PURPOSE: u32 = 44;
+const MULTISIG_PURPOSE: u32 = 45;
+const KASPA_COIN_TYPE: u32 = 111111;
+pub fn master_key_path(is_multisig: bool) -> DerivationPath {
+    let purpose = if is_multisig {
+        MULTISIG_PURPOSE
+    } else {
+        SINGLE_SINGER_PURPOSE
+    };
+    let path_string = format!("m/{}'/{}'/0'", purpose, KASPA_COIN_TYPE);
+    path_string.parse().unwrap()
+}
 
 #[derive(Debug)]
 pub struct Keys {
