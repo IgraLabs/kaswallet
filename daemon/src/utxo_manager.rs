@@ -166,6 +166,7 @@ impl UtxoManager {
     }
 
     fn update_utxos_by_outpoint(&mut self, wallet_utxos: Vec<WalletUtxo>) {
+        self.utxos_by_outpoint.clear();
         for wallet_utxo in wallet_utxos {
             self.utxos_by_outpoint
                 .insert(wallet_utxo.outpoint.clone(), wallet_utxo);
