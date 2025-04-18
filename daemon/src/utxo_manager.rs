@@ -1,4 +1,4 @@
-use crate::address_manager::AddressManager;
+use crate::address_manager::{AddressManager, AddressSet};
 use crate::model::{
     WalletAddress, WalletOutpoint, WalletSignableTransaction, WalletUtxo, WalletUtxoEntry,
 };
@@ -6,6 +6,7 @@ use kaspa_consensus_core::config::params::Params;
 use kaspa_wrpc_client::prelude::{
     GetBlockDagInfoResponse, RpcMempoolEntryByAddress, RpcUtxosByAddressesEntry,
 };
+use log::debug;
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::sync::Arc;
@@ -13,7 +14,6 @@ use tokio::sync::Mutex;
 
 pub struct UtxoManager {
     address_manager: Arc<Mutex<AddressManager>>,
-    mempool_excluded_utxos: HashMap<WalletOutpoint, WalletUtxo>,
     coinbase_maturity: u64, // Is different in testnet
 
     utxos_sorted_by_amount: Vec<WalletUtxo>,
@@ -32,7 +32,6 @@ impl UtxoManager {
 
         Self {
             address_manager,
-            mempool_excluded_utxos: Default::default(),
             coinbase_maturity,
             utxos_sorted_by_amount: Vec::new(),
             utxos_by_outpoint: Default::default(),
@@ -114,43 +113,93 @@ impl UtxoManager {
         rpc_utxo_entries: Vec<RpcUtxosByAddressesEntry>,
         rpc_mempool_utxo_entries: Vec<RpcMempoolEntryByAddress>,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        debug!(
+            "~~~~~~~~~~~~~~ Updating utxo set: \n\tconfirmed: {:?}, \n\tmempool: {:?}",
+            rpc_utxo_entries
+                .iter()
+                .map(|entry| entry.outpoint)
+                .collect::<Vec<_>>(),
+            rpc_mempool_utxo_entries
+        );
         let mut wallet_utxos: Vec<WalletUtxo> = vec![];
 
-        let mut exculde = HashSet::new();
-        for rpc_mempool_entries_by_address in rpc_mempool_utxo_entries {
-            for rpc_mempool_entry in rpc_mempool_entries_by_address.sending {
-                for input in rpc_mempool_entry.transaction.inputs {
-                    exculde.insert(input.previous_outpoint);
+        let mut exculde: HashSet<WalletOutpoint> = HashSet::new();
+        for rpc_mempool_entries_by_address in &rpc_mempool_utxo_entries {
+            for sending_rpc_mempool_entry in &rpc_mempool_entries_by_address.sending {
+                for input in &sending_rpc_mempool_entry.transaction.inputs {
+                    exculde.insert(input.previous_outpoint.into());
                 }
             }
         }
 
-        let mut mempool_excluded_utxos: HashMap<WalletOutpoint, WalletUtxo> = HashMap::new();
+        let address_set: AddressSet;
         {
-            let address_set = self.address_manager.lock().await.address_set().await;
+            let address_manager = self.address_manager.lock().await;
+            address_set = address_manager.address_set().await;
+        }
 
-            for rpc_utxo_entry in rpc_utxo_entries {
-                let wallet_outpoint: WalletOutpoint = rpc_utxo_entry.outpoint.into();
-                let wallet_utxo_entry: WalletUtxoEntry = rpc_utxo_entry.utxo_entry.into();
+        for rpc_utxo_entry in &rpc_utxo_entries {
+            let wallet_outpoint: WalletOutpoint = rpc_utxo_entry.outpoint.into();
+            if exculde.contains(&wallet_outpoint) {
+                continue;
+            }
 
-                let rpc_address = rpc_utxo_entry.address.unwrap();
-                let address = address_set.get(&rpc_address.address_to_string()).unwrap();
+            let utxo_entry = rpc_utxo_entry.utxo_entry.clone();
+            let wallet_utxo_entry: WalletUtxoEntry = utxo_entry.into();
 
-                let wallet_utxo =
-                    WalletUtxo::new(wallet_outpoint, wallet_utxo_entry, address.clone());
+            let rpc_address = rpc_utxo_entry.address.clone().unwrap();
+            let address = address_set.get(&rpc_address.address_to_string()).unwrap();
 
-                if exculde.contains(&rpc_utxo_entry.outpoint) {
-                    mempool_excluded_utxos.insert(wallet_utxo.outpoint.clone(), wallet_utxo);
-                } else {
-                    wallet_utxos.push(wallet_utxo);
+            let wallet_utxo = WalletUtxo::new(wallet_outpoint, wallet_utxo_entry, address.clone());
+
+            wallet_utxos.push(wallet_utxo);
+        }
+
+        for rpc_mempool_entry in rpc_mempool_utxo_entries {
+            for receiving_rpc_mempool_entry in &rpc_mempool_entry.receiving {
+                let transaction = &receiving_rpc_mempool_entry.transaction;
+                let Some(transaction_verbose_data) = &transaction.verbose_data else {
+                    panic!("transaction verbose data missing")
+                };
+                for (i, output) in transaction.outputs.iter().enumerate() {
+                    let Some(output_verbose_data) = &output.verbose_data else {
+                        panic!("output verbose data missing")
+                    };
+                    let address_manager = self.address_manager.lock().await;
+                    let address = address_manager
+                        .wallet_address_from_string(
+                            &output_verbose_data
+                                .script_public_key_address
+                                .address_to_string(),
+                        )
+                        .await;
+                    if address.is_none() {
+                        // this means this output is not to this wallet
+                        continue;
+                    }
+
+                    let wallet_outpoint =
+                        WalletOutpoint::new(transaction_verbose_data.transaction_id, i as u32);
+
+                    if exculde.contains(&wallet_outpoint) {
+                        continue;
+                    }
+                    let utxo_entry = WalletUtxoEntry::new(
+                        output.value,
+                        output.script_public_key.clone(),
+                        0,
+                        false,
+                    );
+
+                    let utxo = WalletUtxo::new(wallet_outpoint, utxo_entry, address.unwrap());
+
+                    wallet_utxos.push(utxo);
                 }
             }
         }
 
         self.update_utxos_sorted_by_amount(wallet_utxos.clone());
         self.update_utxos_by_outpoint(wallet_utxos);
-
-        self.mempool_excluded_utxos = mempool_excluded_utxos;
 
         Ok(())
     }

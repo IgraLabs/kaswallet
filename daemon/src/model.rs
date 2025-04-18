@@ -47,6 +47,16 @@ pub struct WalletOutpoint {
     pub transaction_id: Hash,
     pub index: u32,
 }
+
+impl WalletOutpoint {
+    pub fn new(transaction_id: Hash, index: u32) -> Self {
+        Self {
+            transaction_id,
+            index,
+        }
+    }
+}
+
 impl Display for WalletOutpoint {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_fmt(format_args!("({},{})", self.index, self.transaction_id))
@@ -95,6 +105,22 @@ pub struct WalletUtxoEntry {
     pub script_public_key: ScriptPublicKey,
     pub block_daa_score: u64,
     pub is_coinbase: bool,
+}
+
+impl WalletUtxoEntry {
+    pub fn new(
+        amount: u64,
+        script_public_key: ScriptPublicKey,
+        block_daa_score: u64,
+        is_coinbase: bool,
+    ) -> Self {
+        Self {
+            amount,
+            script_public_key,
+            block_daa_score,
+            is_coinbase,
+        }
+    }
 }
 
 impl Into<ProtoUtxoEntry> for WalletUtxoEntry {

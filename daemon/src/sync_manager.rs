@@ -92,7 +92,7 @@ impl SyncManager {
     }
 
     async fn refresh_utxos(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
-        debug!("Refreshing UTXOs.");
+        debug!("Refreshing UTXOs...");
         let address_strings: Vec<String>;
         {
             let address_manager = self.address_manager.lock().await;
@@ -107,6 +107,7 @@ impl SyncManager {
         // we update the utxo set
         let mut utxo_manager = self.utxo_manager.lock().await;
 
+        debug!("Getting mempool entries...");
         // It's important to check the mempool before calling `GetUTXOsByAddresses`:
         // If we would do it the other way around an output can be spent in the mempool
         // and not in consensus, and between the calls its spending transaction will be
@@ -128,6 +129,7 @@ impl SyncManager {
                 .sum::<usize>()
         );
 
+        debug!("Getting UTXOs by addresses...");
         let get_utxo_by_addresses_response = self
             .kaspa_rpc_client
             .get_utxos_by_addresses(rpc_addresses)

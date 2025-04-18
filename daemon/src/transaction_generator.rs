@@ -6,6 +6,7 @@ use crate::model::{
 use crate::utxo_manager::UtxoManager;
 use common::errors::WalletError;
 use common::keys::Keys;
+use itertools::Itertools;
 use kaspa_addresses::{Address, Version};
 use kaspa_consensus_core::constants::{SOMPI_PER_KASPA, UNACCEPTED_DAA_SCORE};
 use kaspa_consensus_core::tx::{
@@ -161,6 +162,11 @@ impl TransactionGenerator {
                 &payload,
             )
             .await?;
+
+        debug!(
+            "Selected utxos: {}",
+            selected_utxos.iter().map(|utxo| &utxo.outpoint).join(", ")
+        );
 
         let mut payments = vec![WalletPayment::new(
             to_address.clone(),

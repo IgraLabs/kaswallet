@@ -17,7 +17,7 @@ pub fn init_log(logs_path: String, logs_level: LogsLevel) -> Result<(), Box<dyn 
     let err_log_path = Path::new(&logs_path).join("kaswallet.err.log");
 
     let encoder = Box::new(PatternEncoder::new(
-        "{d(%Y-%m-%dT%H:%M:%S)(utc)} [{l}] {m}{n}",
+        "{d(%Y-%m-%dT%H:%M:%S)(utc)} [{h({l})}] {m}{n}",
     ));
 
     let stdout = ConsoleAppender::builder().encoder(encoder.clone()).build();
