@@ -107,7 +107,10 @@ impl SyncManager {
         // we update the utxo set
         let mut utxo_manager = self.utxo_manager.lock().await;
 
-        debug!("Getting mempool entries...");
+        debug!(
+            "Getting mempool entries for addresses: {:?}...",
+            rpc_addresses
+        );
         // It's important to check the mempool before calling `GetUTXOsByAddresses`:
         // If we would do it the other way around an output can be spent in the mempool
         // and not in consensus, and between the calls its spending transaction will be

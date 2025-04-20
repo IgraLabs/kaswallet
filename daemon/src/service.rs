@@ -276,7 +276,7 @@ impl KasWalletService {
                 }
 
                 for transaction in signed_transactions {
-                    utxo_manager.apply_transaction(transaction).await;
+                    utxo_manager.add_mempool_transaction(transaction).await;
                 }
             }
         }
