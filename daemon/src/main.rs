@@ -1,4 +1,5 @@
 use crate::address_manager::AddressManager;
+use crate::service::service::KasWalletService;
 use crate::sync_manager::SyncManager;
 use crate::transaction_generator::TransactionGenerator;
 use clap::Parser;
@@ -86,7 +87,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     ));
     let sync_manager_handle = SyncManager::start(sync_manager.clone());
 
-    let service = service::KasWalletService::new(
+    let service = KasWalletService::new(
         kaspa_rpc_client.clone(),
         keys,
         address_manager.clone(),

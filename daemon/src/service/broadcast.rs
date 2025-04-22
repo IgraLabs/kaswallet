@@ -1,0 +1,23 @@
+use crate::service::service::KasWalletService;
+use common::errors::WalletResult;
+use kaswallet_proto::kaswallet_proto::{
+    BroadcastRequest, BroadcastResponse
+    ,
+};
+
+impl KasWalletService {
+    pub(crate) async fn broadcast(
+        &self,
+        request: BroadcastRequest,
+    ) -> WalletResult<BroadcastResponse> {
+        let encoded_signed_transactions = &request.transactions;
+        let signed_transactions = Self::decode_transactions(&encoded_signed_transactions)?;
+
+        let mut utxo_manager = self.utxo_manager.lock().await;
+        let transaction_ids = self
+            .submit_transactions(&mut utxo_manager, &signed_transactions)
+            .await?;
+
+        Ok(BroadcastResponse { transaction_ids })
+    }
+}

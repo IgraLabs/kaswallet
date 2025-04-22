@@ -1,4 +1,6 @@
 ﻿use crate::encrypted_mnemonic::EncryptedMnemonic;
+use crate::errors::WalletError::InternalServerError;
+use crate::errors::{ResultExt, WalletResult};
 use kaspa_bip32::secp256k1::PublicKey;
 use kaspa_bip32::{DerivationPath, ExtendedPublicKey, Mnemonic, Prefix};
 use log::debug;
@@ -133,28 +135,29 @@ impl Keys {
         Ok(keys_json.to_keys(file_path, prefix))
     }
 
-    pub fn save(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
+    pub fn save(&self) -> WalletResult<()> {
         let keys_json: KeysJson = self.into();
-        let serialized = serde_json::to_string_pretty(&keys_json)?;
+        let serialized = serde_json::to_string_pretty(&keys_json)
+            .map_err(|e| InternalServerError(e.to_string()))?;
 
         let path = Path::new(&self.file_path);
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
+            fs::create_dir_all(parent).map_err(|e| InternalServerError(e.to_string()))?;
         }
-        let mut file = File::create(path)?;
+        let mut file = File::create(path).map_err(|e| InternalServerError(e.to_string()))?;
 
-        file.write_all(serialized.as_bytes())?;
+        file.write_all(serialized.as_bytes())
+            .map_err(|e| InternalServerError(e.to_string()))?;
 
         Ok(())
     }
 
-    pub fn decrypt_mnemonics(
-        &self,
-        password: &String,
-    ) -> Result<Vec<Mnemonic>, Box<dyn Error + Send + Sync>> {
+    pub fn decrypt_mnemonics(&self, password: &String) -> WalletResult<Vec<Mnemonic>> {
         let mut mnemonics = Vec::new();
         for encrypted_mnemonic in &self.encrypted_mnemonics {
-            let mnemonic = encrypted_mnemonic.decrypt(password)?;
+            let mnemonic = encrypted_mnemonic
+                .decrypt(password)
+                .to_wallet_result_user_input()?;
             mnemonics.push(mnemonic);
         }
         Ok(mnemonics)

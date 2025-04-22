@@ -1,4 +1,5 @@
 ﻿use crate::model::{Keychain, WalletAddress, KEYCHAINS};
+use common::errors::{ResultExt, WalletResult};
 use common::keys::Keys;
 use kaspa_addresses::{Address, Prefix as AddressPrefix, Version as AddressVersion};
 use kaspa_bip32::secp256k1::PublicKey;
@@ -61,9 +62,7 @@ impl AddressManager {
         Ok(strings)
     }
 
-    pub async fn new_address(
-        &self,
-    ) -> Result<(String, WalletAddress), Box<dyn Error + Send + Sync>> {
+    pub async fn new_address(&self) -> WalletResult<(String, WalletAddress)> {
         let last_used_external_index_previous_value = self
             .keys_file
             .last_used_external_index
@@ -152,7 +151,7 @@ impl AddressManager {
         &self,
         wallet_address: &WalletAddress,
         should_cache: bool,
-    ) -> Result<Address, Box<dyn Error + Send + Sync>> {
+    ) -> WalletResult<Address> {
         {
             let address_cache = self.address_cache.lock().await;
             if let Some(address) = address_cache.get(wallet_address) {
@@ -173,7 +172,7 @@ impl AddressManager {
         wallet_address: &WalletAddress,
         path: &DerivationPath,
         should_cache: bool,
-    ) -> Result<Address, Box<dyn Error + Send + Sync>> {
+    ) -> WalletResult<Address> {
         let address = if self.is_multisig {
             self.multisig_address(path)?
         } else {
@@ -190,7 +189,7 @@ impl AddressManager {
     pub fn calculate_address_path(
         &self,
         wallet_address: &WalletAddress,
-    ) -> Result<DerivationPath, Box<dyn Error + Send + Sync>> {
+    ) -> WalletResult<DerivationPath> {
         let keychain_number = wallet_address.keychain.clone() as u32;
         let path_string = if self.is_multisig {
             format!(
@@ -201,32 +200,31 @@ impl AddressManager {
             format!("m/{}/{}", keychain_number, wallet_address.index)
         };
 
-        let path = DerivationPath::from_str(&path_string)?;
+        let path = DerivationPath::from_str(&path_string).to_wallet_result_internal()?;
         Ok(path)
     }
 
-    fn p2pk_address(
-        &self,
-        derivation_path: &DerivationPath,
-    ) -> Result<Address, Box<dyn Error + Send + Sync>> {
+    fn p2pk_address(&self, derivation_path: &DerivationPath) -> WalletResult<Address> {
         let extended_public_key = self.extended_public_keys.first().unwrap().clone();
-        let derived_key = extended_public_key.derive_path(derivation_path)?;
+        let derived_key = extended_public_key
+            .derive_path(derivation_path)
+            .to_wallet_result_internal()?;
         let pk = derived_key.public_key();
         let payload = pk.x_only_public_key().0.serialize();
         let address = Address::new(self.prefix, AddressVersion::PubKey, &payload);
         Ok(address)
     }
 
-    fn multisig_address(
-        &self,
-        derivation_path: &DerivationPath,
-    ) -> Result<Address, Box<dyn Error + Send + Sync>> {
+    fn multisig_address(&self, derivation_path: &DerivationPath) -> WalletResult<Address> {
         let mut sorted_extended_public_keys = self.extended_public_keys.as_ref().clone();
         sorted_extended_public_keys.sort();
 
         let mut signing_public_keys = Vec::with_capacity(sorted_extended_public_keys.len());
         for x_public_key in sorted_extended_public_keys.iter() {
-            let derived_key = x_public_key.clone().derive_path(derivation_path)?;
+            let derived_key = x_public_key
+                .clone()
+                .derive_path(derivation_path)
+                .to_wallet_result_internal()?;
             let public_key = derived_key.public_key();
             signing_public_keys.push(public_key.x_only_public_key().0.serialize());
         }
@@ -234,9 +232,11 @@ impl AddressManager {
         let redeem_script = kaspa_txscript::multisig_redeem_script(
             signing_public_keys.iter(),
             self.keys_file.minimum_signatures as usize,
-        )?;
+        )
+        .to_wallet_result_internal()?;
         let script_pub_key = kaspa_txscript::pay_to_script_hash_script(redeem_script.as_slice());
-        let address = kaspa_txscript::extract_script_pub_key_address(&script_pub_key, self.prefix)?;
+        let address = kaspa_txscript::extract_script_pub_key_address(&script_pub_key, self.prefix)
+            .to_wallet_result_internal()?;
         Ok(address)
     }
 
@@ -244,7 +244,7 @@ impl AddressManager {
         &self,
         use_existing_change_address: bool,
         from_addresses: &Vec<&WalletAddress>,
-    ) -> Result<(Address, WalletAddress), Box<dyn Error + Send + Sync>> {
+    ) -> WalletResult<(Address, WalletAddress)> {
         let wallet_address = if !from_addresses.is_empty() {
             from_addresses[0].clone()
         } else {

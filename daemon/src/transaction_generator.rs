@@ -4,7 +4,8 @@ use crate::model::{
     WalletUtxoEntry,
 };
 use crate::utxo_manager::UtxoManager;
-use common::errors::WalletError;
+use common::errors::WalletError::{SanityCheckFailed, UserInputError};
+use common::errors::{ResultExt, WalletError, WalletResult};
 use common::keys::Keys;
 use itertools::Itertools;
 use kaspa_addresses::{Address, Version};
@@ -22,7 +23,6 @@ use kaswallet_proto::kaswallet_proto::{fee_policy, FeePolicy, Outpoint};
 use log::debug;
 use std::cmp::min;
 use std::collections::{HashMap, HashSet};
-use std::error::Error;
 use std::sync::Arc;
 use tokio::sync::{Mutex, MutexGuard};
 
@@ -78,17 +78,13 @@ impl TransactionGenerator {
         preselected_utxo_outpoints: Vec<Outpoint>,
         use_existing_change_address: bool,
         fee_policy: Option<FeePolicy>,
-    ) -> Result<Vec<WalletSignableTransaction>, Box<dyn Error + Send + Sync>> {
-        let validate_address =
-            |address_string, name| -> Result<Address, Box<dyn Error + Send + Sync>> {
-                match Address::try_from(address_string) {
-                    Ok(address) => Ok(address),
-                    Err(e) => Err(Box::new(WalletError::UserInputError(format!(
-                        "Invalid {} address: {}",
-                        name, e
-                    )))),
-                }
-            };
+    ) -> WalletResult<Vec<WalletSignableTransaction>> {
+        let validate_address = |address_string, name| -> WalletResult<Address> {
+            match Address::try_from(address_string) {
+                Ok(address) => Ok(address),
+                Err(e) => Err(UserInputError(format!("Invalid {} address: {}", name, e))),
+            }
+        };
 
         let to_address = validate_address(to_address, "to")?;
         let address_set: HashMap<String, WalletAddress>;
@@ -98,9 +94,9 @@ impl TransactionGenerator {
         }
 
         if !from_addresses_strings.is_empty() && !preselected_utxo_outpoints.is_empty() {
-            return Err(Box::new(WalletError::UserInputError(
+            return Err(WalletError::UserInputError(
                 "Cannot specify both from_addresses and utxos".to_string(),
-            )));
+            ));
         }
 
         let from_addresses = if from_addresses_strings.is_empty() {
@@ -127,10 +123,10 @@ impl TransactionGenerator {
                 if let Some(utxo) = utxos_by_outpoint.get(&preselected_outpoint.clone().into()) {
                     preselected_utxos.insert(utxo.outpoint.clone(), utxo);
                 } else {
-                    return Err(Box::new(WalletError::UserInputError(format!(
+                    return Err(UserInputError(format!(
                         "Preselected UTXO {:?} is not in UTXO set",
                         preselected_outpoint
-                    ))));
+                    )));
                 }
             }
             preselected_utxos
@@ -212,7 +208,7 @@ impl TransactionGenerator {
         change_wallet_address: &WalletAddress,
         fee_rate: f64,
         max_fee: u64,
-    ) -> Result<Vec<WalletSignableTransaction>, Box<dyn Error + Send + Sync>> {
+    ) -> WalletResult<Vec<WalletSignableTransaction>> {
         self.check_transaction_fee_rate(&original_wallet_transaction, max_fee)?;
 
         let orignal_consensus_transaction = original_wallet_transaction.transaction.unwrap_ref();
@@ -322,16 +318,16 @@ impl TransactionGenerator {
         change_wallet_address: &WalletAddress,
         fee_rate: f64,
         max_fee: u64,
-    ) -> Result<WalletSignableTransaction, Box<dyn Error + Send + Sync>> {
+    ) -> WalletResult<WalletSignableTransaction> {
         let num_outputs = original_consensus_transaction.outputs.len();
         if ![1, 2].contains(&num_outputs) {
             // This is a sanity check to make sure originalTransaction has either 1 or 2 outputs:
             // 1. For the payment itself
             // 2. (optional) for change
-            return Err(Box::new(WalletError::SanityCheckFailed(format!(
-                "Original transactin has {} outputs, while 1 or 2 are expected",
+            return Err(WalletError::SanityCheckFailed(format!(
+                "Original transaction has {} outputs, while 1 or 2 are expected",
                 num_outputs
-            ))));
+            )));
         }
 
         let mut total_value = 0u64;
@@ -398,10 +394,10 @@ impl TransactionGenerator {
                 sent_value -= required_amount;
                 vec![]
             } else if !preselected_utxo_outpoints.is_empty() {
-                return Err(Box::new(WalletError::UserInputError(
+                return Err(UserInputError(
                     "Insufficient funds in pre-selected utxos for merge transaction fees"
                         .to_string(),
-                )));
+                ));
             } else {
                 debug!(
                     "Adding more UTXOs to the merge transaction to cover fee; required amount: {}",
@@ -466,8 +462,12 @@ impl TransactionGenerator {
         from_addresses: &Vec<&WalletAddress>,
         required_amount: u64,
         fee_rate: f64,
-    ) -> Result<(Vec<WalletUtxo>, u64), Box<dyn Error + Send + Sync>> {
-        let dag_info = self.kaspa_rpc_client.get_block_dag_info().await?;
+    ) -> WalletResult<(Vec<WalletUtxo>, u64)> {
+        let dag_info = self
+            .kaspa_rpc_client
+            .get_block_dag_info()
+            .await
+            .to_wallet_result_internal()?;
 
         let mass_per_input = self
             .estimate_mass_per_input(&original_consensus_transaction.inputs[0])
@@ -498,9 +498,9 @@ impl TransactionGenerator {
         }
 
         if total_value_added < required_amount {
-            Err(Box::new(WalletError::UserInputError(
+            Err(UserInputError(
                 "Insufficient funds for merge transaction fees".to_string(),
-            )))
+            ))
         } else {
             Ok((additional_utxos, total_value_added))
         }
@@ -515,7 +515,7 @@ impl TransactionGenerator {
         change_address: &Address,
         fee_rate: f64,
         max_fee: u64,
-    ) -> Result<(usize, usize), Box<dyn Error + Send + Sync>> {
+    ) -> WalletResult<(usize, usize)> {
         // Create a dummy transaction which is a clone of the original transaction, but without inputs,
         // to calculate how much mass do all the inputs have
         let mut trasnaction_without_inputs = original_consensus_transaction.tx.clone();
@@ -578,7 +578,7 @@ impl TransactionGenerator {
         end_index: usize,
         fee_rate: f64,
         max_fee: u64,
-    ) -> Result<WalletSignableTransaction, Box<dyn Error + Send + Sync>> {
+    ) -> WalletResult<WalletSignableTransaction> {
         let mut selected_utxos = vec![];
         let mut total_sompi = 0;
 
@@ -617,7 +617,7 @@ impl TransactionGenerator {
         &self,
         transaction: &WalletSignableTransaction,
         max_fee: u64,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    ) -> WalletResult<()> {
         let signable_transaction = transaction.transaction.unwrap_ref();
         let total_ins: u64 = signable_transaction
             .entries
@@ -636,9 +636,9 @@ impl TransactionGenerator {
             .sum();
 
         if total_ins < total_outs {
-            return Err(Box::new(WalletError::SanityCheckFailed(
+            return Err(SanityCheckFailed(
                 "transaction doesn't have enough funds to pay for the outputs".to_string(),
-            )));
+            ));
         };
         let fee = total_ins - total_outs;
         let mass = self
@@ -651,10 +651,10 @@ impl TransactionGenerator {
         let fee_rate = fee as f64 / mass as f64;
 
         if fee_rate < 1.0 {
-            Err(Box::new(WalletError::UserInputError(format!(
+            Err(UserInputError(format!(
                 "setting max-fee to {} results in a fee rate of {}, which is below the minimum allowed fee rate of 1 sompi/gram",
                 max_fee, fee_rate
-            ))))
+            )))
         } else {
             Ok(())
         }
@@ -665,7 +665,7 @@ impl TransactionGenerator {
         payments: Vec<WalletPayment>,
         selected_utxos: &Vec<WalletUtxo>,
         payload: Vec<u8>,
-    ) -> Result<WalletSignableTransaction, Box<dyn Error + Send + Sync>> {
+    ) -> WalletResult<WalletSignableTransaction> {
         let mut sorted_extended_public_keys = self.keys.public_keys.clone();
         sorted_extended_public_keys.sort();
 
@@ -717,27 +717,35 @@ impl TransactionGenerator {
     }
 
     // Returns: (fee_rate, max_fee)
-    async fn default_fee_rate(&self) -> Result<(f64, u64), Box<dyn Error + Send + Sync>> {
-        let fee_estimate = self.kaspa_rpc_client.get_fee_estimate().await?;
+    async fn default_fee_rate(&self) -> WalletResult<(f64, u64)> {
+        let fee_estimate = self
+            .kaspa_rpc_client
+            .get_fee_estimate()
+            .await
+            .to_wallet_result_internal()?;
         Ok((fee_estimate.normal_buckets[0].feerate, SOMPI_PER_KASPA)) // Default to a bound of max 1 KAS as fee
     }
 
     async fn calculate_fee_limits(
         &self,
         fee_policy: Option<FeePolicy>,
-    ) -> Result<(f64, u64), Box<dyn Error + Send + Sync>> {
+    ) -> WalletResult<(f64, u64)> {
         // returns (fee_rate, max_fee)
         match fee_policy {
             Some(fee_policy) => match fee_policy.fee_policy {
                 Some(fee_policy::FeePolicy::MaxFeeRate(requested_max_fee_rate)) => {
                     if requested_max_fee_rate < MIN_FEE_RATE {
-                        return Err(Box::new(WalletError::UserInputError(format!(
+                        return Err(UserInputError(format!(
                             "requested max fee rate {} is too low, minimum fee rate is {}",
                             requested_max_fee_rate, MIN_FEE_RATE
-                        ))));
+                        )));
                     }
 
-                    let fee_estimate = self.kaspa_rpc_client.get_fee_estimate().await?;
+                    let fee_estimate = self
+                        .kaspa_rpc_client
+                        .get_fee_estimate()
+                        .await
+                        .to_wallet_result_internal()?;
                     let fee_rate = f64::min(
                         fee_estimate.normal_buckets[0].feerate,
                         requested_max_fee_rate,
@@ -746,16 +754,20 @@ impl TransactionGenerator {
                 }
                 Some(fee_policy::FeePolicy::ExactFeeRate(requested_exact_fee_rate)) => {
                     if requested_exact_fee_rate < MIN_FEE_RATE {
-                        return Err(Box::new(WalletError::UserInputError(format!(
+                        return Err(UserInputError(format!(
                             "requested max fee rate {} is too low, minimum fee rate is {}",
                             requested_exact_fee_rate, MIN_FEE_RATE
-                        ))));
+                        )));
                     }
 
                     Ok((requested_exact_fee_rate, u64::MAX))
                 }
                 Some(fee_policy::FeePolicy::MaxFee(requested_max_fee)) => {
-                    let fee_estimate = self.kaspa_rpc_client.get_fee_estimate().await?;
+                    let fee_estimate = self
+                        .kaspa_rpc_client
+                        .get_fee_estimate()
+                        .await
+                        .to_wallet_result_internal()?;
                     Ok((fee_estimate.normal_buckets[0].feerate, requested_max_fee))
                 }
                 None => self.default_fee_rate().await,
@@ -774,7 +786,7 @@ impl TransactionGenerator {
         max_fee: u64,
         from_addresses: &Vec<&WalletAddress>,
         payload: &Vec<u8>,
-    ) -> Result<(Vec<WalletUtxo>, u64, u64), Box<dyn Error + Send + Sync>> {
+    ) -> WalletResult<(Vec<WalletUtxo>, u64, u64)> {
         debug!(
             "Selecting UTXOs for payment: from_address:{}, amount: {}, is_send_all: {}, fee_rate: {}, max_fee: {}",
             from_addresses.len(),
@@ -786,7 +798,11 @@ impl TransactionGenerator {
         let mut total_value = 0;
         let mut selected_utxos = vec![];
 
-        let dag_info = self.kaspa_rpc_client.get_block_dag_info().await?;
+        let dag_info = self
+            .kaspa_rpc_client
+            .get_block_dag_info()
+            .await
+            .to_wallet_result_internal()?;
 
         let mut fee = 0;
         let mut fee_per_utxo = None;
@@ -794,7 +810,7 @@ impl TransactionGenerator {
                                    utxo_manager: &MutexGuard<UtxoManager>,
                                    utxo: &WalletUtxo,
                                    avoid_preselected: bool|
-               -> Result<bool, Box<dyn Error + Send + Sync>> {
+               -> WalletResult<bool> {
             if !from_addresses.is_empty() && !from_addresses.contains(&&utxo.address) {
                 return Ok(true);
             }
@@ -872,16 +888,14 @@ impl TransactionGenerator {
         }
 
         if total_value < total_spend {
-            return Err(Box::new(WalletError::UserInputError(format!(
+            return Err(UserInputError(format!(
                 "Insufficient funds for send: {} required, while only {} available",
                 amount / SOMPI_PER_KASPA,
                 total_value / SOMPI_PER_KASPA
-            ))));
+            )));
         }
         if is_send_all && total_value == 0 {
-            return Err(Box::new(WalletError::UserInputError(
-                "No funds to send".to_string(),
-            )));
+            return Err(UserInputError("No funds to send".to_string()));
         }
 
         debug!(
@@ -902,7 +916,7 @@ impl TransactionGenerator {
         max_fee: u64,
         estimated_recipient_value: u64,
         payload: &Vec<u8>,
-    ) -> Result<u64, Box<dyn Error + Send + Sync>> {
+    ) -> WalletResult<u64> {
         let estimated_mass = self
             .estimate_mass(selected_utxos, estimated_recipient_value, payload)
             .await?;
@@ -916,7 +930,7 @@ impl TransactionGenerator {
         selected_utxos: &Vec<WalletUtxo>,
         estimated_recipient_value: u64,
         payload: &Vec<u8>,
-    ) -> Result<u64, Box<dyn Error + Send + Sync>> {
+    ) -> WalletResult<u64> {
         let fake_public_key = &[0u8; 33];
         // We assume the worst case where the recipient address is ECDSA. In this case the scriptPubKey will be the longest.
         let fake_address = Address::new(self.address_prefix, Version::PubKeyECDSA, fake_public_key);
