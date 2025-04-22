@@ -82,7 +82,7 @@ impl KasWalletService {
         utxos: &Vec<WalletUtxo>,
         fee_rate: f64,
         virtual_daa_score: u64,
-        addresses: Vec<String>,
+        address_strings: &Vec<String>,
         include_pending: bool,
         include_dust: bool,
     ) -> HashMap<String, Vec<ProtoUtxo>> {
@@ -111,7 +111,7 @@ impl KasWalletService {
                     .address_to_string();
             }
 
-            if !addresses.is_empty() && !addresses.contains(&address) {
+            if !address_strings.is_empty() && !address_strings.contains(&address) {
                 continue;
             }
 
@@ -378,7 +378,7 @@ impl BalancesEntry {
         }
     }
 
-    pub fn add(&mut self, other: Self) {
+    pub fn add(&mut self, other: &Self) {
         self.add_available(other.available);
         self.add_pending(other.pending);
     }
@@ -469,9 +469,8 @@ impl Wallet for KasWalletService {
             utxos_count = utxos_sorted_by_amount.len();
             for entry in utxos_sorted_by_amount {
                 let amount = entry.utxo_entry.amount;
-                let address = entry.address.clone();
                 let balances = balances_map
-                    .entry(address.clone())
+                    .entry(entry.address.clone())
                     .or_insert_with(BalancesEntry::new);
                 if utxo_manager.is_utxo_pending(&entry, virtual_daa_score) {
                     balances.add_pending(amount);
@@ -485,7 +484,7 @@ impl Wallet for KasWalletService {
 
         let address_manager = self.address_manager.lock().await;
         let include_balance_per_address = request.get_ref().include_balance_per_address;
-        for (wallet_address, balances) in balances_map.clone() {
+        for (wallet_address, balances) in &balances_map {
             let address = match address_manager
                 .kaspa_address_from_wallet_address(&wallet_address, true)
                 .await
@@ -526,8 +525,8 @@ impl Wallet for KasWalletService {
         trace!("Received request: {:?}", request.get_ref());
 
         let request = request.get_ref();
-        let mut addresses = request.addresses.clone();
-        for address in &addresses {
+        let request_addresses = &request.addresses;
+        for address in request_addresses {
             if let Err(e) = Address::try_from(address.as_str()) {
                 return Err(Status::invalid_argument(format!(
                     "Address {} is invalid: {}",
@@ -541,10 +540,10 @@ impl Wallet for KasWalletService {
             let address_manager = self.address_manager.lock().await;
             address_set = address_manager.address_set().await;
         }
-        if addresses.len() == 0 {
-            addresses = address_set.keys().cloned().collect();
+        let address_strings: &Vec<String> = if request_addresses.len() == 0 {
+            &address_set.keys().cloned().collect()
         } else {
-            for address in &addresses {
+            for address in request_addresses {
                 if !address_set.contains_key(address) {
                     return Err(Status::invalid_argument(format!(
                         "Address {} not found in wallet",
@@ -552,7 +551,8 @@ impl Wallet for KasWalletService {
                     )));
                 }
             }
-        }
+            request_addresses
+        };
 
         let fee_estimate = match self.kaspa_rpc_client.get_fee_estimate().await {
             Ok(fee_estimate) => fee_estimate,
@@ -576,7 +576,7 @@ impl Wallet for KasWalletService {
                     utxos,
                     fee_rate,
                     virtual_daa_score,
-                    addresses,
+                    address_strings,
                     request.include_pending,
                     request.include_dust,
                 )
@@ -586,7 +586,7 @@ impl Wallet for KasWalletService {
         let addresses_to_utxos = filtered_bucketed_utxos
             .iter()
             .map(|(address_string, utxos)| AddressToUtxos {
-                address: address_string.to_string(),
+                address: address_string.clone(),
                 utxos: utxos.clone(),
             })
             .collect();
