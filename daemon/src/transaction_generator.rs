@@ -123,14 +123,13 @@ impl TransactionGenerator {
         } else {
             let mut preselected_utxos = HashMap::new();
             let utxos_by_outpoint = utxo_manager.utxos_by_outpoint();
-            for outpoint in &preselected_utxo_outpoints {
-                if let Some(utxo) = utxos_by_outpoint.get(&outpoint.clone().into()) {
-                    let utxo = utxo.clone();
+            for preselected_outpoint in &preselected_utxo_outpoints {
+                if let Some(utxo) = utxos_by_outpoint.get(&preselected_outpoint.clone().into()) {
                     preselected_utxos.insert(utxo.outpoint.clone(), utxo);
                 } else {
                     return Err(Box::new(WalletError::UserInputError(format!(
-                        "UTXO {:?} is not in UTXO set",
-                        outpoint
+                        "Preselected UTXO {:?} is not in UTXO set",
+                        preselected_outpoint
                     ))));
                 }
             }
@@ -708,7 +707,7 @@ impl TransactionGenerator {
         let transaction = Transaction::new(0, inputs, outputs, 0, Default::default(), 0, payload);
         let signable_transaction = SignableTransaction::with_entries(transaction, utxo_entries);
         let wallet_signable_transaction = WalletSignableTransaction::new_from_unsigned(
-            signable_transaction.clone(),
+            signable_transaction,
             derivation_paths,
             address_by_input_index,
             addresses_by_output_index,
@@ -768,7 +767,7 @@ impl TransactionGenerator {
     pub async fn select_utxos(
         &mut self,
         utxo_manager: &MutexGuard<'_, UtxoManager>,
-        preselected_utxos: &HashMap<WalletOutpoint, WalletUtxo>,
+        preselected_utxos: &HashMap<WalletOutpoint, &WalletUtxo>,
         amount: u64,
         is_send_all: bool,
         fee_rate: f64,
