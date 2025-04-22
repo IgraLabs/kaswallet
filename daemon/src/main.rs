@@ -39,7 +39,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let network_id = args.network_id();
 
     let logs_path = calculate_path(&args.logs_path, &network_id, "logs");
-    if let Err(e) = log::init_log(logs_path, args.logs_level.clone()) {
+    if let Err(e) = log::init_log(&logs_path, &args.logs_level) {
         panic!("Failed to initialize logger: {}", e);
     }
 

@@ -13,8 +13,8 @@ use std::error::Error;
 use std::path::Path;
 
 pub fn init_log(
-    logs_path: String,
-    logs_level: LogsLevel,
+    logs_path: &str,
+    logs_level: &LogsLevel,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     let general_log_path = Path::new(&logs_path).join("kaswallet.log");
     let err_log_path = Path::new(&logs_path).join("kaswallet.err.log");
@@ -60,7 +60,7 @@ pub fn init_log(
                 .appender("stdout")
                 .appender("file")
                 .appender("file_err")
-                .build(logs_level.into()),
+                .build(logs_level.clone().into()),
         )?;
 
     log4rs::init_config(config)?;
