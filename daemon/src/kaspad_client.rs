@@ -6,12 +6,12 @@ use std::sync::Arc;
 use workflow_websocket::client::{ConnectOptions, ConnectStrategy};
 
 pub async fn connect(
-    server: Option<String>,
-    network_id: NetworkId,
+    server: &Option<String>,
+    network_id: &NetworkId,
 ) -> Result<Arc<KaspaRpcClient>, Box<dyn Error + Send + Sync>> {
     let url = match server {
         Some(server) => server,
-        None => format!(
+        None => &format!(
             "ws://localhost:{}",
             network_id.network_type.default_borsh_rpc_port()
         ),
@@ -30,7 +30,7 @@ pub async fn connect(
         WrpcEncoding::Borsh,
         Some(&url),
         None,
-        Some(network_id),
+        Some(network_id.clone()),
         None,
     )?);
 

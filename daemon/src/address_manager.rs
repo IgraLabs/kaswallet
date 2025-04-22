@@ -107,7 +107,7 @@ impl AddressManager {
 
     pub async fn update_addresses_and_last_used_indexes(
         &self,
-        address_set: AddressSet,
+        mut address_set: AddressSet,
         get_balances_by_addresses_response: Vec<RpcBalancesByAddressesEntry>,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         // create scope to release last_used_internal/external_index before keys_file.save() is called
@@ -118,12 +118,7 @@ impl AddressManager {
                 }
 
                 let address_string = entry.address.to_string();
-                let wallet_address = address_set.get(&address_string).unwrap();
-
-                self.addresses
-                    .lock()
-                    .await
-                    .insert(address_string, wallet_address.clone());
+                let wallet_address = address_set.remove(&address_string).unwrap();
 
                 if wallet_address.keychain == Keychain::External {
                     if wallet_address.index > self.keys_file.last_used_external_index.load(Relaxed)
@@ -140,6 +135,11 @@ impl AddressManager {
                             .store(wallet_address.index, Relaxed);
                     }
                 }
+
+                self.addresses
+                    .lock()
+                    .await
+                    .insert(address_string, wallet_address);
             }
         }
 
@@ -191,17 +191,14 @@ impl AddressManager {
         &self,
         wallet_address: &WalletAddress,
     ) -> Result<DerivationPath, Box<dyn Error + Send + Sync>> {
-        let wallet_address = wallet_address.clone();
+        let keychain_number = wallet_address.keychain.clone() as u32;
         let path_string = if self.is_multisig {
             format!(
                 "m/{}/{}/{}",
-                wallet_address.cosigner_index, wallet_address.keychain as u32, wallet_address.index
+                wallet_address.cosigner_index, keychain_number, wallet_address.index
             )
         } else {
-            format!(
-                "m/{}/{}",
-                wallet_address.keychain as u32, wallet_address.index
-            )
+            format!("m/{}/{}", keychain_number, wallet_address.index)
         };
 
         let path = DerivationPath::from_str(&path_string)?;
@@ -227,15 +224,15 @@ impl AddressManager {
         let mut sorted_extended_public_keys = self.extended_public_keys.as_ref().clone();
         sorted_extended_public_keys.sort();
 
-        let mut public_keys = vec![];
+        let mut signing_public_keys = Vec::with_capacity(sorted_extended_public_keys.len());
         for x_public_key in sorted_extended_public_keys.iter() {
             let derived_key = x_public_key.clone().derive_path(derivation_path)?;
             let public_key = derived_key.public_key();
-            public_keys.push(public_key.x_only_public_key().0.serialize());
+            signing_public_keys.push(public_key.x_only_public_key().0.serialize());
         }
 
         let redeem_script = kaspa_txscript::multisig_redeem_script(
-            public_keys.iter(),
+            signing_public_keys.iter(),
             self.keys_file.minimum_signatures as usize,
         )?;
         let script_pub_key = kaspa_txscript::pay_to_script_hash_script(redeem_script.as_slice());
