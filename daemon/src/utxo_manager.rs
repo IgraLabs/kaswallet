@@ -65,12 +65,11 @@ impl UtxoManager {
         }
 
         for (i, output) in tx.outputs.iter().enumerate() {
-            let address = transaction.address_by_output_index[i].clone();
             let wallet_address: Option<WalletAddress>;
             {
                 let address_manager = self.address_manager.lock().await;
                 wallet_address = address_manager
-                    .wallet_address_from_string(&address.to_string())
+                    .wallet_address_from_string(&transaction.address_by_output_index[i].to_string())
                     .await;
             }
             if wallet_address.is_none() {
@@ -103,7 +102,7 @@ impl UtxoManager {
             .binary_search_by(|existing_utxo| {
                 existing_utxo.utxo_entry.amount.cmp(&utxo.utxo_entry.amount)
             })
-            .unwrap_or_else(|e| e); // Use the insertion point if not found
+            .unwrap_err();
         self.utxos_sorted_by_amount.insert(position, utxo);
     }
 
@@ -150,11 +149,11 @@ impl UtxoManager {
                 continue;
             }
 
-            let utxo_entry = rpc_utxo_entry.utxo_entry.clone();
-            let wallet_utxo_entry: WalletUtxoEntry = utxo_entry.into();
+            let wallet_utxo_entry: WalletUtxoEntry = rpc_utxo_entry.utxo_entry.clone().into();
 
-            let rpc_address = rpc_utxo_entry.address.clone().unwrap();
-            let address = address_set.get(&rpc_address.address_to_string()).unwrap();
+            let address = address_set
+                .get(&rpc_utxo_entry.address.as_ref().unwrap().to_string())
+                .unwrap();
 
             let wallet_utxo = WalletUtxo::new(wallet_outpoint, wallet_utxo_entry, address.clone());
 
@@ -212,8 +211,9 @@ impl UtxoManager {
     }
 
     async fn apply_mempool_transactions_after_update(&mut self) {
-        let mut updated_mempool_transactions = vec![];
-        'outer: for transaction in &self.mempool_transactions.clone() {
+        let previous_mempool_transactions = std::mem::take(&mut self.mempool_transactions);
+        self.mempool_transactions = vec![];
+        'outer: for transaction in &previous_mempool_transactions {
             for input in transaction.transaction.unwrap_ref().tx.inputs.iter() {
                 let outpoint = input.previous_outpoint;
                 if !self.contains_utxo(&outpoint.into()) {
@@ -221,16 +221,13 @@ impl UtxoManager {
                     continue 'outer;
                 }
             }
-            self.apply_mempool_transaction(transaction).await;
-            updated_mempool_transactions.push(transaction.clone());
+            self.add_mempool_transaction(transaction).await;
         }
-
-        self.mempool_transactions = updated_mempool_transactions;
     }
 
     fn update_utxos_sorted_by_amount(&mut self, mut wallet_utxos: Vec<WalletUtxo>) {
         wallet_utxos.sort_by(|a, b| a.utxo_entry.amount.cmp(&b.utxo_entry.amount));
-        self.utxos_sorted_by_amount = wallet_utxos.clone();
+        self.utxos_sorted_by_amount = wallet_utxos;
     }
 
     fn update_utxos_by_outpoint(&mut self, wallet_utxos: Vec<WalletUtxo>) {

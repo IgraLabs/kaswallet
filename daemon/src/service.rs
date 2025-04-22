@@ -656,8 +656,12 @@ impl Wallet for KasWalletService {
 
     async fn send(&self, request: Request<SendRequest>) -> Result<Response<SendResponse>, Status> {
         trace!("Received request: {:?}", request.get_ref()); // TODO: return to trace
-        let send_start = Instant::now();
 
+        // lock utxo_manager at this point, so that if sync happens in the middle - it doesn't
+        // interfere with apply_transaction
+        let mut utxo_manager = self.utxo_manager.lock().await;
+
+        let send_start = Instant::now();
         let request = request.into_inner();
         let transaction_description = match request.transaction_description {
             Some(description) => description,
@@ -673,9 +677,7 @@ impl Wallet for KasWalletService {
         );
 
         debug!("Creating unsigned transactions...");
-        // lock utxo_manager at this point, so that if sync happens in the middle - it doesn't
-        // interfere with apply_transaction
-        let mut utxo_manager = self.utxo_manager.lock().await;
+
         let unsigned_transactions = self
             .create_unsigned_transactions(&utxo_manager, transaction_description)
             .await?;
