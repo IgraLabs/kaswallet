@@ -18,12 +18,12 @@ pub fn parse_network_type(
 }
 
 pub fn calculate_path(
-    args_file_path: Option<String>,
-    network_id: NetworkId,
+    args_file_path: &Option<String>,
+    network_id: &NetworkId,
     default_filename: &str,
 ) -> String {
     let path = if let Some(path) = args_file_path {
-        return path;
+        return path.to_string();
     } else if cfg!(target_os = "windows") {
         format!(
             "%USERPROFILE%\\AppData\\Local\\Kaswallet\\{}\\{}",
@@ -33,10 +33,10 @@ pub fn calculate_path(
         format!("~/.kaswallet/{}/{}", network_id, default_filename)
     };
 
-    expand_path(path)
+    expand_path(&path)
 }
 
-fn expand_path(path: String) -> String {
+fn expand_path(path: &str) -> String {
     if cfg!(target_os = "windows") {
         let re = Regex::new(r"%([^%]+)%").unwrap();
         re.replace_all(&path, |caps: &regex::Captures| {

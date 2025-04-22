@@ -16,7 +16,7 @@ mod args;
 fn main() {
     let args = args::Args::parse();
     let network_id = args.network_id();
-    let keys_file_path = calculate_path(args.keys_file.clone(), network_id, "keys.json");
+    let keys_file_path = calculate_path(&args.keys_file_path, &network_id, "keys.json");
     if !should_continue_if_key_file_exists(&keys_file_path) {
         return;
     }

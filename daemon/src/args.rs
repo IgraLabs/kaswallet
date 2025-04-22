@@ -18,8 +18,8 @@ pub struct Args {
     #[arg(long, help = "Use the simulation test network")]
     simnet: bool,
 
-    #[arg(long, short = 'k', help = "Path to keys file")]
-    pub keys_file: Option<String>,
+    #[arg(long = "keys", short = 'k', help = "Path to keys file")]
+    pub keys_file_path: Option<String>,
 
     #[arg(long, help = "Path to logs directory")]
     pub logs_path: Option<String>,

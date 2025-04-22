@@ -8,7 +8,7 @@ use workflow_websocket::client::{ConnectOptions, ConnectStrategy};
 pub async fn connect(
     server: Option<String>,
     network_id: NetworkId,
-) -> Result<Arc<KaspaRpcClient>, Box<dyn Error>> {
+) -> Result<Arc<KaspaRpcClient>, Box<dyn Error + Send + Sync>> {
     let url = match server {
         Some(server) => server,
         None => format!(

@@ -65,15 +65,11 @@ impl EncryptedMnemonic {
         let nonce = XChaCha20Poly1305::generate_nonce(OsRng);
 
         let mut buffer = mnemonic.phrase().as_bytes().to_vec();
-        println!("Just mnemnonic: {:?}", buffer);
         buffer.reserve(NONCE_SIZE);
-        println!("After reserve: {:?}", buffer);
         cipher
             .encrypt_in_place(&nonce, &[], &mut buffer)
             .map_err(|e| format!("Encryption failed: {}", e))?;
-        println!("after encrypt: {:?}", buffer);
         buffer.splice(0..0, nonce.iter().cloned());
-        println!("after splice: {:?}", buffer);
 
         Ok(buffer)
     }

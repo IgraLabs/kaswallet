@@ -10,7 +10,7 @@ use tonic::transport::Channel;
 use tonic::Request;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>> {
+async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let mut client = WalletClient::connect("http://localhost:8082").await?;
 
     let scenario = std::env::args()
@@ -38,7 +38,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
 }
 
 const STRESS_TESTS_NUM_ITERATIONS: usize = 100;
-async fn stress_test(client: &mut WalletClient<Channel>) -> Result<(), Box<dyn Error>> {
+async fn stress_test(
+    client: &mut WalletClient<Channel>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
     let address = prepare_stress_test(client).await?;
     for _ in 0..STRESS_TESTS_NUM_ITERATIONS {
         test_send(client, &address, &address).await?
@@ -47,7 +49,9 @@ async fn stress_test(client: &mut WalletClient<Channel>) -> Result<(), Box<dyn E
     Ok(())
 }
 
-async fn stress_test_parallel(client: &mut WalletClient<Channel>) -> Result<(), Box<dyn Error>> {
+async fn stress_test_parallel(
+    client: &mut WalletClient<Channel>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
     let address = prepare_stress_test(client).await?;
     let mut futures = FuturesUnordered::new();
     for _ in 0..STRESS_TESTS_NUM_ITERATIONS {
@@ -74,7 +78,9 @@ async fn stress_test_parallel(client: &mut WalletClient<Channel>) -> Result<(), 
 }
 
 // returns address
-async fn prepare_stress_test(client: &mut WalletClient<Channel>) -> Result<String, Box<dyn Error>> {
+async fn prepare_stress_test(
+    client: &mut WalletClient<Channel>,
+) -> Result<String, Box<dyn Error + Send + Sync>> {
     let balances_response = test_get_ballance(client).await?;
     let address_balance = balances_response
         .address_balances
@@ -93,7 +99,9 @@ async fn prepare_stress_test(client: &mut WalletClient<Channel>) -> Result<Strin
     Ok(address_balance.address.clone())
 }
 
-async fn sanity_test(client: &mut WalletClient<Channel>) -> Result<(), Box<dyn Error>> {
+async fn sanity_test(
+    client: &mut WalletClient<Channel>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
     test_version(client).await?;
 
     let get_addresses_response = test_get_addresses(client).await?;
@@ -153,7 +161,7 @@ async fn test_send(
     client: &mut WalletClient<Channel>,
     from_address: &String,
     to_address: &String,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<(), Box<dyn Error + Send + Sync>> {
     let send_response = &client
         .send(Request::new(SendRequest {
             transaction_description: Some(TransactionDescription {
@@ -176,7 +184,7 @@ async fn test_send(
 
 async fn test_get_ballance(
     client: &mut WalletClient<Channel>,
-) -> Result<GetBalanceResponse, Box<dyn Error>> {
+) -> Result<GetBalanceResponse, Box<dyn Error + Send + Sync>> {
     let get_balance_response = client
         .get_balance(Request::new(
             kaswallet_proto::kaswallet_proto::GetBalanceRequest {
@@ -200,7 +208,7 @@ async fn test_get_ballance(
 
 async fn test_get_addresses(
     client: &mut WalletClient<Channel>,
-) -> Result<GetAddressesResponse, Box<dyn Error>> {
+) -> Result<GetAddressesResponse, Box<dyn Error + Send + Sync>> {
     let get_addresses_response = client
         .get_addresses(Request::new(GetAddressesRequest {}))
         .await?
@@ -211,7 +219,9 @@ async fn test_get_addresses(
     Ok(get_addresses_response)
 }
 
-async fn test_version(client: &mut WalletClient<Channel>) -> Result<(), Box<dyn Error>> {
+async fn test_version(
+    client: &mut WalletClient<Channel>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
     let response = client
         .get_version(Request::new(GetVersionRequest {}))
         .await?;
@@ -220,7 +230,9 @@ async fn test_version(client: &mut WalletClient<Channel>) -> Result<(), Box<dyn 
     Ok(())
 }
 
-async fn new_address(client: &mut WalletClient<Channel>) -> Result<String, Box<dyn Error>> {
+async fn new_address(
+    client: &mut WalletClient<Channel>,
+) -> Result<String, Box<dyn Error + Send + Sync>> {
     let new_address_response = client
         .new_address(Request::new(
             kaswallet_proto::kaswallet_proto::NewAddressRequest {},

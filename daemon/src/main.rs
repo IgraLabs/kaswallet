@@ -27,7 +27,7 @@ mod transaction_generator;
 mod utxo_manager;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>> {
+async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let args = args::Args::parse();
     #[cfg(debug_assertions)]
     {
@@ -38,13 +38,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let network_id = args.network_id();
 
-    let logs_path = calculate_path(args.logs_path.clone(), network_id, "logs");
+    let logs_path = calculate_path(&args.logs_path, &network_id, "logs");
     if let Err(e) = log::init_log(logs_path, args.logs_level.clone()) {
         panic!("Failed to initialize logger: {}", e);
     }
 
     let extended_keys_prefix = Prefix::from(network_id);
-    let keys_file_path = calculate_path(args.keys_file.clone(), network_id, "keys.json");
+    let keys_file_path = calculate_path(&args.keys_file_path, &network_id, "keys.json");
     debug!("Keys file path: {}", keys_file_path);
     let keys = Keys::load(&keys_file_path, extended_keys_prefix);
 
@@ -53,7 +53,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         error!("Please run kaswallet-create or provide a `--keys-file` flag");
         return Ok(());
     }
-    let keys = Arc::new(keys.unwrap());
+    let keys = Arc::new(keys?);
     info!("Loaded keys from file {}", keys_file_path);
     let consensus_params = Params::from(network_id.network_type);
     let mass_calculator = Arc::new(MassCalculator::new(&network_id.network_type.into()));
