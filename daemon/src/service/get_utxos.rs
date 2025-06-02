@@ -124,8 +124,11 @@ impl KasWalletService {
         filtered_bucketed_utxos
     }
 
-    fn is_utxo_dust(&self, _utxo: &WalletUtxo, _fee_rate: f64) -> bool {
-        // TODO: actually calculate if utxo is dust
-        false
+    fn is_utxo_dust(&self, utxo: &WalletUtxo, fee_rate: f64) -> bool {
+        let output_estimated_serialized_size: u64 = 0 +
+         8 +// value (uint64)
+         2 +// output.ScriptPublicKey.Version (uint 16)
+         8 +// length of script public key (uint64)
+        utxo.utxo_entry.script_public_key.script().len() as u64;
     }
 }
