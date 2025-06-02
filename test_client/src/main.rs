@@ -10,6 +10,7 @@ use kaswallet_proto::kaswallet_proto::{
     TransactionDescription,
 };
 use std::error::Error;
+use tokio::time::Instant;
 use tonic::transport::Channel;
 use tonic::Request;
 
@@ -118,6 +119,7 @@ async fn mine_tx_id_test(
     let mut transaction_to_mine = wallet_transaction.transaction.unwrap();
 
     println!("Original transaction ID: {}", transaction_to_mine.id());
+
     mine_loop(&mut transaction_to_mine, expected_bitmask);
 
     wallet_transaction.transaction = Signed::Partially(transaction_to_mine);
@@ -147,6 +149,8 @@ async fn mine_tx_id_test(
 }
 
 fn mine_loop(transaction_to_mine: &mut SignableTransaction, expected_bitmask: [u8; 2]) {
+    let start = Instant::now();
+
     let bitmask_length = expected_bitmask.len();
     let mut nonce: u64 = 0;
 
@@ -165,10 +169,18 @@ fn mine_loop(transaction_to_mine: &mut SignableTransaction, expected_bitmask: [u
         let transaction_id = transaction_to_mine.id();
         if transaction_id.as_bytes()[..bitmask_length] == expected_bitmask {
             println!(
-                "Found transaction ID {} with payload {:?} and nonce {}",
+                "Found transaction ID {} with payload {:?} and nonce {}({:?})",
                 transaction_id,
                 new_payload.clone(),
-                nonce
+                nonce,
+                nonce.to_le_bytes()
+            );
+
+            let duration = start.elapsed();
+            println!(
+                "mine loop took: {:?}, at {} hashes/sec",
+                duration,
+                nonce * 1000 / duration.as_millis() as u64
             );
             break;
         }
