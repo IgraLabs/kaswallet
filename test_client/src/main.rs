@@ -1,9 +1,13 @@
+use common::transactions_encoding::{decode_transaction, encode_transaction};
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
+use kaspa_consensus_core::sign::Signed;
+use kaspa_consensus_core::tx::SignableTransaction;
 use kaswallet_proto::kaswallet_proto::wallet_client::WalletClient;
 use kaswallet_proto::kaswallet_proto::{
-    AddressBalances, GetAddressesRequest, GetAddressesResponse, GetBalanceResponse,
-    GetVersionRequest, SendRequest, TransactionDescription,
+    AddressBalances, BroadcastRequest, CreateUnsignedTransactionsRequest, GetAddressesRequest,
+    GetAddressesResponse, GetBalanceResponse, GetVersionRequest, SendRequest, SignRequest,
+    TransactionDescription,
 };
 use std::error::Error;
 use tonic::transport::Channel;
@@ -29,6 +33,10 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
             println!("Running stress test in parallel");
             stress_test_parallel(&mut client).await?
         }
+        "mine" => {
+            println!("Running mine tx id test");
+            mine_tx_id_test(&mut client).await?;
+        }
         _ => {
             return Err(format!("Unknown scenario {}", scenario).into());
         }
@@ -41,7 +49,7 @@ const STRESS_TESTS_NUM_ITERATIONS: usize = 100;
 async fn stress_test(
     client: &mut WalletClient<Channel>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
-    let address = prepare_stress_test(client).await?;
+    let address = get_address_with_balance(client).await?;
     for _ in 0..STRESS_TESTS_NUM_ITERATIONS {
         test_send(client, &address, &address).await?
     }
@@ -52,7 +60,7 @@ async fn stress_test(
 async fn stress_test_parallel(
     client: &mut WalletClient<Channel>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
-    let address = prepare_stress_test(client).await?;
+    let address = get_address_with_balance(client).await?;
     let mut futures = FuturesUnordered::new();
     for _ in 0..STRESS_TESTS_NUM_ITERATIONS {
         let mut client = client.clone();
@@ -77,8 +85,106 @@ async fn stress_test_parallel(
     Ok(())
 }
 
+async fn mine_tx_id_test(
+    client: &mut WalletClient<Channel>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let address = get_address_with_balance(client).await?;
+    let actual_payload = b"hello igra!";
+    let expected_bitmask: [u8; 2] = [0x97, 0xb1];
+    let create_unsigned_transaction_request = CreateUnsignedTransactionsRequest {
+        transaction_description: Some(TransactionDescription {
+            to_address: address.clone(),
+            amount: 0,
+            is_send_all: true,
+            payload: actual_payload.to_vec(),
+            from_addresses: vec![address],
+            utxos: vec![],
+            use_existing_change_address: false,
+            fee_policy: None,
+        }),
+    };
+    let create_unsigned_transaction_response = client
+        .create_unsigned_transactions(create_unsigned_transaction_request)
+        .await?
+        .into_inner();
+
+    let mut unsinged_transactions = create_unsigned_transaction_response.unsigned_transactions;
+
+    let transactions_count = unsinged_transactions.len();
+    let last_transaction = &unsinged_transactions[transactions_count - 1];
+
+    let mut wallet_transaction = decode_transaction(&last_transaction)?;
+
+    let mut transaction_to_mine = wallet_transaction.transaction.unwrap();
+
+    println!("Original transaction ID: {}", transaction_to_mine.id());
+    mine_loop(&mut transaction_to_mine, expected_bitmask);
+
+    wallet_transaction.transaction = Signed::Partially(transaction_to_mine);
+
+    let encoded_transaction = encode_transaction(&wallet_transaction)?;
+
+    unsinged_transactions[transactions_count - 1] = encoded_transaction;
+
+    let sign_request = SignRequest {
+        unsigned_transactions: unsinged_transactions,
+        password: "".to_string(),
+    };
+    let sign_reponse = client.sign(sign_request).await?;
+    println!("Transaction signed successfully");
+
+    let broadcast_request = BroadcastRequest {
+        transactions: sign_reponse.into_inner().signed_transactions,
+    };
+
+    let broadcast_response = client.broadcast(broadcast_request).await?;
+    println!(
+        "Transaction broadcast successfully! Broadcast response: {:?}",
+        broadcast_response
+    );
+
+    Ok(())
+}
+
+fn mine_loop(transaction_to_mine: &mut SignableTransaction, expected_bitmask: [u8; 2]) {
+    let bitmask_length = expected_bitmask.len();
+    let mut nonce: u64 = 0;
+
+    let original_payload = transaction_to_mine.tx.payload.clone();
+    let mut new_payload = original_payload.clone();
+    new_payload.extend_from_slice(&nonce.to_le_bytes());
+
+    loop {
+        let len = new_payload.len();
+        new_payload[len - 8..].copy_from_slice(&nonce.to_le_bytes());
+
+        transaction_to_mine.tx.payload = new_payload.clone();
+
+        transaction_to_mine.tx.finalize(); // this updates the transaction ID
+
+        let transaction_id = transaction_to_mine.id();
+        if transaction_id.as_bytes()[..bitmask_length] == expected_bitmask {
+            println!(
+                "Found transaction ID {} with payload {:?} and nonce {}",
+                transaction_id,
+                new_payload.clone(),
+                nonce
+            );
+            break;
+        }
+        nonce += 1;
+        // This means we tested all possible nonces and got no valid result
+        if nonce == 0 {
+            println!(
+                "Exhausted all possible nonces without finding a valid transaction ID; This should happen extremely rarely"
+            );
+            transaction_to_mine.tx.outputs[0].value -= 1; // Decrease the output value to create variance
+        }
+    }
+}
+
 // returns address
-async fn prepare_stress_test(
+async fn get_address_with_balance(
     client: &mut WalletClient<Channel>,
 ) -> Result<String, Box<dyn Error + Send + Sync>> {
     let balances_response = test_get_ballance(client).await?;

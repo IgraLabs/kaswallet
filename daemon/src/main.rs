@@ -21,7 +21,6 @@ mod address_manager;
 mod args;
 mod kaspad_client;
 mod log;
-mod model;
 mod service;
 mod sync_manager;
 mod transaction_generator;

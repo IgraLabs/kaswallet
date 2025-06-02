@@ -1,5 +1,5 @@
 use crate::address_manager::{AddressManager, AddressSet};
-use crate::model::{
+use common::model::{
     WalletAddress, WalletOutpoint, WalletSignableTransaction, WalletUtxo, WalletUtxoEntry,
 };
 use kaspa_consensus_core::config::params::Params;

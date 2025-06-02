@@ -1,6 +1,7 @@
 use crate::service::service::KasWalletService;
 use common::errors::WalletError::UserInputError;
 use common::errors::WalletResult;
+use common::transactions_encoding::encode_transactions;
 use kaswallet_proto::kaswallet_proto::{SendRequest, SendResponse};
 use log::{debug, error};
 use std::time::Instant;
@@ -48,7 +49,7 @@ impl KasWalletService {
         }
         let transaction_ids = submit_transactions_result?;
         debug!("Transactions submitted: {:?}", transaction_ids);
-        let encoded_signed_transactions = Self::encode_transactions(&signed_transactions)?;
+        let encoded_signed_transactions = encode_transactions(&signed_transactions)?;
 
         println!(
             "Total time to serve send request: {:?}",

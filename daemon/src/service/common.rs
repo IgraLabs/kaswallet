@@ -1,8 +1,8 @@
-use crate::model::WalletSignableTransaction;
 use crate::service::service::KasWalletService;
 use crate::utxo_manager::UtxoManager;
 use common::errors::WalletError::UserInputError;
 use common::errors::{ResultExt, WalletResult};
+use common::model::WalletSignableTransaction;
 use kaspa_consensus_core::sign::Signed::{Fully, Partially};
 use kaspa_wallet_core::rpc::RpcApi;
 use tokio::sync::MutexGuard;
@@ -26,31 +26,6 @@ impl KasWalletService {
         } else {
             Ok(())
         }
-    }
-
-    pub(crate) fn decode_transactions(
-        encoded_transactions: &Vec<Vec<u8>>,
-    ) -> WalletResult<Vec<WalletSignableTransaction>> {
-        let mut unsigned_transactions = vec![];
-        for encoded_transaction_transaction in encoded_transactions {
-            let unsigned_transaction = borsh::from_slice(&encoded_transaction_transaction)
-                .to_wallet_result_user_input()?;
-            unsigned_transactions.push(unsigned_transaction);
-        }
-        Ok(unsigned_transactions)
-    }
-
-    pub(crate) fn encode_transactions(
-        transactions: &Vec<WalletSignableTransaction>,
-    ) -> WalletResult<Vec<Vec<u8>>> {
-        let mut encoded_transactions = Vec::with_capacity(transactions.len());
-        for unsigned_transaction in transactions {
-            // TODO: Use protobuf instead of borsh for serialization
-            let encoded_transaction =
-                borsh::to_vec(&unsigned_transaction).to_wallet_result_internal()?;
-            encoded_transactions.push(encoded_transaction);
-        }
-        Ok(encoded_transactions)
     }
 
     pub(crate) async fn submit_transactions(

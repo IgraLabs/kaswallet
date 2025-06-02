@@ -1,8 +1,9 @@
-use crate::model::WalletSignableTransaction;
 use crate::service::service::KasWalletService;
 use common::errors::WalletError::SanityCheckFailed;
 use common::errors::{ResultExt, WalletResult};
 use common::keys::master_key_path;
+use common::model::WalletSignableTransaction;
+use common::transactions_encoding::{decode_transactions, encode_transactions};
 use itertools::Itertools;
 use kaspa_bip32::{secp256k1, ExtendedPrivateKey, Mnemonic, SecretKey};
 use kaspa_consensus_core::hashing::sighash::{
@@ -20,13 +21,13 @@ use std::iter::once;
 impl KasWalletService {
     pub(crate) async fn sign(&self, request: SignRequest) -> WalletResult<SignResponse> {
         let encoded_unsigned_transactions = &request.unsigned_transactions;
-        let unsigned_transactions = Self::decode_transactions(encoded_unsigned_transactions)?;
+        let unsigned_transactions = decode_transactions(encoded_unsigned_transactions)?;
 
         let signed_transactions = self
             .sign_transactions(unsigned_transactions, &request.password)
             .await?;
 
-        let encoded_signed_transactions = Self::encode_transactions(&signed_transactions)?;
+        let encoded_signed_transactions = encode_transactions(&signed_transactions)?;
 
         Ok(SignResponse {
             signed_transactions: encoded_signed_transactions,

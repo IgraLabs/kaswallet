@@ -10,6 +10,7 @@ repository.workspace = true
 
 [dependencies]
 kaswallet-proto = { git = "https://github.com/IgraLabs/kaswallet-proto.git" }
+common = { path = "../common" }
 kaspa-consensus-core = { git = "https://github.com/IgraLabs/rusty-kaspa.git", branch = "for-wallet" }
 # kaspa-consensus-core = { path = "../../rusty-kaspa/consensus/core" }
 tokio = "1.43.0"

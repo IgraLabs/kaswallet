@@ -1,6 +1,6 @@
-﻿use crate::model::{Keychain, WalletAddress, KEYCHAINS};
-use common::errors::{ResultExt, WalletResult};
+﻿use common::errors::{ResultExt, WalletResult};
 use common::keys::Keys;
+use common::model::{Keychain, WalletAddress, KEYCHAINS};
 use kaspa_addresses::{Address, Prefix as AddressPrefix, Version as AddressVersion};
 use kaspa_bip32::secp256k1::PublicKey;
 use kaspa_bip32::{DerivationPath, ExtendedPublicKey};

@@ -1,12 +1,12 @@
 use crate::address_manager::AddressManager;
-use crate::model::{
-    WalletAddress, WalletOutpoint, WalletPayment, WalletSignableTransaction, WalletUtxo,
-    WalletUtxoEntry,
-};
 use crate::utxo_manager::UtxoManager;
 use common::errors::WalletError::{SanityCheckFailed, UserInputError};
 use common::errors::{ResultExt, WalletError, WalletResult};
 use common::keys::Keys;
+use common::model::{
+    WalletAddress, WalletOutpoint, WalletPayment, WalletSignableTransaction, WalletUtxo,
+    WalletUtxoEntry,
+};
 use itertools::Itertools;
 use kaspa_addresses::{Address, Version};
 use kaspa_consensus_core::constants::{SOMPI_PER_KASPA, UNACCEPTED_DAA_SCORE};

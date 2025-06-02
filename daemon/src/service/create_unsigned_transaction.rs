@@ -1,8 +1,9 @@
-use crate::model::WalletSignableTransaction;
 use crate::service::service::KasWalletService;
 use crate::utxo_manager::UtxoManager;
 use common::errors::WalletError::UserInputError;
 use common::errors::WalletResult;
+use common::model::WalletSignableTransaction;
+use common::transactions_encoding::encode_transactions;
 use kaswallet_proto::kaswallet_proto::{
     CreateUnsignedTransactionsRequest, CreateUnsignedTransactionsResponse, TransactionDescription,
 };
@@ -30,7 +31,7 @@ impl KasWalletService {
                 .await?;
         }
 
-        let encoded_transactions = Self::encode_transactions(&unsinged_transactions)?;
+        let encoded_transactions = encode_transactions(&unsinged_transactions)?;
         Ok(CreateUnsignedTransactionsResponse {
             unsigned_transactions: encoded_transactions,
         })

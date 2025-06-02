@@ -1,8 +1,8 @@
 use crate::address_manager::AddressSet;
-use crate::model::WalletUtxo;
 use crate::service::service::KasWalletService;
 use common::errors::WalletError::UserInputError;
 use common::errors::{ResultExt, WalletResult};
+use common::model::WalletUtxo;
 use kaspa_addresses::Address;
 use kaspa_wallet_core::rpc::RpcApi;
 use kaswallet_proto::kaswallet_proto::{

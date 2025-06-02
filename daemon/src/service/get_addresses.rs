@@ -1,7 +1,7 @@
-use crate::model::{Keychain, WalletAddress};
 use crate::service::service::KasWalletService;
 use common::errors::WalletError::InternalServerError;
 use common::errors::WalletResult;
+use common::model::{Keychain, WalletAddress};
 use kaswallet_proto::kaswallet_proto::GetAddressesRequest;
 use std::sync::atomic::Ordering::Relaxed;
 
