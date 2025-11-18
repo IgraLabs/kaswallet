@@ -1,6 +1,6 @@
-﻿use common::errors::{ResultExt, WalletResult};
+use common::errors::{ResultExt, WalletResult};
 use common::keys::Keys;
-use common::model::{Keychain, WalletAddress, KEYCHAINS};
+use common::model::{KEYCHAINS, Keychain, WalletAddress};
 use kaspa_addresses::{Address, Prefix as AddressPrefix, Version as AddressVersion};
 use kaspa_bip32::secp256k1::PublicKey;
 use kaspa_bip32::{DerivationPath, ExtendedPublicKey};
@@ -8,8 +8,8 @@ use kaspa_wrpc_client::prelude::*;
 use std::collections::HashMap;
 use std::error::Error;
 use std::str::FromStr;
-use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
+use std::sync::atomic::Ordering::Relaxed;
 use tokio::sync::Mutex;
 
 pub type AddressSet = HashMap<String, WalletAddress>;
@@ -41,10 +41,7 @@ impl AddressManager {
     pub async fn wallet_address_from_string(&self, address_string: &str) -> Option<WalletAddress> {
         let addresses = self.addresses.lock().await;
         let address = addresses.get(address_string);
-        match address {
-            None => None,
-            Some(wallet_address) => Some(wallet_address.clone()),
-        }
+        address.cloned()
     }
 
     pub async fn address_set(&self) -> AddressSet {
@@ -126,13 +123,12 @@ impl AddressManager {
                             .last_used_external_index
                             .store(wallet_address.index, Relaxed);
                     }
-                } else {
-                    if wallet_address.index > self.keys_file.last_used_internal_index.load(Relaxed)
-                    {
-                        self.keys_file
-                            .last_used_internal_index
-                            .store(wallet_address.index, Relaxed);
-                    }
+                } else if wallet_address.index
+                    > self.keys_file.last_used_internal_index.load(Relaxed)
+                {
+                    self.keys_file
+                        .last_used_internal_index
+                        .store(wallet_address.index, Relaxed);
                 }
 
                 self.addresses
@@ -243,7 +239,7 @@ impl AddressManager {
     pub async fn change_address(
         &self,
         use_existing_change_address: bool,
-        from_addresses: &Vec<&WalletAddress>,
+        from_addresses: &[&WalletAddress],
     ) -> WalletResult<(Address, WalletAddress)> {
         let wallet_address = if !from_addresses.is_empty() {
             from_addresses[0].clone()

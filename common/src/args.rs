@@ -1,4 +1,4 @@
-﻿use kaspa_consensus_core::network::{NetworkId, NetworkType};
+use kaspa_consensus_core::network::{NetworkId, NetworkType};
 use regex::Regex;
 use std::env;
 
@@ -39,7 +39,7 @@ pub fn calculate_path(
 fn expand_path(path: &str) -> String {
     if cfg!(target_os = "windows") {
         let re = Regex::new(r"%([^%]+)%").unwrap();
-        re.replace_all(&path, |caps: &regex::Captures| {
+        re.replace_all(path, |caps: &regex::Captures| {
             env::var(&caps[1]).unwrap_or_else(|_| caps[0].to_string())
         })
         .to_string()

@@ -1,15 +1,15 @@
-﻿use crate::address_manager::{AddressManager, AddressSet};
+use crate::address_manager::{AddressManager, AddressSet};
 use crate::utxo_manager::UtxoManager;
 use common::keys::Keys;
 use kaspa_addresses::Address;
-use kaspa_wrpc_client::prelude::{RpcAddress, RpcApi};
 use kaspa_wrpc_client::KaspaRpcClient;
+use kaspa_wrpc_client::prelude::{RpcAddress, RpcApi};
 use log::{debug, info};
 use std::cmp::max;
 use std::error::Error;
+use std::sync::Arc;
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::atomic::{AtomicBool, AtomicU32};
-use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tokio::time::interval;
@@ -166,12 +166,8 @@ impl SyncManager {
         let mut max_used_index: u32 = 0;
 
         while index < max_used_index + NUM_INDEXES_TO_QUERY_FOR_RECENT_ADDRESSES {
-            let collect_addresses_result = self
-                .collect_addresses(index, index + NUM_INDEXES_TO_QUERY_FOR_RECENT_ADDRESSES)
-                .await;
-            if let Err(e) = collect_addresses_result {
-                return Err(e);
-            }
+            self.collect_addresses(index, index + NUM_INDEXES_TO_QUERY_FOR_RECENT_ADDRESSES)
+                .await?;
             index += NUM_INDEXES_TO_QUERY_FOR_RECENT_ADDRESSES;
 
             max_used_index = self.last_used_index().await;
@@ -221,8 +217,8 @@ impl SyncManager {
             .kaspa_rpc_client
             .get_balances_by_addresses(
                 addresses
-                    .iter()
-                    .map(|(address_string, _)| Address::constructor(address_string))
+                    .keys()
+                    .map(|address_string| Address::constructor(address_string))
                     .collect(),
             )
             .await?;

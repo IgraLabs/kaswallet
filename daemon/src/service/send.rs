@@ -1,9 +1,9 @@
-use crate::service::service::KasWalletService;
+use crate::service::kaswallet_service::KasWalletService;
 use common::errors::WalletError::UserInputError;
 use common::errors::WalletResult;
 use common::transactions_encoding::encode_transactions;
-use proto::kaswallet_proto::{SendRequest, SendResponse};
 use log::{debug, error};
+use proto::kaswallet_proto::{SendRequest, SendResponse};
 use std::time::Instant;
 
 impl KasWalletService {

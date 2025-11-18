@@ -4,7 +4,7 @@ mod create_unsigned_transaction;
 mod get_addresses;
 mod get_balance;
 mod get_utxos;
+pub mod kaswallet_service;
 mod new_address;
 mod send;
-pub mod service;
 mod sign;

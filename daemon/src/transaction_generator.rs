@@ -16,11 +16,11 @@ use kaspa_consensus_core::tx::{
 };
 use kaspa_txscript::pay_to_address_script;
 use kaspa_wallet_core::prelude::AddressPrefix;
-use kaspa_wallet_core::tx::{MassCalculator, MAXIMUM_STANDARD_TRANSACTION_MASS};
-use kaspa_wrpc_client::prelude::RpcApi;
+use kaspa_wallet_core::tx::{MAXIMUM_STANDARD_TRANSACTION_MASS, MassCalculator};
 use kaspa_wrpc_client::KaspaRpcClient;
+use kaspa_wrpc_client::prelude::RpcApi;
 use log::debug;
-use proto::kaswallet_proto::{fee_policy, FeePolicy, Outpoint};
+use proto::kaswallet_proto::{FeePolicy, Outpoint, fee_policy};
 use std::cmp::min;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -67,6 +67,7 @@ impl TransactionGenerator {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn create_unsigned_transactions(
         &mut self,
         utxo_manager: &MutexGuard<'_, UtxoManager>,
@@ -194,6 +195,7 @@ impl TransactionGenerator {
         Ok(unsigned_transactions)
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn maybe_auto_compound_transaction(
         &self,
         utxo_manager: &MutexGuard<'_, UtxoManager>,
@@ -211,12 +213,12 @@ impl TransactionGenerator {
     ) -> WalletResult<Vec<WalletSignableTransaction>> {
         self.check_transaction_fee_rate(&original_wallet_transaction, max_fee)?;
 
-        let orignal_consensus_transaction = original_wallet_transaction.transaction.unwrap_ref();
+        let original_consensus_transaction = original_wallet_transaction.transaction.unwrap_ref();
 
         let transaction_mass = self
             .mass_calculator
             .calc_compute_mass_for_unsigned_consensus_transaction(
-                &orignal_consensus_transaction.tx,
+                &original_consensus_transaction.tx,
                 self.keys.minimum_signatures,
             );
 
@@ -228,9 +230,9 @@ impl TransactionGenerator {
         let (split_count, input_per_split_count) = self
             .split_and_input_per_split_counts(
                 &original_wallet_transaction,
-                &orignal_consensus_transaction,
+                original_consensus_transaction,
                 transaction_mass,
-                &change_address,
+                change_address,
                 fee_rate,
                 max_fee,
             )
@@ -244,8 +246,8 @@ impl TransactionGenerator {
             let split_transaction = self
                 .create_split_transaction(
                     &original_wallet_transaction,
-                    orignal_consensus_transaction,
-                    &change_address,
+                    original_consensus_transaction,
+                    change_address,
                     start_index,
                     end_index,
                     fee_rate,
@@ -264,9 +266,9 @@ impl TransactionGenerator {
 
         let merge_transaction = self
             .merge_transaction(
-                &utxo_manager,
+                utxo_manager,
                 &split_transactions,
-                &orignal_consensus_transaction.tx,
+                &original_consensus_transaction.tx,
                 original_selected_utxos,
                 &from_addresses,
                 to_address,
@@ -295,7 +297,7 @@ impl TransactionGenerator {
             fee_rate,
             max_fee,
         ))
-            .await?;
+        .await?;
 
         let all_transactions = [split_transactions, split_merge_transaction]
             .concat()
@@ -303,17 +305,19 @@ impl TransactionGenerator {
 
         Ok(all_transactions)
     }
+
+    #[allow(clippy::too_many_arguments)]
     async fn merge_transaction(
         &self,
         utxo_manager: &MutexGuard<'_, UtxoManager>,
-        split_transactions: &Vec<WalletSignableTransaction>,
+        split_transactions: &[WalletSignableTransaction],
         original_consensus_transaction: &Transaction,
-        original_selected_utxos: &Vec<WalletUtxo>,
-        from_addresses: &Vec<&WalletAddress>,
+        original_selected_utxos: &[WalletUtxo],
+        from_addresses: &[&WalletAddress],
         to_address: &Address,
         amount: u64,
         is_send_all: bool,
-        preselected_utxo_outpoints: &Vec<Outpoint>,
+        preselected_utxo_outpoints: &[Outpoint],
         change_address: &Address,
         change_wallet_address: &WalletAddress,
         fee_rate: f64,
@@ -334,7 +338,7 @@ impl TransactionGenerator {
         let mut utxos_from_split_transactions = vec![];
 
         for split_transaction in split_transactions {
-            let split_consensus_transaction = (&split_transaction.transaction).unwrap_ref();
+            let split_consensus_transaction = split_transaction.transaction.unwrap_ref();
             let split_consensus_transaction = &split_consensus_transaction.tx;
             let output = &split_consensus_transaction.outputs[0];
             let utxo = WalletUtxo {
@@ -450,7 +454,7 @@ impl TransactionGenerator {
             &utxos_for_merge_transactions,
             original_consensus_transaction.payload.clone(),
         )
-            .await
+        .await
     }
 
     // Returns: (additional_utxos, total_Value_added)
@@ -458,8 +462,8 @@ impl TransactionGenerator {
         &self,
         utxo_manager: &MutexGuard<'_, UtxoManager>,
         original_consensus_transaction: &Transaction,
-        original_selected_utxos: &Vec<WalletUtxo>,
-        from_addresses: &Vec<&WalletAddress>,
+        original_selected_utxos: &[WalletUtxo],
+        from_addresses: &[&WalletAddress],
         required_amount: u64,
         fee_rate: f64,
     ) -> WalletResult<(Vec<WalletUtxo>, u64)> {
@@ -569,6 +573,7 @@ impl TransactionGenerator {
         Ok((split_count as usize, inputs_per_split_count as usize))
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn create_split_transaction(
         &self,
         original_wallet_transaction: &WalletSignableTransaction,
@@ -598,9 +603,9 @@ impl TransactionGenerator {
             selected_utxos.push(utxo);
         }
 
-        if selected_utxos.len() > 0 {
+        if selected_utxos.is_empty() {
             let fee = self
-                .estimate_fee(&selected_utxos, fee_rate, max_fee, total_sompi, &vec![])
+                .estimate_fee(&selected_utxos, fee_rate, max_fee, total_sompi, &[])
                 .await?;
             total_sompi -= fee;
         }
@@ -776,6 +781,7 @@ impl TransactionGenerator {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn select_utxos(
         &mut self,
         utxo_manager: &MutexGuard<'_, UtxoManager>,
@@ -784,8 +790,8 @@ impl TransactionGenerator {
         is_send_all: bool,
         fee_rate: f64,
         max_fee: u64,
-        from_addresses: &Vec<&WalletAddress>,
-        payload: &Vec<u8>,
+        from_addresses: &[&WalletAddress],
+        payload: &[u8],
     ) -> WalletResult<(Vec<WalletUtxo>, u64, u64)> {
         debug!(
             "Selecting UTXOs for payment: from_address:{}, amount: {}, is_send_all: {}, fee_rate: {}, max_fee: {}",
@@ -810,19 +816,16 @@ impl TransactionGenerator {
                                    utxo_manager: &MutexGuard<UtxoManager>,
                                    utxo: &WalletUtxo,
                                    avoid_preselected: bool|
-                                   -> WalletResult<bool> {
+               -> WalletResult<bool> {
             if !from_addresses.is_empty() && !from_addresses.contains(&&utxo.address) {
                 return Ok(true);
             }
-            if utxo_manager.is_utxo_pending(&utxo, dag_info.virtual_daa_score) {
+            if utxo_manager.is_utxo_pending(utxo, dag_info.virtual_daa_score) {
                 return Ok(true);
             }
 
-            {}
-            if avoid_preselected {
-                if preselected_utxos.contains_key(&utxo.outpoint) {
-                    return Ok(true);
-                }
+            if avoid_preselected && preselected_utxos.contains_key(&utxo.outpoint) {
+                return Ok(true);
             }
 
             selected_utxos.push(utxo.clone());
@@ -858,11 +861,11 @@ impl TransactionGenerator {
             if total_value >= total_spend + MIN_CHANGE_TARGET && selected_utxos.len() > 1 {
                 return Ok(false);
             }
-            return Ok(true);
+            Ok(true)
         };
         let mut should_continue = true;
-        for (_, preselected_utxo) in preselected_utxos {
-            should_continue = iteration(self, &utxo_manager, preselected_utxo, false).await?;
+        for preselected_utxo in preselected_utxos.values() {
+            should_continue = iteration(self, utxo_manager, preselected_utxo, false).await?;
             if !should_continue {
                 break;
             };
@@ -870,7 +873,7 @@ impl TransactionGenerator {
         if should_continue {
             let utxos_sorted_by_amount = utxo_manager.utxos_sorted_by_amount();
             for utxo in utxos_sorted_by_amount {
-                should_continue = iteration(self, &utxo_manager, utxo, true).await?;
+                should_continue = iteration(self, utxo_manager, utxo, true).await?;
                 if !should_continue {
                     break;
                 }
@@ -915,7 +918,7 @@ impl TransactionGenerator {
         fee_rate: f64,
         max_fee: u64,
         estimated_recipient_value: u64,
-        payload: &Vec<u8>,
+        payload: &[u8],
     ) -> WalletResult<u64> {
         let estimated_mass = self
             .estimate_mass(selected_utxos, estimated_recipient_value, payload)
@@ -929,7 +932,7 @@ impl TransactionGenerator {
         &self,
         selected_utxos: &Vec<WalletUtxo>,
         estimated_recipient_value: u64,
-        payload: &Vec<u8>,
+        payload: &[u8],
     ) -> WalletResult<u64> {
         let fake_public_key = &[0u8; 33];
         // We assume the worst case where the recipient address is ECDSA. In this case the scriptPubKey will be the longest.
@@ -959,7 +962,7 @@ impl TransactionGenerator {
             }]
         };
         let mock_transaction = self
-            .generate_unsigned_transaction(mock_payments, selected_utxos, payload.clone())
+            .generate_unsigned_transaction(mock_payments, selected_utxos, payload.to_owned())
             .await?;
 
         let mass = self
@@ -973,7 +976,7 @@ impl TransactionGenerator {
 
     pub async fn estimate_mass_per_input(&self, input: &TransactionInput) -> u64 {
         self.mass_calculator
-            .calc_compute_mass_for_client_transaction_input(&input)
+            .calc_compute_mass_for_client_transaction_input(input)
             + self.signature_mass_per_input
     }
 }

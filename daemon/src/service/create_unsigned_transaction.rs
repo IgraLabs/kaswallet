@@ -1,4 +1,4 @@
-use crate::service::service::KasWalletService;
+use crate::service::kaswallet_service::KasWalletService;
 use crate::utxo_manager::UtxoManager;
 use common::errors::WalletError::UserInputError;
 use common::errors::WalletResult;
@@ -52,7 +52,7 @@ impl KasWalletService {
         let mut transaction_generator = self.transaction_generator.lock().await;
         transaction_generator
             .create_unsigned_transactions(
-                &utxo_manager,
+                utxo_manager,
                 transaction_description.to_address,
                 transaction_description.amount,
                 transaction_description.is_send_all,

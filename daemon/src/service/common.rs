@@ -1,4 +1,4 @@
-use crate::service::service::KasWalletService;
+use crate::service::kaswallet_service::KasWalletService;
 use crate::utxo_manager::UtxoManager;
 use common::errors::WalletError::UserInputError;
 use common::errors::{ResultExt, WalletResult};

@@ -1,7 +1,8 @@
 use crate::address_manager::AddressManager;
-use crate::service::service::KasWalletService;
+use crate::service::kaswallet_service::KasWalletService;
 use crate::sync_manager::SyncManager;
 use crate::transaction_generator::TransactionGenerator;
+use ::log::{debug, error, info};
 use clap::Parser;
 use common::args::calculate_path;
 use common::keys::Keys;
@@ -10,7 +11,6 @@ use kaspa_consensus_core::config::params::Params;
 use kaspa_wallet_core::tx::MassCalculator;
 use kaspa_wrpc_client::prelude::RpcApi;
 use proto::kaswallet_proto::wallet_server::WalletServer;
-use ::log::{debug, error, info};
 use std::error::Error;
 use std::sync::Arc;
 use tokio::select;
