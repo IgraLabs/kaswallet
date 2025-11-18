@@ -1,5 +1,5 @@
 [package]
-name = "test_client"
+name = "proto"
 rust-version.workspace = true
 version.workspace = true
 edition.workspace = true
@@ -8,12 +8,13 @@ include.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[lib]
+name = "proto"
+crate-type = ["cdylib", "lib"]
+
 [dependencies]
-common.workspace = true
-proto.workspace = true
-
-kaspa-consensus-core.workspace = true
-
-tokio.workspace = true
 tonic.workspace = true
-futures.workspace = true
+prost.workspace = true
+
+[build-dependencies]
+tonic-build.workspace = true

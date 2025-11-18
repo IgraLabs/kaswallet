@@ -5,7 +5,7 @@ use common::errors::{ResultExt, WalletResult};
 use common::model::WalletUtxo;
 use kaspa_addresses::Address;
 use kaspa_wallet_core::rpc::RpcApi;
-use kaswallet_proto::kaswallet_proto::{
+use proto::kaswallet_proto::{
     AddressToUtxos, GetUtxosRequest, GetUtxosResponse, Utxo as ProtoUtxo,
 };
 use std::collections::HashMap;

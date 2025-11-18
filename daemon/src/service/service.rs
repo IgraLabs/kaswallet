@@ -5,8 +5,8 @@ use crate::utxo_manager::UtxoManager;
 use common::errors::WalletResultExt;
 use common::keys::Keys;
 use kaspa_wrpc_client::KaspaRpcClient;
-use kaswallet_proto::kaswallet_proto::wallet_server::Wallet;
-use kaswallet_proto::kaswallet_proto::{
+use proto::kaswallet_proto::wallet_server::Wallet;
+use proto::kaswallet_proto::{
     BroadcastRequest, BroadcastResponse, CreateUnsignedTransactionsRequest,
     CreateUnsignedTransactionsResponse, GetAddressesRequest, GetAddressesResponse,
     GetBalanceRequest, GetBalanceResponse, GetUtxosRequest, GetUtxosResponse, GetVersionRequest,
