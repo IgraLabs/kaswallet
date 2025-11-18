@@ -28,9 +28,9 @@ pub async fn connect(
 
     let rpc_client = Arc::new(KaspaRpcClient::new_with_args(
         WrpcEncoding::Borsh,
-        Some(&url),
+        Some(url),
         None,
-        Some(network_id.clone()),
+        Some(*network_id),
         None,
     )?);
 

@@ -2,7 +2,7 @@ use crate::args::Args;
 use clap::Parser;
 use common::args::calculate_path;
 use common::encrypted_mnemonic::EncryptedMnemonic;
-use common::keys::{master_key_path, Keys, KEY_FILE_VERSION};
+use common::keys::{KEY_FILE_VERSION, Keys, master_key_path};
 use constant_time_eq::constant_time_eq;
 use kaspa_bip32::mnemonic::Mnemonic;
 use kaspa_bip32::secp256k1::PublicKey;
@@ -27,7 +27,7 @@ fn main() {
 
     let mut encrypted_mnemonics = vec![];
     for mnemonic in mnemonics.iter() {
-        let encrypted_mnemonic = EncryptedMnemonic::new(&mnemonic, &password);
+        let encrypted_mnemonic = EncryptedMnemonic::new(mnemonic, &password);
         if let Err(e) = encrypted_mnemonic {
             println!("Error encrypting mnemonic: {}", e);
             return;
@@ -63,7 +63,7 @@ fn main() {
         all_public_keys.push(x_public_key);
     }
 
-    let cosigner_index: u16 = if x_public_keys.len() == 0 {
+    let cosigner_index: u16 = if x_public_keys.is_empty() {
         0
     } else {
         minimum_cosigner_index(all_public_keys.clone(), x_public_keys, prefix)
@@ -111,8 +111,7 @@ pub fn prompt_for_mnemonic() -> Mnemonic {
 fn read_line() -> String {
     let mut input = String::new();
     io::stdin().read_line(&mut input).unwrap();
-    let input = input.trim().to_string(); // trim trailing chars that read_line adds.
-    input
+    input.trim().to_string() // trim trailing chars that read_line adds.
 }
 
 fn prompt_for_password() -> String {
@@ -159,7 +158,7 @@ fn minimum_cosigner_index(
     prefix: Prefix,
 ) -> u16 {
     let mut sorted_public_keys = all_public_keys.clone();
-    sorted_public_keys.sort_by(|a, b| a.to_string(Some(prefix)).cmp(&b.to_string(Some(prefix))));
+    sorted_public_keys.sort_by_key(|a| a.to_string(Some(prefix)));
 
     let mut minimum_cosigner_index = sorted_public_keys.len();
     for x_public_key in signer_public_keys {

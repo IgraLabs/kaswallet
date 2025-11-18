@@ -16,6 +16,7 @@ pub enum WalletError {
 pub type WalletResult<T> = Result<T, WalletError>;
 
 pub trait WalletResultExt<T> {
+    #[allow(clippy::result_large_err)]
     fn to_status(self) -> Result<T, Status>;
 }
 

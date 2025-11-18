@@ -1,20 +1,20 @@
-use crate::service::service::KasWalletService;
+use crate::service::kaswallet_service::KasWalletService;
 use common::errors::WalletError::SanityCheckFailed;
 use common::errors::{ResultExt, WalletResult};
 use common::keys::master_key_path;
 use common::model::WalletSignableTransaction;
 use common::transactions_encoding::{decode_transactions, encode_transactions};
 use itertools::Itertools;
-use kaspa_bip32::{secp256k1, ExtendedPrivateKey, Mnemonic, SecretKey};
+use kaspa_bip32::{ExtendedPrivateKey, Mnemonic, SecretKey, secp256k1};
 use kaspa_consensus_core::hashing::sighash::{
-    calc_schnorr_signature_hash, SigHashReusedValuesUnsync,
+    SigHashReusedValuesUnsync, calc_schnorr_signature_hash,
 };
 use kaspa_consensus_core::hashing::sighash_type::SIG_HASH_ALL;
 use kaspa_consensus_core::sign::Signed;
 use kaspa_consensus_core::sign::Signed::{Fully, Partially};
 use kaspa_consensus_core::tx::SignableTransaction;
-use proto::kaswallet_proto::{SignRequest, SignResponse};
 use log::debug;
+use proto::kaswallet_proto::{SignRequest, SignResponse};
 use std::collections::BTreeMap;
 use std::iter::once;
 
@@ -70,7 +70,7 @@ impl KasWalletService {
     pub(crate) fn sign_transaction(
         &self,
         unsigned_transaction: WalletSignableTransaction,
-        extended_private_keys: &Vec<ExtendedPrivateKey<SecretKey>>,
+        extended_private_keys: &[ExtendedPrivateKey<SecretKey>],
     ) -> WalletResult<Signed> {
         let mut private_keys = vec![];
         for derivation_path in &unsigned_transaction.derivation_paths {

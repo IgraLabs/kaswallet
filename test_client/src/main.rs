@@ -1,15 +1,19 @@
 use common::transactions_encoding::{decode_transaction, encode_transaction};
-use futures::stream::FuturesUnordered;
 use futures::StreamExt;
+use futures::stream::FuturesUnordered;
 use kaspa_consensus_core::sign::Signed;
 use kaspa_consensus_core::tx::SignableTransaction;
 use proto::kaswallet_proto::wallet_client::WalletClient;
-use proto::kaswallet_proto::{AddressBalances, BroadcastRequest, CreateUnsignedTransactionsRequest, GetAddressesRequest, GetAddressesResponse, GetBalanceRequest, GetBalanceResponse, GetVersionRequest, NewAddressRequest, SendRequest, SignRequest, TransactionDescription};
+use proto::kaswallet_proto::{
+    AddressBalances, BroadcastRequest, CreateUnsignedTransactionsRequest, GetAddressesRequest,
+    GetAddressesResponse, GetBalanceRequest, GetBalanceResponse, GetVersionRequest,
+    NewAddressRequest, SendRequest, SignRequest, TransactionDescription,
+};
 use std::error::Error;
 use tokio::time::Instant;
+use tonic::Request;
 use tonic::codegen::Bytes;
 use tonic::transport::channel::Channel;
-use tonic::Request;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
@@ -111,7 +115,7 @@ async fn mine_tx_id_test(
     let transactions_count = unsinged_transactions.len();
     let last_transaction = &unsinged_transactions[transactions_count - 1];
 
-    let mut wallet_transaction = decode_transaction(&last_transaction)?;
+    let mut wallet_transaction = decode_transaction(last_transaction)?;
 
     let mut transaction_to_mine = wallet_transaction.transaction.unwrap();
 
@@ -200,8 +204,7 @@ async fn get_address_with_balance(
     let address_balance = balances_response
         .address_balances
         .iter()
-        .filter(|ab| ab.available > 0)
-        .next();
+        .find(|ab| ab.available > 0);
     if address_balance.is_none() {
         return Err("No available balance to transfer".into());
     }
@@ -221,7 +224,7 @@ async fn sanity_test(
 
     let get_addresses_response = test_get_addresses(client).await?;
 
-    if get_addresses_response.address.len() == 0 {
+    if get_addresses_response.address.is_empty() {
         new_address(client).await?;
     }
 
@@ -231,32 +234,38 @@ async fn sanity_test(
         println!("No available balance to transfer");
         return Ok(());
     }
+
     let from_address_balance_response = get_balance_response
         .address_balances
         .iter()
         .max_by_key(|address_balance| address_balance.available)
         .unwrap();
+
     let from_address = from_address_balance_response.address.clone();
+
     let to_address = get_addresses_response
         .address
         .iter()
         .find(|address| !address.to_string().eq(&from_address))
         .map(|address| address.to_string());
-    let to_address = if to_address.is_none() {
-        new_address(client).await?
+    let to_address = if let Some(to_address) = to_address {
+        to_address
     } else {
-        to_address.unwrap()
+        new_address(client).await?
     };
+
     let default_address_balances = &AddressBalances {
         address: to_address.clone(),
         available: 0,
         pending: 0,
     };
+
     let to_address_balance_response = get_balance_response
         .address_balances
         .iter()
         .find(|address_balance| address_balance.address.eq(&to_address))
-        .unwrap_or(&default_address_balances);
+        .unwrap_or(default_address_balances);
+
     let to_address = to_address_balance_response.address.clone();
     println!(
         "FromAddress={:?}; Balance: {}",
@@ -274,17 +283,17 @@ async fn sanity_test(
 
 async fn test_send(
     client: &mut WalletClient<Channel>,
-    from_address: &String,
-    to_address: &String,
+    from_address: &str,
+    to_address: &str,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     let send_response = &client
         .send(Request::new(SendRequest {
             transaction_description: Some(TransactionDescription {
-                to_address: to_address.clone(),
+                to_address: to_address.to_string(),
                 amount: 0,
                 is_send_all: true,
                 payload: Bytes::default(),
-                from_addresses: vec![from_address.clone()],
+                from_addresses: vec![from_address.to_string()],
                 utxos: vec![],
                 use_existing_change_address: false,
                 fee_policy: None,
@@ -301,11 +310,9 @@ async fn test_get_ballance(
     client: &mut WalletClient<Channel>,
 ) -> Result<GetBalanceResponse, Box<dyn Error + Send + Sync>> {
     let get_balance_response = client
-        .get_balance(Request::new(
-            GetBalanceRequest {
-                include_balance_per_address: true,
-            },
-        ))
+        .get_balance(Request::new(GetBalanceRequest {
+            include_balance_per_address: true,
+        }))
         .await?
         .into_inner();
     println!(
@@ -349,9 +356,7 @@ async fn new_address(
     client: &mut WalletClient<Channel>,
 ) -> Result<String, Box<dyn Error + Send + Sync>> {
     let new_address_response = client
-        .new_address(Request::new(
-            NewAddressRequest {},
-        ))
+        .new_address(Request::new(NewAddressRequest {}))
         .await?;
     let address = new_address_response.into_inner().address;
     println!("New Address={:?}", address);

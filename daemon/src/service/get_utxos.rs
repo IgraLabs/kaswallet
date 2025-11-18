@@ -1,5 +1,5 @@
 use crate::address_manager::AddressSet;
-use crate::service::service::KasWalletService;
+use crate::service::kaswallet_service::KasWalletService;
 use common::errors::WalletError::UserInputError;
 use common::errors::{ResultExt, WalletResult};
 use common::model::WalletUtxo;
@@ -25,7 +25,7 @@ impl KasWalletService {
             let address_manager = self.address_manager.lock().await;
             address_set = address_manager.address_set().await;
         }
-        let address_strings: &Vec<String> = if request_addresses.len() == 0 {
+        let address_strings: &Vec<String> = if request_addresses.is_empty() {
             &address_set.keys().cloned().collect()
         } else {
             for address in request_addresses {
@@ -82,7 +82,7 @@ impl KasWalletService {
         utxos: &Vec<WalletUtxo>,
         fee_rate: f64,
         virtual_daa_score: u64,
-        address_strings: &Vec<String>,
+        address_strings: &[String],
         include_pending: bool,
         include_dust: bool,
     ) -> HashMap<String, Vec<ProtoUtxo>> {

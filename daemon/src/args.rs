@@ -54,9 +54,9 @@ pub enum LogsLevel {
     Error,
 }
 
-impl Into<LevelFilter> for LogsLevel {
-    fn into(self) -> LevelFilter {
-        match self {
+impl From<LogsLevel> for LevelFilter {
+    fn from(value: LogsLevel) -> LevelFilter {
+        match value {
             LogsLevel::Off => LevelFilter::Off,
             LogsLevel::Trace => LevelFilter::Trace,
             LogsLevel::Debug => LevelFilter::Debug,

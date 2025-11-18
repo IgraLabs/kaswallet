@@ -1,8 +1,8 @@
-use crate::service::service::KasWalletService;
+use crate::service::kaswallet_service::KasWalletService;
 use common::errors::{ResultExt, WalletResult};
 use common::model::WalletUtxo;
-use proto::kaswallet_proto::{AddressBalances, GetBalanceRequest, GetBalanceResponse};
 use log::info;
+use proto::kaswallet_proto::{AddressBalances, GetBalanceRequest, GetBalanceResponse};
 use std::collections::HashMap;
 
 impl KasWalletService {
@@ -27,7 +27,7 @@ impl KasWalletService {
                 let balances = balances_map
                     .entry(entry.address.clone())
                     .or_insert_with(BalancesEntry::new);
-                if utxo_manager.is_utxo_pending(&entry, virtual_daa_score) {
+                if utxo_manager.is_utxo_pending(entry, virtual_daa_score) {
                     balances.add_pending(amount);
                 } else {
                     balances.add_available(amount);
@@ -40,7 +40,7 @@ impl KasWalletService {
         let address_manager = self.address_manager.lock().await;
         for (wallet_address, balances) in &balances_map {
             let address = address_manager
-                .kaspa_address_from_wallet_address(&wallet_address, true)
+                .kaspa_address_from_wallet_address(wallet_address, true)
                 .await
                 .to_wallet_result_internal()?;
 

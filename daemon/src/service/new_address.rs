@@ -1,4 +1,4 @@
-use crate::service::service::KasWalletService;
+use crate::service::kaswallet_service::KasWalletService;
 use common::errors::WalletResult;
 use proto::kaswallet_proto::{NewAddressRequest, NewAddressResponse};
 

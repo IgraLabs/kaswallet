@@ -8,7 +8,6 @@ use kaspa_consensus_core::tx::{
 };
 use kaspa_hashes::Hash;
 use kaspa_wrpc_client::prelude::{RpcTransactionOutpoint, RpcUtxoEntry};
-use proto::kaswallet_proto;
 use proto::kaswallet_proto::{
     Outpoint as ProtoOutpoint, ScriptPublicKey as ProtoScriptPublicKey, Utxo as ProtoUtxo,
     UtxoEntry as ProtoUtxoEntry,
@@ -73,20 +72,20 @@ impl From<RpcTransactionOutpoint> for WalletOutpoint {
     }
 }
 
-impl Into<ProtoOutpoint> for WalletOutpoint {
-    fn into(self) -> ProtoOutpoint {
+impl From<WalletOutpoint> for ProtoOutpoint {
+    fn from(value: WalletOutpoint) -> ProtoOutpoint {
         ProtoOutpoint {
-            transaction_id: self.transaction_id.to_string(),
-            index: self.index,
+            transaction_id: value.transaction_id.to_string(),
+            index: value.index,
         }
     }
 }
 
-impl Into<WalletOutpoint> for ProtoOutpoint {
-    fn into(self) -> WalletOutpoint {
+impl From<ProtoOutpoint> for WalletOutpoint {
+    fn from(value: ProtoOutpoint) -> WalletOutpoint {
         WalletOutpoint {
-            transaction_id: Hash::from_str(&self.transaction_id).unwrap(),
-            index: self.index,
+            transaction_id: Hash::from_str(&value.transaction_id).unwrap(),
+            index: value.index,
         }
     }
 }
@@ -124,27 +123,27 @@ impl WalletUtxoEntry {
     }
 }
 
-impl Into<ProtoUtxoEntry> for WalletUtxoEntry {
-    fn into(self) -> ProtoUtxoEntry {
+impl From<WalletUtxoEntry> for ProtoUtxoEntry {
+    fn from(value: WalletUtxoEntry) -> ProtoUtxoEntry {
         ProtoUtxoEntry {
-            amount: self.amount,
+            amount: value.amount,
             script_public_key: Some(ProtoScriptPublicKey {
-                version: self.script_public_key.version as u32,
-                script_public_key: hex::encode(self.script_public_key.script()),
+                version: value.script_public_key.version as u32,
+                script_public_key: hex::encode(value.script_public_key.script()),
             }),
-            block_daa_score: self.block_daa_score,
-            is_coinbase: self.is_coinbase,
+            block_daa_score: value.block_daa_score,
+            is_coinbase: value.is_coinbase,
         }
     }
 }
 
-impl Into<UtxoEntry> for WalletUtxoEntry {
-    fn into(self) -> UtxoEntry {
+impl From<WalletUtxoEntry> for UtxoEntry {
+    fn from(value: WalletUtxoEntry) -> UtxoEntry {
         UtxoEntry {
-            amount: self.amount,
-            script_public_key: self.script_public_key,
-            block_daa_score: self.block_daa_score,
-            is_coinbase: self.is_coinbase,
+            amount: value.amount,
+            script_public_key: value.script_public_key,
+            block_daa_score: value.block_daa_score,
+            is_coinbase: value.is_coinbase,
         }
     }
 }

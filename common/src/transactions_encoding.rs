@@ -4,11 +4,9 @@ use tonic::codegen::Bytes;
 
 // TODO: Use protobuf instead of borsh for serialization
 
-pub fn decode_transaction(
-    encoded_transaction: &Bytes,
-) -> WalletResult<WalletSignableTransaction> {
+pub fn decode_transaction(encoded_transaction: &Bytes) -> WalletResult<WalletSignableTransaction> {
     let unsigned_transaction =
-        borsh::from_slice(&encoded_transaction).to_wallet_result_user_input()?;
+        borsh::from_slice(encoded_transaction).to_wallet_result_user_input()?;
     Ok(unsigned_transaction)
 }
 
@@ -33,7 +31,7 @@ pub fn encode_transactions(
 ) -> WalletResult<Vec<Bytes>> {
     let mut encoded_transactions = Vec::with_capacity(transactions.len());
     for transaction in transactions {
-        let encoded_transaction = encode_transaction(&transaction)?;
+        let encoded_transaction = encode_transaction(transaction)?;
         encoded_transactions.push(encoded_transaction);
     }
     Ok(encoded_transactions)

@@ -1,4 +1,4 @@
-use crate::service::service::KasWalletService;
+use crate::service::kaswallet_service::KasWalletService;
 use common::errors::WalletError::InternalServerError;
 use common::errors::WalletResult;
 use common::model::{Keychain, WalletAddress};
