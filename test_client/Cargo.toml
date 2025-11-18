@@ -9,10 +9,11 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-kaswallet-proto = { git = "https://github.com/IgraLabs/kaswallet-proto.git" }
-common = { path = "../common" }
-kaspa-consensus-core = { git = "https://github.com/IgraLabs/rusty-kaspa.git", branch = "for-wallet" }
-# kaspa-consensus-core = { path = "../../rusty-kaspa/consensus/core" }
-tokio = "1.43.0"
-tonic = "0.12.3"
-futures = "0.3.31"
+common.workspace = true
+kaswallet-proto.workspace = true
+
+kaspa-consensus-core.workspace = true
+
+tokio.workspace = true
+tonic.workspace = true
+futures.workspace = true
