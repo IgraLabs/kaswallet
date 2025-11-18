@@ -1,7 +1,7 @@
 use crate::service::service::KasWalletService;
 use common::errors::{ResultExt, WalletResult};
 use common::model::WalletUtxo;
-use kaswallet_proto::kaswallet_proto::{AddressBalances, GetBalanceRequest, GetBalanceResponse};
+use proto::kaswallet_proto::{AddressBalances, GetBalanceRequest, GetBalanceResponse};
 use log::info;
 use std::collections::HashMap;
 

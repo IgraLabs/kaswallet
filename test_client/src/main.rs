@@ -3,15 +3,12 @@ use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 use kaspa_consensus_core::sign::Signed;
 use kaspa_consensus_core::tx::SignableTransaction;
-use kaswallet_proto::kaswallet_proto::wallet_client::WalletClient;
-use kaswallet_proto::kaswallet_proto::{
-    AddressBalances, BroadcastRequest, CreateUnsignedTransactionsRequest, GetAddressesRequest,
-    GetAddressesResponse, GetBalanceResponse, GetVersionRequest, SendRequest, SignRequest,
-    TransactionDescription,
-};
+use proto::kaswallet_proto::wallet_client::WalletClient;
+use proto::kaswallet_proto::{AddressBalances, BroadcastRequest, CreateUnsignedTransactionsRequest, GetAddressesRequest, GetAddressesResponse, GetBalanceRequest, GetBalanceResponse, GetVersionRequest, NewAddressRequest, SendRequest, SignRequest, TransactionDescription};
 use std::error::Error;
 use tokio::time::Instant;
-use tonic::transport::Channel;
+use tonic::codegen::Bytes;
+use tonic::transport::channel::Channel;
 use tonic::Request;
 
 #[tokio::main]
@@ -97,7 +94,7 @@ async fn mine_tx_id_test(
             to_address: address.clone(),
             amount: 0,
             is_send_all: true,
-            payload: actual_payload.to_vec(),
+            payload: actual_payload.to_vec().into(),
             from_addresses: vec![address],
             utxos: vec![],
             use_existing_change_address: false,
@@ -286,7 +283,7 @@ async fn test_send(
                 to_address: to_address.clone(),
                 amount: 0,
                 is_send_all: true,
-                payload: vec![],
+                payload: Bytes::default(),
                 from_addresses: vec![from_address.clone()],
                 utxos: vec![],
                 use_existing_change_address: false,
@@ -305,7 +302,7 @@ async fn test_get_ballance(
 ) -> Result<GetBalanceResponse, Box<dyn Error + Send + Sync>> {
     let get_balance_response = client
         .get_balance(Request::new(
-            kaswallet_proto::kaswallet_proto::GetBalanceRequest {
+            GetBalanceRequest {
                 include_balance_per_address: true,
             },
         ))
@@ -353,7 +350,7 @@ async fn new_address(
 ) -> Result<String, Box<dyn Error + Send + Sync>> {
     let new_address_response = client
         .new_address(Request::new(
-            kaswallet_proto::kaswallet_proto::NewAddressRequest {},
+            NewAddressRequest {},
         ))
         .await?;
     let address = new_address_response.into_inner().address;

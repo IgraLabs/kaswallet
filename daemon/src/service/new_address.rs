@@ -1,6 +1,6 @@
 use crate::service::service::KasWalletService;
 use common::errors::WalletResult;
-use kaswallet_proto::kaswallet_proto::{NewAddressRequest, NewAddressResponse};
+use proto::kaswallet_proto::{NewAddressRequest, NewAddressResponse};
 
 impl KasWalletService {
     pub(crate) async fn new_address(

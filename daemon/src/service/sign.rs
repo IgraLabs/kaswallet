@@ -13,7 +13,7 @@ use kaspa_consensus_core::hashing::sighash_type::SIG_HASH_ALL;
 use kaspa_consensus_core::sign::Signed;
 use kaspa_consensus_core::sign::Signed::{Fully, Partially};
 use kaspa_consensus_core::tx::SignableTransaction;
-use kaswallet_proto::kaswallet_proto::{SignRequest, SignResponse};
+use proto::kaswallet_proto::{SignRequest, SignResponse};
 use log::debug;
 use std::collections::BTreeMap;
 use std::iter::once;

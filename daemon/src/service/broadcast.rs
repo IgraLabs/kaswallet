@@ -1,7 +1,7 @@
 use crate::service::service::KasWalletService;
 use common::errors::WalletResult;
 use common::transactions_encoding::decode_transactions;
-use kaswallet_proto::kaswallet_proto::{BroadcastRequest, BroadcastResponse};
+use proto::kaswallet_proto::{BroadcastRequest, BroadcastResponse};
 
 impl KasWalletService {
     pub(crate) async fn broadcast(

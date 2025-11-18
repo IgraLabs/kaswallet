@@ -9,7 +9,7 @@ use kaspa_bip32::Prefix;
 use kaspa_consensus_core::config::params::Params;
 use kaspa_wallet_core::tx::MassCalculator;
 use kaspa_wrpc_client::prelude::RpcApi;
-use kaswallet_proto::kaswallet_proto::wallet_server::WalletServer;
+use proto::kaswallet_proto::wallet_server::WalletServer;
 use ::log::{debug, error, info};
 use std::error::Error;
 use std::sync::Arc;

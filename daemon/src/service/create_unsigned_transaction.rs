@@ -4,7 +4,7 @@ use common::errors::WalletError::UserInputError;
 use common::errors::WalletResult;
 use common::model::WalletSignableTransaction;
 use common::transactions_encoding::encode_transactions;
-use kaswallet_proto::kaswallet_proto::{
+use proto::kaswallet_proto::{
     CreateUnsignedTransactionsRequest, CreateUnsignedTransactionsResponse, TransactionDescription,
 };
 use tokio::sync::MutexGuard;
@@ -56,7 +56,7 @@ impl KasWalletService {
                 transaction_description.to_address,
                 transaction_description.amount,
                 transaction_description.is_send_all,
-                transaction_description.payload,
+                transaction_description.payload.to_vec(),
                 transaction_description.from_addresses,
                 transaction_description.utxos,
                 transaction_description.use_existing_change_address,
