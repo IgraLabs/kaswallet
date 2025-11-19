@@ -33,3 +33,6 @@ log.workspace = true
 thiserror.workspace = true
 tonic.workspace = true
 borsh.workspace = true
+
+[dev-dependencies]
+rstest.workspace = true

@@ -1,11 +1,11 @@
 use crate::errors::WalletError::InternalServerError;
 use crate::errors::{ResultExt, WalletResult};
-use argon2::password_hash::{SaltString, rand_core::OsRng};
+use argon2::password_hash::{rand_core::OsRng, SaltString};
 use argon2::{Argon2, PasswordHasher};
 use chacha20poly1305::aead::{AeadMutInPlace, Key, Nonce};
-use chacha20poly1305::{AeadCore, XChaCha20Poly1305, aead::KeyInit};
-use kaspa_bip32::Language;
+use chacha20poly1305::{aead::KeyInit, AeadCore, XChaCha20Poly1305};
 use kaspa_bip32::mnemonic::Mnemonic;
+use kaspa_bip32::Language;
 use serde::{Deserialize, Serialize};
 
 const NONCE_SIZE: usize = 24;
@@ -73,5 +73,135 @@ impl EncryptedMnemonic {
         buffer.splice(0..0, nonce.iter().cloned());
 
         Ok(buffer)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kaspa_bip32::mnemonic::Mnemonic;
+    use kaspa_bip32::{Language, WordCount};
+    use rstest::rstest;
+
+    // Helper: Known valid 24-word mnemonic with duplicate word ("letter")
+    fn create_known_test_mnemonic() -> Mnemonic {
+        let phrase = "decade minimum language dutch option narrow negative weird ball garbage purity guide weapon juice melt trash theory memory warrior rural okay flavor erosion senior";
+        Mnemonic::new(phrase.to_string(), Language::English).unwrap()
+    }
+
+    #[rstest]
+    #[case(WordCount::Words12)]
+    #[case(WordCount::Words24)]
+    fn test_encrypt_decrypt_roundtrip(#[case] word_count: WordCount) {
+        let mnemonic = Mnemonic::random(word_count, Language::English).unwrap();
+        let password = "test_password".to_string();
+
+        let encrypted = EncryptedMnemonic::new(&mnemonic, &password)
+            .expect("Encryption should succeed");
+
+        let decrypted = encrypted.decrypt(&password)
+            .expect("Decryption should succeed");
+
+        assert_eq!(mnemonic.phrase(), decrypted.phrase(),
+                   "Decrypted mnemonic should match original");
+    }
+
+    #[rstest]
+    #[case("normal_password")]
+    #[case("")]
+    #[case("with spaces and 特殊字符!@#$%^&*()")]
+    #[case("password_with_emojis_🔐🔑💎")]
+    #[case(&"x".repeat(1000))]
+    fn test_password_variants(#[case] password: &str) {
+        let mnemonic = create_known_test_mnemonic();
+        let password = password.to_string();
+
+        let encrypted = EncryptedMnemonic::new(&mnemonic, &password)
+            .expect("Encryption should succeed");
+
+        let decrypted = encrypted.decrypt(&password)
+            .expect("Decryption should succeed");
+
+        assert_eq!(mnemonic.phrase(), decrypted.phrase(),
+                   "Decrypted mnemonic should match original for password variant");
+    }
+
+    #[test]
+    fn test_wrong_password_fails() {
+        let mnemonic = create_known_test_mnemonic();
+        let correct_password = "correct_password".to_string();
+        let wrong_password = "wrong_password".to_string();
+
+        let encrypted = EncryptedMnemonic::new(&mnemonic, &correct_password)
+            .expect("Encryption should succeed");
+
+        let result = encrypted.decrypt(&wrong_password);
+
+        assert!(result.is_err(), "Decryption with wrong password should fail");
+
+        if let Err(e) = result {
+            let error_msg = format!("{:?}", e);
+            assert!(error_msg.contains("Decryption failed"),
+                    "Error should mention decryption failure, got: {}", error_msg);
+        }
+    }
+
+    #[test]
+    fn test_randomness() {
+        let mnemonic = create_known_test_mnemonic();
+        let password = "same_password".to_string();
+
+        let encrypted1 = EncryptedMnemonic::new(&mnemonic, &password)
+            .expect("First encryption should succeed");
+
+        let encrypted2 = EncryptedMnemonic::new(&mnemonic, &password)
+            .expect("Second encryption should succeed");
+
+        assert_ne!(encrypted1.cipher, encrypted2.cipher,
+                   "Cipher text should be different due to random nonce");
+
+        assert_ne!(encrypted1.salt, encrypted2.salt,
+                   "Salt should be different due to randomness");
+
+        // Both should decrypt to same mnemonic
+        let decrypted1 = encrypted1.decrypt(&password).unwrap();
+        let decrypted2 = encrypted2.decrypt(&password).unwrap();
+
+        assert_eq!(decrypted1.phrase(), decrypted2.phrase());
+        assert_eq!(decrypted1.phrase(), mnemonic.phrase());
+    }
+
+    #[rstest]
+    #[case("ZZZZ", "valid")]
+    #[case("not_hex_!!!!", "valid")]
+    fn test_corrupted_cipher_fails(#[case] bad_cipher: &str, #[case] _desc: &str) {
+        let mnemonic = create_known_test_mnemonic();
+        let password = "password".to_string();
+
+        let mut encrypted = EncryptedMnemonic::new(&mnemonic, &password)
+            .expect("Encryption should succeed");
+
+        encrypted.cipher = bad_cipher.to_string();
+
+        let result = encrypted.decrypt(&password);
+        assert!(result.is_err(),
+                "Decryption should fail with corrupted cipher: {}", bad_cipher);
+    }
+
+    #[rstest]
+    #[case("invalid!!!base64")]
+    #[case("@#$%")]
+    fn test_corrupted_salt_fails(#[case] bad_salt: &str) {
+        let mnemonic = create_known_test_mnemonic();
+        let password = "password".to_string();
+
+        let mut encrypted = EncryptedMnemonic::new(&mnemonic, &password)
+            .expect("Encryption should succeed");
+
+        encrypted.salt = bad_salt.to_string();
+
+        let result = encrypted.decrypt(&password);
+        assert!(result.is_err(),
+                "Decryption should fail with corrupted salt: {}", bad_salt);
     }
 }
