@@ -18,7 +18,8 @@ proto.workspace = true
 
 kaspa-consensus-core.workspace = true
 kaspa-bip32.workspace = true
-kaspa-wrpc-client.workspace = true
+kaspa-grpc-client.workspace = true
+kaspa-rpc-core.workspace = true
 kaspa-txscript.workspace = true
 kaspa-addresses.workspace = true
 kaspa-wallet-core.workspace = true

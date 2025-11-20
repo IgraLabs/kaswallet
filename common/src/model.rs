@@ -7,14 +7,9 @@ use kaspa_consensus_core::tx::{
     ScriptPublicKey, SignableTransaction, TransactionOutpoint, UtxoEntry,
 };
 use kaspa_hashes::Hash;
-use kaspa_wrpc_client::prelude::{RpcTransactionOutpoint, RpcUtxoEntry};
-use proto::kaswallet_proto::{
-    Outpoint as ProtoOutpoint, ScriptPublicKey as ProtoScriptPublicKey, Utxo as ProtoUtxo,
-    UtxoEntry as ProtoUtxoEntry,
-};
+use kaspa_rpc_core::{RpcTransactionOutpoint, RpcUtxoEntry};
 use std::collections::HashSet;
 use std::fmt::{Display, Formatter};
-use std::str::FromStr;
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 #[borsh(use_discriminant = true)]
@@ -72,23 +67,6 @@ impl From<RpcTransactionOutpoint> for WalletOutpoint {
     }
 }
 
-impl From<WalletOutpoint> for ProtoOutpoint {
-    fn from(value: WalletOutpoint) -> ProtoOutpoint {
-        ProtoOutpoint {
-            transaction_id: value.transaction_id.to_string(),
-            index: value.index,
-        }
-    }
-}
-
-impl From<ProtoOutpoint> for WalletOutpoint {
-    fn from(value: ProtoOutpoint) -> WalletOutpoint {
-        WalletOutpoint {
-            transaction_id: Hash::from_str(&value.transaction_id).unwrap(),
-            index: value.index,
-        }
-    }
-}
 
 impl From<TransactionOutpoint> for WalletOutpoint {
     fn from(value: TransactionOutpoint) -> Self {
@@ -123,19 +101,6 @@ impl WalletUtxoEntry {
     }
 }
 
-impl From<WalletUtxoEntry> for ProtoUtxoEntry {
-    fn from(value: WalletUtxoEntry) -> ProtoUtxoEntry {
-        ProtoUtxoEntry {
-            amount: value.amount,
-            script_public_key: Some(ProtoScriptPublicKey {
-                version: value.script_public_key.version as u32,
-                script_public_key: hex::encode(value.script_public_key.script()),
-            }),
-            block_daa_score: value.block_daa_score,
-            is_coinbase: value.is_coinbase,
-        }
-    }
-}
 
 impl From<WalletUtxoEntry> for UtxoEntry {
     fn from(value: WalletUtxoEntry) -> UtxoEntry {
@@ -175,17 +140,6 @@ pub struct WalletUtxo {
     pub outpoint: WalletOutpoint,
     pub utxo_entry: WalletUtxoEntry,
     pub address: WalletAddress,
-}
-
-impl WalletUtxo {
-    pub fn into_proto(self, is_pending: bool, is_dust: bool) -> ProtoUtxo {
-        ProtoUtxo {
-            outpoint: Some(self.outpoint.into()),
-            utxo_entry: Some(self.utxo_entry.into()),
-            is_pending,
-            is_dust,
-        }
-    }
 }
 
 impl WalletUtxo {

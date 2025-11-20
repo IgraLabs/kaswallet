@@ -4,9 +4,7 @@ use common::model::{
 };
 use itertools::Itertools;
 use kaspa_consensus_core::config::params::Params;
-use kaspa_wrpc_client::prelude::{
-    GetBlockDagInfoResponse, RpcMempoolEntryByAddress, RpcUtxosByAddressesEntry,
-};
+use kaspa_rpc_core::{GetBlockDagInfoResponse, RpcMempoolEntryByAddress, RpcUtxosByAddressesEntry};
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::sync::Arc;
