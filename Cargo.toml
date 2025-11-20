@@ -35,7 +35,7 @@ kaspa-consensus-core = { git = "https://github.com/IgraLabs/rusty-kaspa.git" }
 kaspa-bip32 = { git = "https://github.com/IgraLabs/rusty-kaspa.git" }
 kaspa-hashes = { git = "https://github.com/IgraLabs/rusty-kaspa.git" }
 kaspa-addresses = { git = "https://github.com/IgraLabs/rusty-kaspa.git" }
-kaspa-wrpc-client = { git = "https://github.com/IgraLabs/rusty-kaspa.git" }
+kaspa-grpc-client = { git = "https://github.com/IgraLabs/rusty-kaspa.git" }
 kaspa-txscript = { git = "https://github.com/IgraLabs/rusty-kaspa.git" }
 kaspa-wallet-core = { git = "https://github.com/IgraLabs/rusty-kaspa.git" }
 
