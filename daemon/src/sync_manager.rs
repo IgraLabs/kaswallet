@@ -2,14 +2,14 @@ use crate::address_manager::{AddressManager, AddressSet};
 use crate::utxo_manager::UtxoManager;
 use common::keys::Keys;
 use kaspa_addresses::Address;
-use kaspa_wrpc_client::KaspaRpcClient;
-use kaspa_wrpc_client::prelude::{RpcAddress, RpcApi};
+use kaspa_grpc_client::GrpcClient;
+use kaspa_wallet_core::rpc::RpcApi;
 use log::{debug, info};
 use std::cmp::max;
 use std::error::Error;
-use std::sync::Arc;
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::atomic::{AtomicBool, AtomicU32};
+use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tokio::time::interval;
@@ -20,7 +20,7 @@ const NUM_INDEXES_TO_QUERY_FOR_FAR_ADDRESSES: u32 = 100;
 const NUM_INDEXES_TO_QUERY_FOR_RECENT_ADDRESSES: u32 = 1000;
 
 pub struct SyncManager {
-    kaspa_rpc_client: Arc<KaspaRpcClient>,
+    kaspa_client: Arc<GrpcClient>,
     keys_file: Arc<Keys>,
     address_manager: Arc<Mutex<AddressManager>>,
     utxo_manager: Arc<Mutex<UtxoManager>>,
@@ -34,13 +34,13 @@ pub struct SyncManager {
 
 impl SyncManager {
     pub fn new(
-        kaspa_rpc_client: Arc<KaspaRpcClient>,
+        kaspa_rpc_client: Arc<GrpcClient>,
         keys_file: Arc<Keys>,
         address_manager: Arc<Mutex<AddressManager>>,
         utxo_manager: Arc<Mutex<UtxoManager>>,
     ) -> Self {
         Self {
-            kaspa_rpc_client,
+            kaspa_client: kaspa_rpc_client,
             keys_file,
             address_manager,
             utxo_manager,
@@ -98,7 +98,7 @@ impl SyncManager {
             let address_manager = self.address_manager.lock().await;
             address_strings = address_manager.address_strings().await?;
         }
-        let rpc_addresses: Vec<RpcAddress> = address_strings
+        let addresses: Vec<Address> = address_strings
             .iter()
             .map(|address_string| Address::constructor(address_string))
             .collect();
@@ -109,7 +109,7 @@ impl SyncManager {
 
         debug!(
             "Getting mempool entries for addresses: {:?}...",
-            rpc_addresses
+            addresses
         );
         // It's important to check the mempool before calling `GetUTXOsByAddresses`:
         // If we would do it the other way around an output can be spent in the mempool
@@ -117,8 +117,8 @@ impl SyncManager {
         // added to consensus and removed from the mempool, so `getUTXOsByAddressesResponse`
         // will include an obsolete output.
         let mempool_entries_by_addresses = self
-            .kaspa_rpc_client
-            .get_mempool_entries_by_addresses(rpc_addresses.clone(), true, true)
+            .kaspa_client
+            .get_mempool_entries_by_addresses(addresses.clone(), true, true)
             .await?;
         debug!(
             "Got {} mempool sending entries and {} receiving entries",
@@ -134,8 +134,8 @@ impl SyncManager {
 
         debug!("Getting UTXOs by addresses...");
         let get_utxo_by_addresses_response = self
-            .kaspa_rpc_client
-            .get_utxos_by_addresses(rpc_addresses)
+            .kaspa_client
+            .get_utxos_by_addresses(addresses)
             .await?;
         debug!("Got {} utxo entries", get_utxo_by_addresses_response.len());
 
@@ -191,7 +191,7 @@ impl SyncManager {
             next_sync_start_index,
             next_sync_start_index + NUM_INDEXES_TO_QUERY_FOR_FAR_ADDRESSES,
         )
-        .await?;
+            .await?;
 
         self.next_sync_start_index
             .fetch_add(NUM_INDEXES_TO_QUERY_FOR_FAR_ADDRESSES, Relaxed);
@@ -214,7 +214,7 @@ impl SyncManager {
         debug!("Querying {} addresses", addresses.len());
 
         let get_balances_by_addresses_response = self
-            .kaspa_rpc_client
+            .kaspa_client
             .get_balances_by_addresses(
                 addresses
                     .keys()

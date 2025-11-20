@@ -7,7 +7,7 @@ use kaspa_consensus_core::tx::{
     ScriptPublicKey, SignableTransaction, TransactionOutpoint, UtxoEntry,
 };
 use kaspa_hashes::Hash;
-use kaspa_wrpc_client::prelude::{RpcTransactionOutpoint, RpcUtxoEntry};
+use kaspa_rpc_core::{RpcTransactionOutpoint, RpcUtxoEntry};
 use proto::kaswallet_proto::{
     Outpoint as ProtoOutpoint, ScriptPublicKey as ProtoScriptPublicKey, Utxo as ProtoUtxo,
     UtxoEntry as ProtoUtxoEntry,

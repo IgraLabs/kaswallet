@@ -10,7 +10,7 @@ use tokio::sync::MutexGuard;
 impl KasWalletService {
     pub(crate) async fn get_virtual_daa_score(&self) -> WalletResult<u64> {
         let block_dag_info = self
-            .kaspa_rpc_client
+            .kaspa_client
             .get_block_dag_info()
             .await
             .to_wallet_result_internal()?;
@@ -50,7 +50,7 @@ impl KasWalletService {
             let rpc_transaction = (&tx.tx).into();
 
             let rpc_transaction_id = self
-                .kaspa_rpc_client
+                .kaspa_client
                 .submit_transaction(rpc_transaction, false)
                 .await
                 .to_wallet_result_internal()?;

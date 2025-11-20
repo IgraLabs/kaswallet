@@ -14,13 +14,13 @@ use kaspa_consensus_core::tx::{
     SignableTransaction, Transaction, TransactionInput, TransactionOutpoint, TransactionOutput,
     UtxoEntry,
 };
+use kaspa_grpc_client::GrpcClient;
+use kaspa_rpc_core::api::rpc::RpcApi;
 use kaspa_txscript::pay_to_address_script;
 use kaspa_wallet_core::prelude::AddressPrefix;
-use kaspa_wallet_core::tx::{MAXIMUM_STANDARD_TRANSACTION_MASS, MassCalculator};
-use kaspa_wrpc_client::KaspaRpcClient;
-use kaspa_wrpc_client::prelude::RpcApi;
+use kaspa_wallet_core::tx::{MassCalculator, MAXIMUM_STANDARD_TRANSACTION_MASS};
 use log::debug;
-use proto::kaswallet_proto::{FeePolicy, Outpoint, fee_policy};
+use proto::kaswallet_proto::{fee_policy, FeePolicy, Outpoint};
 use std::cmp::min;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -38,7 +38,7 @@ const MIN_FEE_RATE: f64 = 1.0;
 const MIN_CHANGE_TARGET: u64 = SOMPI_PER_KASPA * 10;
 
 pub struct TransactionGenerator {
-    kaspa_rpc_client: Arc<KaspaRpcClient>,
+    kaspa_client: Arc<GrpcClient>,
     keys: Arc<Keys>,
     address_manager: Arc<Mutex<AddressManager>>,
     mass_calculator: Arc<MassCalculator>,
@@ -49,7 +49,7 @@ pub struct TransactionGenerator {
 
 impl TransactionGenerator {
     pub fn new(
-        kaspa_rpc_client: Arc<KaspaRpcClient>,
+        kaspa_client: Arc<GrpcClient>,
         keys: Arc<Keys>,
         address_manager: Arc<Mutex<AddressManager>>,
         mass_calculator: Arc<MassCalculator>,
@@ -58,7 +58,7 @@ impl TransactionGenerator {
         let signature_mass_per_input =
             mass_calculator.calc_compute_mass_for_signature(keys.minimum_signatures);
         Self {
-            kaspa_rpc_client,
+            kaspa_client,
             keys,
             address_manager,
             mass_calculator,
@@ -297,7 +297,7 @@ impl TransactionGenerator {
             fee_rate,
             max_fee,
         ))
-        .await?;
+            .await?;
 
         let all_transactions = [split_transactions, split_merge_transaction]
             .concat()
@@ -454,7 +454,7 @@ impl TransactionGenerator {
             &utxos_for_merge_transactions,
             original_consensus_transaction.payload.clone(),
         )
-        .await
+            .await
     }
 
     // Returns: (additional_utxos, total_Value_added)
@@ -468,7 +468,7 @@ impl TransactionGenerator {
         fee_rate: f64,
     ) -> WalletResult<(Vec<WalletUtxo>, u64)> {
         let dag_info = self
-            .kaspa_rpc_client
+            .kaspa_client
             .get_block_dag_info()
             .await
             .to_wallet_result_internal()?;
@@ -725,7 +725,7 @@ impl TransactionGenerator {
     // Returns: (fee_rate, max_fee)
     async fn default_fee_rate(&self) -> WalletResult<(f64, u64)> {
         let fee_estimate = self
-            .kaspa_rpc_client
+            .kaspa_client
             .get_fee_estimate()
             .await
             .to_wallet_result_internal()?;
@@ -748,7 +748,7 @@ impl TransactionGenerator {
                     }
 
                     let fee_estimate = self
-                        .kaspa_rpc_client
+                        .kaspa_client
                         .get_fee_estimate()
                         .await
                         .to_wallet_result_internal()?;
@@ -770,7 +770,7 @@ impl TransactionGenerator {
                 }
                 Some(fee_policy::FeePolicy::MaxFee(requested_max_fee)) => {
                     let fee_estimate = self
-                        .kaspa_rpc_client
+                        .kaspa_client
                         .get_fee_estimate()
                         .await
                         .to_wallet_result_internal()?;
@@ -806,7 +806,7 @@ impl TransactionGenerator {
         let mut selected_utxos = vec![];
 
         let dag_info = self
-            .kaspa_rpc_client
+            .kaspa_client
             .get_block_dag_info()
             .await
             .to_wallet_result_internal()?;
@@ -817,7 +817,7 @@ impl TransactionGenerator {
                                    utxo_manager: &MutexGuard<UtxoManager>,
                                    utxo: &WalletUtxo,
                                    avoid_preselected: bool|
-               -> WalletResult<bool> {
+                                   -> WalletResult<bool> {
             if !from_addresses.is_empty() && !from_addresses.contains(&&utxo.address) {
                 return Ok(true);
             }

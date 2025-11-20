@@ -1,7 +1,6 @@
 use kaspa_consensus_core::network::NetworkId;
 use kaspa_grpc_client::GrpcClient;
-use kaspa_wallet_core::rpc::NotificationMode;
-use log::{error, info};
+use log::info;
 use std::error::Error;
 use std::sync::Arc;
 
