@@ -602,8 +602,9 @@ impl TransactionGenerator {
             total_sompi += utxo.utxo_entry.amount;
             selected_utxos.push(utxo);
         }
-
-        if selected_utxos.is_empty() {
+        // selected_utxos will be empty when creating a dummy transaction to estimate fees for
+        // split transactions
+        if !selected_utxos.is_empty() {
             let fee = self
                 .estimate_fee(&selected_utxos, fee_rate, max_fee, total_sompi, &[])
                 .await?;
