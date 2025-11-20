@@ -154,8 +154,8 @@ message OptionalUtxoEntry {
 }
 
 message NonContextualMasses {
-    uint64 storage_mass = 1;
-    uint64 compute_mass = 2;
+    uint64 compute_mass = 1;
+    uint64 transient_mass = 2;
 }
 
 message Transaction {
