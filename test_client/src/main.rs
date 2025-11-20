@@ -1,6 +1,6 @@
-use common::transactions_encoding::{decode_transaction, encode_transaction};
-use futures::StreamExt;
+use common::model::WalletSignableTransaction;
 use futures::stream::FuturesUnordered;
+use futures::StreamExt;
 use kaspa_consensus_core::sign::Signed;
 use kaspa_consensus_core::tx::SignableTransaction;
 use proto::kaswallet_proto::wallet_client::WalletClient;
@@ -11,9 +11,9 @@ use proto::kaswallet_proto::{
 };
 use std::error::Error;
 use tokio::time::Instant;
-use tonic::Request;
 use tonic::codegen::Bytes;
 use tonic::transport::channel::Channel;
+use tonic::Request;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
@@ -115,7 +115,7 @@ async fn mine_tx_id_test(
     let transactions_count = unsinged_transactions.len();
     let last_transaction = &unsinged_transactions[transactions_count - 1];
 
-    let mut wallet_transaction = decode_transaction(last_transaction)?;
+    let mut wallet_transaction: WalletSignableTransaction = last_transaction.clone().into();
 
     let mut transaction_to_mine = wallet_transaction.transaction.unwrap();
 
@@ -125,9 +125,7 @@ async fn mine_tx_id_test(
 
     wallet_transaction.transaction = Signed::Partially(transaction_to_mine);
 
-    let encoded_transaction = encode_transaction(&wallet_transaction)?;
-
-    unsinged_transactions[transactions_count - 1] = encoded_transaction;
+    unsinged_transactions[transactions_count - 1] = wallet_transaction.into();
 
     let sign_request = SignRequest {
         unsigned_transactions: unsinged_transactions,
@@ -292,7 +290,7 @@ async fn test_send(
                 to_address: to_address.to_string(),
                 amount: 0,
                 is_send_all: true,
-                payload: Bytes::default(),
+                payload: Bytes::new(),
                 from_addresses: vec![from_address.to_string()],
                 utxos: vec![],
                 use_existing_change_address: false,
