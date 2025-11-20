@@ -2,6 +2,7 @@ use crate::address_manager::{AddressManager, AddressSet};
 use common::model::{
     WalletAddress, WalletOutpoint, WalletSignableTransaction, WalletUtxo, WalletUtxoEntry,
 };
+use itertools::Itertools;
 use kaspa_consensus_core::config::params::Params;
 use kaspa_wrpc_client::prelude::{
     GetBlockDagInfoResponse, RpcMempoolEntryByAddress, RpcUtxosByAddressesEntry,
@@ -101,8 +102,8 @@ impl UtxoManager {
             .utxos_sorted_by_amount
             .binary_search_by(|existing_utxo| {
                 existing_utxo.utxo_entry.amount.cmp(&utxo.utxo_entry.amount)
-            })
-            .unwrap_err();
+            });
+        let position = position.unwrap_or_else(|position| position);
         self.utxos_sorted_by_amount.insert(position, utxo);
     }
 
@@ -111,12 +112,12 @@ impl UtxoManager {
     }
 
     fn remove_utxo(&mut self, outpoint: &WalletOutpoint) {
-        let utxo = self.utxos_by_outpoint.remove(outpoint).unwrap();
-        let position = self
+        self.utxos_by_outpoint.remove(outpoint).unwrap();
+        let (position, _) = self
             .utxos_sorted_by_amount
-            .binary_search_by(|existing_utxo| {
-                existing_utxo.utxo_entry.amount.cmp(&utxo.utxo_entry.amount)
-            })
+            .iter().find_position(|existing_utxo| {
+            existing_utxo.outpoint.eq(&outpoint)
+        })
             .unwrap();
         self.utxos_sorted_by_amount.remove(position);
     }
