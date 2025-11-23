@@ -16,11 +16,11 @@ use kaspa_consensus_core::tx::{
 };
 use kaspa_txscript::pay_to_address_script;
 use kaspa_wallet_core::prelude::AddressPrefix;
-use kaspa_wallet_core::tx::{MAXIMUM_STANDARD_TRANSACTION_MASS, MassCalculator};
-use kaspa_wrpc_client::KaspaRpcClient;
+use kaspa_wallet_core::tx::{MassCalculator, MAXIMUM_STANDARD_TRANSACTION_MASS};
 use kaspa_wrpc_client::prelude::RpcApi;
+use kaspa_wrpc_client::KaspaRpcClient;
 use log::debug;
-use proto::kaswallet_proto::{FeePolicy, Outpoint, fee_policy};
+use proto::kaswallet_proto::{fee_policy, FeePolicy, Outpoint};
 use std::cmp::min;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -297,7 +297,7 @@ impl TransactionGenerator {
             fee_rate,
             max_fee,
         ))
-        .await?;
+            .await?;
 
         let all_transactions = [split_transactions, split_merge_transaction]
             .concat()
@@ -454,7 +454,7 @@ impl TransactionGenerator {
             &utxos_for_merge_transactions,
             original_consensus_transaction.payload.clone(),
         )
-        .await
+            .await
     }
 
     // Returns: (additional_utxos, total_Value_added)
@@ -602,9 +602,7 @@ impl TransactionGenerator {
             total_sompi += utxo.utxo_entry.amount;
             selected_utxos.push(utxo);
         }
-        // selected_utxos will be empty when creating a dummy transaction to estimate fees for
-        // split transactions
-        if !selected_utxos.is_empty() {
+        if !selected_utxos.is_empty() { // selected utxos is empty when creating a dummy transaction for mass calculation
             let fee = self
                 .estimate_fee(&selected_utxos, fee_rate, max_fee, total_sompi, &[])
                 .await?;
@@ -817,7 +815,7 @@ impl TransactionGenerator {
                                    utxo_manager: &MutexGuard<UtxoManager>,
                                    utxo: &WalletUtxo,
                                    avoid_preselected: bool|
-               -> WalletResult<bool> {
+                                   -> WalletResult<bool> {
             if !from_addresses.is_empty() && !from_addresses.contains(&&utxo.address) {
                 return Ok(true);
             }
