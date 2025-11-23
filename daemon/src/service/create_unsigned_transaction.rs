@@ -3,7 +3,6 @@ use crate::utxo_manager::UtxoManager;
 use common::errors::WalletError::UserInputError;
 use common::errors::WalletResult;
 use common::model::WalletSignableTransaction;
-use common::transactions_encoding::encode_transactions;
 use proto::kaswallet_proto::{
     CreateUnsignedTransactionsRequest, CreateUnsignedTransactionsResponse, TransactionDescription,
 };
@@ -31,9 +30,8 @@ impl KasWalletService {
                 .await?;
         }
 
-        let encoded_transactions = encode_transactions(&unsinged_transactions)?;
         Ok(CreateUnsignedTransactionsResponse {
-            unsigned_transactions: encoded_transactions,
+            unsigned_transactions: unsinged_transactions.into_iter().map(Into::into).collect(),
         })
     }
 

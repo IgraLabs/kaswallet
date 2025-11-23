@@ -1,15 +1,15 @@
 use common::errors::{ResultExt, WalletResult};
 use common::keys::Keys;
-use common::model::{KEYCHAINS, Keychain, WalletAddress};
+use common::model::{Keychain, WalletAddress, KEYCHAINS};
 use kaspa_addresses::{Address, Prefix as AddressPrefix, Version as AddressVersion};
 use kaspa_bip32::secp256k1::PublicKey;
 use kaspa_bip32::{DerivationPath, ExtendedPublicKey};
-use kaspa_wrpc_client::prelude::*;
+use kaspa_rpc_core::RpcBalancesByAddressesEntry;
 use std::collections::HashMap;
 use std::error::Error;
 use std::str::FromStr;
-use std::sync::Arc;
 use std::sync::atomic::Ordering::Relaxed;
+use std::sync::Arc;
 use tokio::sync::Mutex;
 
 pub type AddressSet = HashMap<String, WalletAddress>;
@@ -229,7 +229,7 @@ impl AddressManager {
             signing_public_keys.iter(),
             self.keys_file.minimum_signatures as usize,
         )
-        .to_wallet_result_internal()?;
+            .to_wallet_result_internal()?;
         let script_pub_key = kaspa_txscript::pay_to_script_hash_script(redeem_script.as_slice());
         let address = kaspa_txscript::extract_script_pub_key_address(&script_pub_key, self.prefix)
             .to_wallet_result_internal()?;

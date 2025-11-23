@@ -4,7 +4,7 @@ use crate::transaction_generator::TransactionGenerator;
 use crate::utxo_manager::UtxoManager;
 use common::errors::WalletResultExt;
 use common::keys::Keys;
-use kaspa_wrpc_client::KaspaRpcClient;
+use kaspa_grpc_client::GrpcClient;
 use log::trace;
 use proto::kaswallet_proto::wallet_server::Wallet;
 use proto::kaswallet_proto::{
@@ -19,7 +19,7 @@ use tokio::sync::Mutex;
 use tonic::{Request, Response, Status};
 
 pub struct KasWalletService {
-    pub(crate) kaspa_rpc_client: Arc<KaspaRpcClient>,
+    pub(crate) kaspa_client: Arc<GrpcClient>,
     pub(crate) keys: Arc<Keys>,
     pub(crate) address_manager: Arc<Mutex<AddressManager>>,
     pub(crate) utxo_manager: Arc<Mutex<UtxoManager>>,
@@ -30,7 +30,7 @@ pub struct KasWalletService {
 
 impl KasWalletService {
     pub fn new(
-        kaspa_rpc_client: Arc<KaspaRpcClient>,
+        kaspa_client: Arc<GrpcClient>,
         keys: Arc<Keys>,
         address_manager: Arc<Mutex<AddressManager>>,
         utxo_manager: Arc<Mutex<UtxoManager>>,
@@ -38,7 +38,7 @@ impl KasWalletService {
         sync_manager: Arc<SyncManager>,
     ) -> Self {
         Self {
-            kaspa_rpc_client,
+            kaspa_client,
             keys,
             address_manager,
             utxo_manager,

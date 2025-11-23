@@ -40,7 +40,7 @@ impl KasWalletService {
         };
 
         let fee_estimate = self
-            .kaspa_rpc_client
+            .kaspa_client
             .get_fee_estimate()
             .await
             .to_wallet_result_internal()?;

@@ -1,4 +1,4 @@
-﻿syntax = "proto3";
+syntax = "proto3";
 
 package kaswallet_proto;
 
@@ -93,21 +93,21 @@ message FeePolicy {
     }
 }
 message CreateUnsignedTransactionsResponse {
-    repeated bytes unsigned_transactions = 1;
+    repeated WalletSignableTransaction unsigned_transactions = 1;
 }
 
 // Since SignRequest contains a password - this command should only be used on a
 // trusted or secure connection
 message SignRequest {
-    repeated bytes unsigned_transactions = 1;
+    repeated WalletSignableTransaction unsigned_transactions = 1;
     string password = 2;
 }
 message SignResponse {
-    repeated bytes signed_transactions = 1;
+    repeated WalletSignableTransaction signed_transactions = 1;
 }
 
 message BroadcastRequest {
-    repeated bytes transactions = 1;
+    repeated WalletSignableTransaction transactions = 1;
 }
 message BroadcastResponse {
     repeated string transaction_ids = 1;
@@ -122,8 +122,82 @@ message SendRequest {
 }
 message SendResponse {
     repeated string transaction_ids = 1;
-    repeated bytes signed_transactions = 2;
+    repeated WalletSignableTransaction signed_transactions = 2;
 }
 
 message GetVersionRequest {}
 message GetVersionResponse {string version = 1;}
+
+message WalletSignableTransaction {
+    SignedTransaction transaction = 1;
+    repeated DerivationPath derivation_paths = 2;
+    repeated WalletAddress address_by_input_index = 3;
+    repeated string address_by_output_index = 4;
+}
+
+message SignedTransaction {
+    oneof signed {
+        SignableTransaction fully = 1;
+        SignableTransaction partially = 2;
+    }
+}
+
+message SignableTransaction {
+    Transaction tx = 1;
+    repeated OptionalUtxoEntry entries = 2;
+    optional uint64 calculated_fee = 3;
+    optional NonContextualMasses calculated_non_contextual_masses = 4;
+}
+
+message OptionalUtxoEntry {
+    optional UtxoEntry entry = 1;
+}
+
+message NonContextualMasses {
+    uint64 compute_mass = 1;
+    uint64 transient_mass = 2;
+}
+
+message Transaction {
+    uint32 version = 1;
+    repeated TransactionInput inputs = 2;
+    repeated TransactionOutput outputs = 3;
+    uint64 lock_time = 4;
+    bytes subnetwork_id = 5;
+    uint64 gas = 6;
+    bytes payload = 7;
+    uint64 mass = 8;
+    bytes id = 9;
+}
+
+message TransactionInput {
+    TransactionOutpoint previous_outpoint = 1;
+    bytes signature_script = 2;
+    uint64 sequence = 3;
+    uint32 sig_op_count = 4;
+}
+
+message TransactionOutput {
+    uint64 value = 1;
+    ScriptPublicKey script_public_key = 2;
+}
+
+message TransactionOutpoint {
+    bytes transaction_id = 1;
+    uint32 index = 2;
+}
+
+message WalletAddress {
+    uint32 index = 1;
+    uint32 cosigner_index = 2;
+    Keychain keychain = 3;
+}
+
+enum Keychain {
+    KEYCHAIN_EXTERNAL = 0;
+    KEYCHAIN_INTERNAL = 1;
+}
+
+message DerivationPath {
+    repeated uint32 path = 1;
+}
