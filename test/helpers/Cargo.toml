@@ -10,6 +10,7 @@ include.workspace = true
 
 [dependencies]
 kaswallet-common.workspace = true
+kaswallet-create.workspace = true
 kaswallet-daemon.workspace = true
 
 kaspa-bip32.workspace = true
@@ -17,6 +18,7 @@ kaspad.workspace = true
 kaspa-utils.workspace = true
 kaspa-testing-integration.workspace = true
 kaspa-grpc-client.workspace = true
+kaspa-rpc-core.workspace = true
 
 tokio.workspace = true
 log.workspace = true

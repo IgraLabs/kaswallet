@@ -31,6 +31,7 @@ include = [
 kaswallet-common = { path = "common" }
 kaswallet-proto = { path = "proto" }
 kaswallet-daemon = { path = "daemon" }
+kaswallet-create = { path = "create" }
 kaswallet-test-helpers = { path = "test/helpers" }
 
 kaspad = { git = "https://github.com/IgraLabs/rusty-kaspa.git" }

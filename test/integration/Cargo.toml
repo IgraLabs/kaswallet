@@ -1,5 +1,5 @@
 [package]
-name = "kaswallet-tests-integration"
+name = "kaswallet-test-integration"
 
 rust-version.workspace = true
 version.workspace = true
@@ -9,15 +9,22 @@ license.workspace = true
 repository.workspace = true
 include.workspace = true
 
+[dependencies]
+
 [dev-dependencies]
+rstest.workspace = true
 kaswallet-common.workspace = true
 kaswallet-daemon.workspace = true
+kaswallet-create.workspace = true
+kaswallet-proto.workspace = true
+kaswallet-test-helpers.workspace = true
 
 kaspad.workspace = true
 kaspa-utils.workspace = true
 kaspa-testing-integration.workspace = true
 kaspa-grpc-client.workspace = true
 
+tonic.workspace = true
 tokio.workspace = true
 log.workspace = true
 thiserror.workspace = true

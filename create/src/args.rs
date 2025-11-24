@@ -5,16 +5,16 @@ use kaspa_consensus_core::network::NetworkId;
 #[command(name = "kaswallet-create")]
 pub struct Args {
     #[arg(long, help = "Use the test network")]
-    testnet: bool,
+    pub testnet: bool,
 
     #[arg(long, default_value = "10", help = "Testnet network suffix number")]
-    testnet_suffix: u32,
+    pub testnet_suffix: u32,
 
     #[arg(long, help = "Use the development test network")]
-    devnet: bool,
+    pub devnet: bool,
 
     #[arg(long, help = "Use the simulation test network")]
-    simnet: bool,
+    pub simnet: bool,
 
     #[arg(long = "keys", short = 'k', help = "Path to keys file")]
     pub keys_file_path: Option<String>,
@@ -45,5 +45,21 @@ impl Args {
             self.simnet,
             self.testnet_suffix,
         )
+    }
+}
+
+impl Default for Args {
+    fn default() -> Self {
+        Self {
+            testnet: false,
+            testnet_suffix: 10,
+            devnet: false,
+            simnet: false,
+            keys_file_path: None,
+            import: false,
+            min_signatures: 1,
+            num_private_keys: 1,
+            num_public_keys: 1,
+        }
     }
 }

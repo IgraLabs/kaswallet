@@ -30,9 +30,7 @@ log.workspace = true
 log4rs.workspace = true
 tonic.workspace = true
 tokio.workspace = true
-workflow-websocket.workspace = true
 console-subscriber.workspace = true
-rstest.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
