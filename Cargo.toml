@@ -7,7 +7,7 @@ members = [
     "dump-mnemonics",
     "test_client",
     "proto"
-]
+    , "tests/integration"]
 
 [workspace.package]
 rust-version = "1.85.0"
@@ -28,11 +28,16 @@ include = [
 ]
 
 [workspace.dependencies]
-common = { path = "common" }
-proto = { path = "proto" }
+kaswallet-common = { path = "common" }
+kaswallet-proto = { path = "proto" }
+kaswallet-daemon = { path = "daemon" }
 
+kaspad = { git = "https://github.com/IgraLabs/rusty-kaspa.git" }
+kaspa-consensus = { git = "https://github.com/IgraLabs/rusty-kaspa.git" }
 kaspa-consensus-core = { git = "https://github.com/IgraLabs/rusty-kaspa.git" }
 kaspa-bip32 = { git = "https://github.com/IgraLabs/rusty-kaspa.git" }
+kaspa-utils = { git = "https://github.com/IgraLabs/rusty-kaspa.git" }
+kaspa-testing-integration = { git = "https://github.com/IgraLabs/rusty-kaspa.git" }
 kaspa-hashes = { git = "https://github.com/IgraLabs/rusty-kaspa.git" }
 kaspa-addresses = { git = "https://github.com/IgraLabs/rusty-kaspa.git" }
 kaspa-rpc-core = { git = "https://github.com/IgraLabs/rusty-kaspa.git" }
@@ -64,3 +69,4 @@ prost = "0.13"  # Keep prost and tonic versions to be the same as in rusty-kaspa
 tonic = { version = "0.12.3", features = ["tls-webpki-roots", "gzip", "transport"] }
 tonic-build = { version = "0.12.3", features = ["prost"] }
 rstest = "0.26.1"
+tempfile = "3.23.0"

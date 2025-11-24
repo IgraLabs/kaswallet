@@ -1,5 +1,5 @@
 [package]
-name = "common"
+name = "kaswallet-common"
 rust-version.workspace = true
 version.workspace = true
 edition.workspace = true
@@ -13,13 +13,13 @@ name = "common"
 crate-type = ["cdylib", "lib"]
 
 [dependencies]
-proto.workspace = true
+kaswallet-proto.workspace = true
 
 kaspa-consensus-core.workspace = true
 kaspa-bip32.workspace = true
 kaspa-hashes.workspace = true
 kaspa-addresses.workspace = true
-kaspa-grpc-client.workspace = true
+kaspa-txscript.workspace = true
 kaspa-rpc-core.workspace = true
 
 serde = { workspace = true, features = ["derive"] }

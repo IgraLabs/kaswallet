@@ -1,15 +1,16 @@
+use common::addresses::{multisig_address, p2pk_address};
 use common::errors::{ResultExt, WalletResult};
 use common::keys::Keys;
-use common::model::{Keychain, WalletAddress, KEYCHAINS};
-use kaspa_addresses::{Address, Prefix as AddressPrefix, Version as AddressVersion};
+use common::model::{KEYCHAINS, Keychain, WalletAddress};
+use kaspa_addresses::{Address, Prefix as AddressPrefix};
 use kaspa_bip32::secp256k1::PublicKey;
 use kaspa_bip32::{DerivationPath, ExtendedPublicKey};
 use kaspa_rpc_core::RpcBalancesByAddressesEntry;
 use std::collections::HashMap;
 use std::error::Error;
 use std::str::FromStr;
-use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
+use std::sync::atomic::Ordering::Relaxed;
 use tokio::sync::Mutex;
 
 pub type AddressSet = HashMap<String, WalletAddress>;
@@ -201,39 +202,20 @@ impl AddressManager {
     }
 
     fn p2pk_address(&self, derivation_path: &DerivationPath) -> WalletResult<Address> {
-        let extended_public_key = self.extended_public_keys.first().unwrap().clone();
-        let derived_key = extended_public_key
-            .derive_path(derivation_path)
-            .to_wallet_result_internal()?;
-        let pk = derived_key.public_key();
-        let payload = pk.x_only_public_key().0.serialize();
-        let address = Address::new(self.prefix, AddressVersion::PubKey, &payload);
-        Ok(address)
+        p2pk_address(
+            self.extended_public_keys.first().unwrap(),
+            self.prefix,
+            derivation_path,
+        )
     }
 
     fn multisig_address(&self, derivation_path: &DerivationPath) -> WalletResult<Address> {
-        let mut sorted_extended_public_keys = self.extended_public_keys.as_ref().clone();
-        sorted_extended_public_keys.sort();
-
-        let mut signing_public_keys = Vec::with_capacity(sorted_extended_public_keys.len());
-        for x_public_key in sorted_extended_public_keys.iter() {
-            let derived_key = x_public_key
-                .clone()
-                .derive_path(derivation_path)
-                .to_wallet_result_internal()?;
-            let public_key = derived_key.public_key();
-            signing_public_keys.push(public_key.x_only_public_key().0.serialize());
-        }
-
-        let redeem_script = kaspa_txscript::multisig_redeem_script(
-            signing_public_keys.iter(),
+        multisig_address(
+            self.extended_public_keys.clone(),
             self.keys_file.minimum_signatures as usize,
+            self.prefix,
+            derivation_path,
         )
-            .to_wallet_result_internal()?;
-        let script_pub_key = kaspa_txscript::pay_to_script_hash_script(redeem_script.as_slice());
-        let address = kaspa_txscript::extract_script_pub_key_address(&script_pub_key, self.prefix)
-            .to_wallet_result_internal()?;
-        Ok(address)
     }
 
     pub async fn change_address(

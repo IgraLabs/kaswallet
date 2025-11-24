@@ -602,7 +602,8 @@ impl TransactionGenerator {
             total_sompi += utxo.utxo_entry.amount;
             selected_utxos.push(utxo);
         }
-        if !selected_utxos.is_empty() { // selected utxos is empty when creating a dummy transaction for mass calculation
+        if !selected_utxos.is_empty() {
+            // selected utxos is empty when creating a dummy transaction for mass calculation
             let fee = self
                 .estimate_fee(&selected_utxos, fee_rate, max_fee, total_sompi, &[])
                 .await?;
@@ -664,7 +665,7 @@ impl TransactionGenerator {
         }
     }
 
-    async fn generate_unsigned_transaction(
+    pub(crate) async fn generate_unsigned_transaction(
         &self,
         payments: Vec<WalletPayment>,
         selected_utxos: &Vec<WalletUtxo>,
@@ -978,4 +979,147 @@ impl TransactionGenerator {
             .calc_compute_mass_for_client_transaction_input(input)
             + self.signature_mass_per_input
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use kaspa_bip32::{Language, Mnemonic};
+
+    // Helper: Create a known test mnemonic
+    fn create_test_mnemonic() -> Mnemonic {
+        let phrase = "decade minimum language dutch option narrow negative weird ball garbage purity guide weapon juice melt trash theory memory warrior rural okay flavor erosion senior";
+        Mnemonic::new(phrase.to_string(), Language::English).unwrap()
+    }
+
+    // TODO: Delete
+    //#[rstest]
+    //#[case(false)] // Schnorr
+    //#[case(true)] // ECDSA
+    //#[tokio::test]
+    //async fn test_p2pk(#[case] ecdsa: bool) {
+    //    // Create test consensus with no coinbase maturity
+    //    let params = DEVNET_PARAMS; // TODO: Update test to check for all networks
+
+    //    let mut consensus_config = ConsensusConfig::new(params);
+    //    consensus_config.prior_coinbase_maturity = 0;
+    //    consensus_config.crescendo.coinbase_maturity = 0;
+
+    //    let tc = TestConsensus::new(&consensus_config);
+
+    //    // Generate mnemonic and derive master key (not multisig)
+    //    let mnemonic = create_test_mnemonic();
+    //    let master_key = mnemonic_to_private_key(&mnemonic, false).unwrap();
+
+    //    // Derive key for path "m/1/2/3"
+    //    let derivation_path = DerivationPath::from_str("m/1/2/3").unwrap();
+    //    let derived_key = master_key.derive_path(&derivation_path).unwrap();
+    //    let public_key = derived_key.public_key();
+
+    //    // Create P2PK address from public key
+    //    let address_version = if ecdsa {
+    //        Version::PubKeyECDSA
+    //    } else {
+    //        Version::PubKey
+    //    };
+    //    let address = Address::new(
+    //        consensus_config.prefix(),
+    //        address_version,
+    //        &public_key.to_bytes(),
+    //    );
+    //    let script_public_key = pay_to_address_script(&address);
+
+    //    // Add funding block with coinbase paying to our address
+    //    let funding_block = tc
+    //        .build_header_only_block_with_parents(0.into(), vec![params.genesis.hash])
+    //        .to_immutable();
+    //    let funding_block_status = tc
+    //        .validate_and_insert_block(funding_block.clone())
+    //        .virtual_state_task
+    //        .await;
+    //    assert_eq!(funding_block_status.unwrap(), BlockStatus::StatusUTXOValid);
+
+    //    // Add maturity block
+    //    let block1 = tc
+    //        .build_header_only_block_with_parents(1.into(), vec![funding_block.header.hash])
+    //        .to_immutable();
+    //    let block1_status = tc
+    //        .validate_and_insert_block(block1.clone())
+    //        .virtual_state_task
+    //        .await;
+    //    assert_eq!(block1_status.unwrap(), BlockStatus::StatusUTXOValid);
+
+    //    // Extract coinbase transaction and its output
+    //    let coinbase_tx = &block1.transactions[0];
+    //    let coinbase_output = &coinbase_tx.outputs[0];
+    //    let coinbase_tx_id = coinbase_tx.id();
+
+    //    // Create UTXO from the coinbase output
+    //    let utxo = WalletUtxo {
+    //        outpoint: WalletOutpoint {
+    //            transaction_id: coinbase_tx_id.into(),
+    //            index: 0,
+    //        },
+    //        utxo_entry: WalletUtxoEntry {
+    //            amount: coinbase_output.value,
+    //            script_public_key: coinbase_output.script_public_key.clone(),
+    //            block_daa_score: funding_block.header.daa_score,
+    //            is_coinbase: true,
+    //        },
+    //        address: WalletAddress::new(0, 0, Keychain::External),
+    //    };
+
+    //    // Create payment back to the same address (10 sompi)
+    //    let payment = WalletPayment {
+    //        address,
+    //        amount: 10,
+    //    };
+
+    //    // Generate unsigned transaction
+    //    let unsigned_tx_result = generate_unsigned_transaction(
+    //        vec![payment],
+    //        vec![utxo],
+    //        script_public_key.clone().into(),
+    //        1,    // priority_fee_sompi
+    //        None, // payload
+    //    )
+    //    .await;
+
+    //    assert!(
+    //        unsigned_tx_result.is_ok(),
+    //        "Failed to generate unsigned transaction: {:?}",
+    //        unsigned_tx_result.err()
+    //    );
+
+    //    let unsigned_tx = unsigned_tx_result.unwrap();
+
+    //    // Sign the transaction
+    //    let private_key_bytes = derived_key.private_key().secret_bytes();
+    //    let signed_tx = sign_with_multiple(unsigned_tx.transaction.unwrap(), &[private_key_bytes]);
+
+    //    // Verify transaction is fully signed
+    //    assert!(
+    //        matches!(signed_tx, Signed::Fully(_)),
+    //        "Transaction should be fully signed"
+    //    );
+
+    //    // Extract the signed transaction
+    //    let signed_tx_inner = signed_tx.unwrap();
+
+    //    // Add block with signed transaction
+    //    let signed_block_hash = tc
+    //        .add_block_with_parents(vec![maturity_block_hash], vec![signed_tx_inner.clone()])
+    //        .unwrap();
+
+    //    // Verify transaction was accepted in the DAG
+    //    let virtual_state = tc.get_virtual_state_from_genesis().await.unwrap();
+    //    let signed_tx_id = signed_tx_inner.id();
+
+    //    // Check if the transaction's output was added to virtual UTXO set
+    //    let expected_utxo = TransactionOutpoint::new(signed_tx_id, 0);
+    //    let utxo_exists = tc.get_virtual_utxos(vec![expected_utxo]).await.is_ok();
+
+    //    assert!(utxo_exists, "Transaction wasn't accepted in the DAG");
+
+    //    tc.shutdown().await;
+    //}
 }

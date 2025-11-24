@@ -1,5 +1,5 @@
 [package]
-name = "test_client"
+name = "kaswallet-test-client"
 rust-version.workspace = true
 version.workspace = true
 edition.workspace = true
@@ -9,8 +9,8 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-common.workspace = true
-proto.workspace = true
+kaswallet-common.workspace = true
+kaswallet-proto.workspace = true
 
 kaspa-consensus-core.workspace = true
 

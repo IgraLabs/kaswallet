@@ -1,4 +1,6 @@
-use crate::model::{Keychain, WalletAddress, WalletOutpoint, WalletSignableTransaction, WalletUtxo, WalletUtxoEntry};
+use crate::model::{
+    Keychain, WalletAddress, WalletOutpoint, WalletSignableTransaction, WalletUtxo, WalletUtxoEntry,
+};
 use kaspa_addresses::Address;
 use kaspa_bip32::{ChildNumber, DerivationPath};
 use kaspa_consensus_core::sign::Signed;
@@ -9,20 +11,24 @@ use kaspa_consensus_core::tx::{
 };
 use kaspa_hashes::Hash;
 use proto::kaswallet_proto::{
-    signed_transaction, DerivationPath as ProtoDerivationPath, Keychain as ProtoKeychain,
+    DerivationPath as ProtoDerivationPath, Keychain as ProtoKeychain,
     NonContextualMasses as ProtoNonContextualMasses, OptionalUtxoEntry as ProtoOptionalUtxoEntry,
     Outpoint as ProtoOutpoint, ScriptPublicKey as ProtoScriptPublicKey,
     SignableTransaction as ProtoSignableTransaction, SignedTransaction as ProtoSignedTransaction,
     Transaction as ProtoTransaction, TransactionInput as ProtoTransactionInput,
     TransactionOutpoint as ProtoTransactionOutpoint, TransactionOutput as ProtoTransactionOutput,
     Utxo as ProtoUtxo, UtxoEntry as ProtoUtxoEntry, WalletAddress as ProtoWalletAddress,
-    WalletSignableTransaction as ProtoWalletSignableTransaction,
+    WalletSignableTransaction as ProtoWalletSignableTransaction, signed_transaction,
 };
 use std::str::FromStr;
 
 pub fn derivation_path_to_proto(value: DerivationPath) -> ProtoDerivationPath {
     ProtoDerivationPath {
-        path: value.as_ref().iter().map(|child_number| child_number.0).collect(),
+        path: value
+            .as_ref()
+            .iter()
+            .map(|child_number| child_number.0)
+            .collect(),
     }
 }
 
@@ -101,7 +107,9 @@ pub fn transaction_outpoint_to_proto(value: TransactionOutpoint) -> ProtoTransac
 
 pub fn transaction_outpoint_from_proto(value: ProtoTransactionOutpoint) -> TransactionOutpoint {
     TransactionOutpoint {
-        transaction_id: Hash::from_bytes(value.transaction_id.to_vec().as_slice().try_into().unwrap()),
+        transaction_id: Hash::from_bytes(
+            value.transaction_id.to_vec().as_slice().try_into().unwrap(),
+        ),
         index: value.index,
     }
 }
@@ -175,7 +183,9 @@ pub fn transaction_input_to_proto(value: TransactionInput) -> ProtoTransactionIn
 
 pub fn transaction_input_from_proto(value: ProtoTransactionInput) -> TransactionInput {
     TransactionInput {
-        previous_outpoint: transaction_outpoint_from_proto(value.previous_outpoint.unwrap_or_default()),
+        previous_outpoint: transaction_outpoint_from_proto(
+            value.previous_outpoint.unwrap_or_default(),
+        ),
         signature_script: value.signature_script.to_vec(),
         sequence: value.sequence,
         sig_op_count: value.sig_op_count as u8,
@@ -192,7 +202,9 @@ pub fn transaction_output_to_proto(value: TransactionOutput) -> ProtoTransaction
 pub fn transaction_output_from_proto(value: ProtoTransactionOutput) -> TransactionOutput {
     TransactionOutput {
         value: value.value,
-        script_public_key: script_public_key_from_proto(value.script_public_key.unwrap_or_default()),
+        script_public_key: script_public_key_from_proto(
+            value.script_public_key.unwrap_or_default(),
+        ),
     }
 }
 
@@ -203,8 +215,16 @@ pub fn transaction_to_proto(value: Transaction) -> ProtoTransaction {
 
     ProtoTransaction {
         version: value.version as u32,
-        inputs: value.inputs.into_iter().map(transaction_input_to_proto).collect(),
-        outputs: value.outputs.into_iter().map(transaction_output_to_proto).collect(),
+        inputs: value
+            .inputs
+            .into_iter()
+            .map(transaction_input_to_proto)
+            .collect(),
+        outputs: value
+            .outputs
+            .into_iter()
+            .map(transaction_output_to_proto)
+            .collect(),
         lock_time: value.lock_time,
         subnetwork_id: subnetwork_id.to_vec().into(),
         gas: value.gas,
@@ -217,8 +237,16 @@ pub fn transaction_to_proto(value: Transaction) -> ProtoTransaction {
 pub fn transaction_from_proto(value: ProtoTransaction) -> Transaction {
     let mut transaction = Transaction::new_non_finalized(
         value.version as u16,
-        value.inputs.into_iter().map(transaction_input_from_proto).collect(),
-        value.outputs.into_iter().map(transaction_output_from_proto).collect(),
+        value
+            .inputs
+            .into_iter()
+            .map(transaction_input_from_proto)
+            .collect(),
+        value
+            .outputs
+            .into_iter()
+            .map(transaction_output_from_proto)
+            .collect(),
         value.lock_time,
         SubnetworkId::from_bytes(value.subnetwork_id.to_vec().as_slice().try_into().unwrap()),
         value.gas,
@@ -242,7 +270,11 @@ pub fn optional_utxo_entry_from_proto(value: ProtoOptionalUtxoEntry) -> Option<U
 pub fn signable_transaction_to_proto(value: SignableTransaction) -> ProtoSignableTransaction {
     ProtoSignableTransaction {
         tx: Some(transaction_to_proto(value.tx)),
-        entries: value.entries.into_iter().map(optional_utxo_entry_to_proto).collect(),
+        entries: value
+            .entries
+            .into_iter()
+            .map(optional_utxo_entry_to_proto)
+            .collect(),
         calculated_fee: value.calculated_fee,
         calculated_non_contextual_masses: value.calculated_non_contextual_masses.map(|m| {
             ProtoNonContextualMasses {
@@ -256,7 +288,11 @@ pub fn signable_transaction_to_proto(value: SignableTransaction) -> ProtoSignabl
 pub fn signable_transaction_from_proto(value: ProtoSignableTransaction) -> SignableTransaction {
     SignableTransaction {
         tx: transaction_from_proto(value.tx.unwrap_or_default()),
-        entries: value.entries.into_iter().map(optional_utxo_entry_from_proto).collect(),
+        entries: value
+            .entries
+            .into_iter()
+            .map(optional_utxo_entry_from_proto)
+            .collect(),
         calculated_fee: value.calculated_fee,
         calculated_non_contextual_masses: value.calculated_non_contextual_masses.map(|m| {
             kaspa_consensus_core::mass::NonContextualMasses {
@@ -270,18 +306,26 @@ pub fn signable_transaction_from_proto(value: ProtoSignableTransaction) -> Signa
 pub fn signed_transaction_to_proto(value: Signed) -> ProtoSignedTransaction {
     match value {
         Signed::Fully(tx) => ProtoSignedTransaction {
-            signed: Some(signed_transaction::Signed::Fully(signable_transaction_to_proto(tx))),
+            signed: Some(signed_transaction::Signed::Fully(
+                signable_transaction_to_proto(tx),
+            )),
         },
         Signed::Partially(tx) => ProtoSignedTransaction {
-            signed: Some(signed_transaction::Signed::Partially(signable_transaction_to_proto(tx))),
+            signed: Some(signed_transaction::Signed::Partially(
+                signable_transaction_to_proto(tx),
+            )),
         },
     }
 }
 
 pub fn signed_transaction_from_proto(value: ProtoSignedTransaction) -> Signed {
     match value.signed {
-        Some(signed_transaction::Signed::Fully(tx)) => Signed::Fully(signable_transaction_from_proto(tx)),
-        Some(signed_transaction::Signed::Partially(tx)) => Signed::Partially(signable_transaction_from_proto(tx)),
+        Some(signed_transaction::Signed::Fully(tx)) => {
+            Signed::Fully(signable_transaction_from_proto(tx))
+        }
+        Some(signed_transaction::Signed::Partially(tx)) => {
+            Signed::Partially(signable_transaction_from_proto(tx))
+        }
         None => panic!("SignedTransaction must have either fully or partially set"),
     }
 }

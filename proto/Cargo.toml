@@ -1,5 +1,5 @@
 [package]
-name = "proto"
+name = "kaswallet-proto"
 rust-version.workspace = true
 version.workspace = true
 edition.workspace = true

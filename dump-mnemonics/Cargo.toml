@@ -9,7 +9,7 @@ repository.workspace = true
 include.workspace = true
 
 [dependencies]
-common.workspace = true
+kaswallet-common.workspace = true
 
 kaspa-consensus-core.workspace = true
 kaspa-bip32.workspace = true

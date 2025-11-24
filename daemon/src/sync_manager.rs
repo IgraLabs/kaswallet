@@ -7,9 +7,9 @@ use kaspa_wallet_core::rpc::RpcApi;
 use log::{debug, info};
 use std::cmp::max;
 use std::error::Error;
+use std::sync::Arc;
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::atomic::{AtomicBool, AtomicU32};
-use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tokio::time::interval;
@@ -107,10 +107,7 @@ impl SyncManager {
         // we update the utxo set
         let mut utxo_manager = self.utxo_manager.lock().await;
 
-        debug!(
-            "Getting mempool entries for addresses: {:?}...",
-            addresses
-        );
+        debug!("Getting mempool entries for addresses: {:?}...", addresses);
         // It's important to check the mempool before calling `GetUTXOsByAddresses`:
         // If we would do it the other way around an output can be spent in the mempool
         // and not in consensus, and between the calls its spending transaction will be
@@ -133,10 +130,8 @@ impl SyncManager {
         );
 
         debug!("Getting UTXOs by addresses...");
-        let get_utxo_by_addresses_response = self
-            .kaspa_client
-            .get_utxos_by_addresses(addresses)
-            .await?;
+        let get_utxo_by_addresses_response =
+            self.kaspa_client.get_utxos_by_addresses(addresses).await?;
         debug!("Got {} utxo entries", get_utxo_by_addresses_response.len());
 
         utxo_manager
@@ -191,7 +186,7 @@ impl SyncManager {
             next_sync_start_index,
             next_sync_start_index + NUM_INDEXES_TO_QUERY_FOR_FAR_ADDRESSES,
         )
-            .await?;
+        .await?;
 
         self.next_sync_start_index
             .fetch_add(NUM_INDEXES_TO_QUERY_FOR_FAR_ADDRESSES, Relaxed);

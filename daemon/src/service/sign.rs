@@ -19,7 +19,11 @@ use std::iter::once;
 
 impl KasWalletService {
     pub(crate) async fn sign(&self, request: SignRequest) -> WalletResult<SignResponse> {
-        let unsigned_transactions: Vec<_> = request.unsigned_transactions.into_iter().map(Into::into).collect();
+        let unsigned_transactions: Vec<_> = request
+            .unsigned_transactions
+            .into_iter()
+            .map(Into::into)
+            .collect();
 
         let signed_transactions = self
             .sign_transactions(unsigned_transactions, &request.password)
@@ -108,19 +112,26 @@ impl KasWalletService {
     fn mnemonics_to_private_keys(
         mnemonics: &Vec<Mnemonic>,
     ) -> WalletResult<Vec<ExtendedPrivateKey<SecretKey>>> {
-        let mut private_keys = vec![];
-        for mnemonic in mnemonics {
-            let seed = mnemonic.to_seed("");
-            let x_private_key = ExtendedPrivateKey::new(seed).to_wallet_result_internal()?;
-            let master_key_derivation_path = master_key_path(mnemonics.len() > 1);
-            let private_key = x_private_key
-                .derive_path(&master_key_derivation_path)
-                .unwrap();
-
-            private_keys.push(private_key)
-        }
-        Ok(private_keys)
+        let is_multisig = mnemonics.len() > 1;
+        mnemonics
+            .iter()
+            .map(|mnemonic| mnemonic_to_private_key(mnemonic, is_multisig))
+            .collect()
     }
+}
+
+// Public helper function to convert a single mnemonic to master private key
+pub fn mnemonic_to_private_key(
+    mnemonic: &Mnemonic,
+    is_multisig: bool,
+) -> WalletResult<ExtendedPrivateKey<SecretKey>> {
+    let seed = mnemonic.to_seed("");
+    let x_private_key = ExtendedPrivateKey::new(seed).to_wallet_result_internal()?;
+    let master_key_derivation_path = master_key_path(is_multisig);
+    let private_key = x_private_key
+        .derive_path(&master_key_derivation_path)
+        .to_wallet_result_internal()?;
+    Ok(private_key)
 }
 
 // This is a copy of the sign_with_multiple_v2 function from the wallet core

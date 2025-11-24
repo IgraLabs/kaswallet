@@ -1,5 +1,5 @@
 [package]
-name = "create"
+name = "kaswallet-create"
 rust-version.workspace = true
 version.workspace = true
 edition.workspace = true
@@ -13,7 +13,7 @@ name = "kaswallet-create"
 path = "src/main.rs"
 
 [dependencies]
-common.workspace = true
+kaswallet-common.workspace = true
 
 kaspa-consensus-core.workspace = true
 kaspa-bip32.workspace = true

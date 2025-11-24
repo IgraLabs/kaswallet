@@ -1,5 +1,5 @@
 [package]
-name = "daemon"
+name = "kaswallet-daemon"
 rust-version.workspace = true
 version.workspace = true
 edition.workspace = true
@@ -13,8 +13,8 @@ name = "kaswallet-daemon"
 path = "src/main.rs"
 
 [dependencies]
-common.workspace = true
-proto.workspace = true
+kaswallet-common.workspace = true
+kaswallet-proto.workspace = true
 
 kaspa-consensus-core.workspace = true
 kaspa-bip32.workspace = true
@@ -32,3 +32,10 @@ tonic.workspace = true
 tokio.workspace = true
 workflow-websocket.workspace = true
 console-subscriber.workspace = true
+rstest.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+kaspa-consensus.workspace = true
+kaspa-hashes.workspace = true
+rstest.workspace = true

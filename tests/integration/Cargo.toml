@@ -1,0 +1,24 @@
+[package]
+name = "kaswallet-integration"
+
+rust-version.workspace = true
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+include.workspace = true
+
+[dev-dependencies]
+kaswallet-common.workspace = true
+kaswallet-daemon.workspace = true
+
+kaspad.workspace = true
+kaspa-utils.workspace = true
+kaspa-testing-integration.workspace = true
+kaspa-grpc-client.workspace = true
+
+tokio.workspace = true
+log.workspace = true
+thiserror.workspace = true
+tempfile.workspace = true

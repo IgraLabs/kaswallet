@@ -57,7 +57,9 @@ impl KasWalletService {
 
             transaction_ids.push(rpc_transaction_id.to_string());
 
-            utxo_manager.add_mempool_transaction(signed_transaction).await;
+            utxo_manager
+                .add_mempool_transaction(signed_transaction)
+                .await;
         }
 
         Ok(transaction_ids)

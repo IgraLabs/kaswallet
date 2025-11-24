@@ -113,9 +113,8 @@ impl UtxoManager {
         self.utxos_by_outpoint.remove(outpoint).unwrap();
         let (position, _) = self
             .utxos_sorted_by_amount
-            .iter().find_position(|existing_utxo| {
-            existing_utxo.outpoint.eq(&outpoint)
-        })
+            .iter()
+            .find_position(|existing_utxo| existing_utxo.outpoint.eq(&outpoint))
             .unwrap();
         self.utxos_sorted_by_amount.remove(position);
     }

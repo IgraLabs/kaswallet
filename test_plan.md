@@ -101,18 +101,21 @@ Base58 encoding/decoding is tested in the kaspa-bip32 dependency.
 
 ## Rust-Specific Tests Needed
 
-### 1. Encryption/Decryption Tests (`common/src/encrypted_mnemonic.rs`)
+### 1. ~~Encryption/Decryption Tests~~ (`common/src/encrypted_mnemonic.rs`) - **COMPLETED**
 
-#### TestEncryptedMnemonic
-- Test encryption and decryption of mnemonics
-- Test password correctness validation
-- Test that wrong password fails decryption
-- Test that encrypted data is different each time (due to random nonce)
-- Test various mnemonic lengths (12, 18, 24 words)
+✅ Implemented 13 tests covering encryption, decryption, password variants, randomness, and error handling.
 
-**Priority:** HIGH - Security-critical functionality
+**Status:** COMPLETED
 
-### 2. Keys Serialization Tests (`common/src/keys.rs`)
+### 2. ~~Transaction Encoding/Decoding Tests~~ (`common/src/proto_convert.rs`) - **EXCLUDED**
+
+Transaction serialization now uses protobuf with straightforward From/Into trait implementations. These are simple type conversions without complex wallet logic, so testing would primarily validate protobuf itself rather than wallet-specific functionality.
+
+**Note:** The conversions do use `.unwrap()` in several places (e.g., address parsing, hash parsing) which could be improved for robustness, but this is an error handling concern rather than logic to test.
+
+**Status:** EXCLUDED - No wallet-specific logic to test
+
+### 3. Keys Serialization Tests (`common/src/keys.rs`)
 
 #### TestKeysSaveLoad
 - Test saving Keys to JSON file
@@ -122,16 +125,6 @@ Base58 encoding/decoding is tested in the kaspa-bip32 dependency.
 - Test prefix handling
 
 **Priority:** MEDIUM - Data persistence
-
-### 3. Transaction Encoding Tests (`common/src/transactions_encoding.rs`)
-
-#### TestTransactionEncodingDecoding
-- Test encoding WalletSignableTransaction to bytes
-- Test decoding bytes back to WalletSignableTransaction
-- Test roundtrip preserves all data
-- Test with various transaction types (signed, unsigned, multisig)
-
-**Priority:** HIGH - Critical for transaction handling
 
 ### 4. Transaction Generator Tests (`daemon/src/transaction_generator.rs`)
 
@@ -178,7 +171,7 @@ Base58 encoding/decoding is tested in the kaspa-bip32 dependency.
 - Test WalletUtxo conversions
 - Test all From/Into implementations preserve data
 
-**Priority:** MEDIUM - Data integrity
+**Priority:** LOW - Simple From/Into conversions
 
 ### 6. Error Handling Tests
 
@@ -245,9 +238,9 @@ Create a mock implementation of KaspaRpcClient for unit tests:
 ## Implementation Priority
 
 ### Phase 1: Core Wallet Logic (HIGH priority)
-1. **Encrypted mnemonic tests** - Security-critical wallet functionality
-2. **Transaction encoding/decoding tests** - Wallet transaction serialization
-3. **Mass estimation tests** - Wallet fee estimation logic
+1. ✅ **Encrypted mnemonic tests** - COMPLETED
+2. ~~**Transaction encoding/decoding tests**~~ - EXCLUDED (protobuf conversions)
+3. **Mass estimation tests** - Wallet fee estimation logic (if wallet implements this)
 4. **UTXO selection tests** - Core transaction building logic
 5. **Fee estimation tests** - Wallet fee calculation logic
 
@@ -259,10 +252,10 @@ Create a mock implementation of KaspaRpcClient for unit tests:
 ### Phase 3: Utilities and Supporting Features (MEDIUM priority)
 9. **KAS to Sompi conversion tests** - If implemented in wallet (check if this exists)
 10. **Amount format validation tests** - If implemented in wallet (check if this exists)
-11. **Model conversion tests** - Wallet-specific type conversions
-12. **Keys serialization tests** - Wallet data persistence
+11. **Keys serialization tests** - Wallet data persistence
 
 ### Phase 4: Additional Coverage (LOW priority)
+12. **Model conversion tests** - Simple From/Into trait implementations
 13. **Error handling tests** - Wallet error propagation and messages
 
 ## Testing Framework
@@ -279,7 +272,7 @@ Use Rust's built-in testing framework (`cargo test`) with:
 
 2. **Mock External Dependencies**: Use mocks for RPC client and other external dependencies to keep tests fast and deterministic.
 
-3. **Transaction Serialization**: The Rust version currently uses Borsh (with a TODO to move to protobuf). Tests should work with current serialization but be adaptable when protobuf is implemented.
+3. **Transaction Serialization**: The Rust version now uses protobuf with simple From/Into trait conversions, so no wallet-specific testing needed.
 
 4. **Mass Calculation**: The wallet uses `MassCalculator` from kaspa-wallet-core for actual calculations, but implements estimation logic. Test the estimation logic, not the calculator itself.
 

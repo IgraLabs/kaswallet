@@ -1,0 +1,7 @@
+{
+  "prior_coinbase_maturity": 0,
+  "skip_proof_of_work": true,
+  "crescendo": {
+    "coinbase_maturity": 0
+  }
+}

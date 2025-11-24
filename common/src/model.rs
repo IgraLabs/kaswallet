@@ -1,4 +1,4 @@
-﻿use borsh::{BorshDeserialize, BorshSerialize};
+use borsh::{BorshDeserialize, BorshSerialize};
 use kaspa_addresses::Address;
 use kaspa_bip32::DerivationPath;
 use kaspa_consensus_core::sign::Signed;
@@ -67,7 +67,6 @@ impl From<RpcTransactionOutpoint> for WalletOutpoint {
     }
 }
 
-
 impl From<TransactionOutpoint> for WalletOutpoint {
     fn from(value: TransactionOutpoint) -> Self {
         Self {
@@ -100,7 +99,6 @@ impl WalletUtxoEntry {
         }
     }
 }
-
 
 impl From<WalletUtxoEntry> for UtxoEntry {
     fn from(value: WalletUtxoEntry) -> UtxoEntry {

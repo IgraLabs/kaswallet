@@ -1,6 +1,6 @@
 use common::model::WalletSignableTransaction;
-use futures::stream::FuturesUnordered;
 use futures::StreamExt;
+use futures::stream::FuturesUnordered;
 use kaspa_consensus_core::sign::Signed;
 use kaspa_consensus_core::tx::SignableTransaction;
 use proto::kaswallet_proto::wallet_client::WalletClient;
@@ -11,9 +11,9 @@ use proto::kaswallet_proto::{
 };
 use std::error::Error;
 use tokio::time::Instant;
+use tonic::Request;
 use tonic::codegen::Bytes;
 use tonic::transport::channel::Channel;
-use tonic::Request;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {

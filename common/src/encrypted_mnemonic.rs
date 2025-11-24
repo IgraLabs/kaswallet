@@ -1,11 +1,11 @@
 use crate::errors::WalletError::InternalServerError;
 use crate::errors::{ResultExt, WalletResult};
-use argon2::password_hash::{rand_core::OsRng, SaltString};
+use argon2::password_hash::{SaltString, rand_core::OsRng};
 use argon2::{Argon2, PasswordHasher};
 use chacha20poly1305::aead::{AeadMutInPlace, Key, Nonce};
-use chacha20poly1305::{aead::KeyInit, AeadCore, XChaCha20Poly1305};
-use kaspa_bip32::mnemonic::Mnemonic;
+use chacha20poly1305::{AeadCore, XChaCha20Poly1305, aead::KeyInit};
 use kaspa_bip32::Language;
+use kaspa_bip32::mnemonic::Mnemonic;
 use serde::{Deserialize, Serialize};
 
 const NONCE_SIZE: usize = 24;
@@ -96,14 +96,18 @@ mod tests {
         let mnemonic = Mnemonic::random(word_count, Language::English).unwrap();
         let password = "test_password".to_string();
 
-        let encrypted = EncryptedMnemonic::new(&mnemonic, &password)
-            .expect("Encryption should succeed");
+        let encrypted =
+            EncryptedMnemonic::new(&mnemonic, &password).expect("Encryption should succeed");
 
-        let decrypted = encrypted.decrypt(&password)
+        let decrypted = encrypted
+            .decrypt(&password)
             .expect("Decryption should succeed");
 
-        assert_eq!(mnemonic.phrase(), decrypted.phrase(),
-                   "Decrypted mnemonic should match original");
+        assert_eq!(
+            mnemonic.phrase(),
+            decrypted.phrase(),
+            "Decrypted mnemonic should match original"
+        );
     }
 
     #[rstest]
@@ -116,14 +120,18 @@ mod tests {
         let mnemonic = create_known_test_mnemonic();
         let password = password.to_string();
 
-        let encrypted = EncryptedMnemonic::new(&mnemonic, &password)
-            .expect("Encryption should succeed");
+        let encrypted =
+            EncryptedMnemonic::new(&mnemonic, &password).expect("Encryption should succeed");
 
-        let decrypted = encrypted.decrypt(&password)
+        let decrypted = encrypted
+            .decrypt(&password)
             .expect("Decryption should succeed");
 
-        assert_eq!(mnemonic.phrase(), decrypted.phrase(),
-                   "Decrypted mnemonic should match original for password variant");
+        assert_eq!(
+            mnemonic.phrase(),
+            decrypted.phrase(),
+            "Decrypted mnemonic should match original for password variant"
+        );
     }
 
     #[test]
@@ -137,12 +145,18 @@ mod tests {
 
         let result = encrypted.decrypt(&wrong_password);
 
-        assert!(result.is_err(), "Decryption with wrong password should fail");
+        assert!(
+            result.is_err(),
+            "Decryption with wrong password should fail"
+        );
 
         if let Err(e) = result {
             let error_msg = format!("{:?}", e);
-            assert!(error_msg.contains("Decryption failed"),
-                    "Error should mention decryption failure, got: {}", error_msg);
+            assert!(
+                error_msg.contains("Decryption failed"),
+                "Error should mention decryption failure, got: {}",
+                error_msg
+            );
         }
     }
 
@@ -151,17 +165,21 @@ mod tests {
         let mnemonic = create_known_test_mnemonic();
         let password = "same_password".to_string();
 
-        let encrypted1 = EncryptedMnemonic::new(&mnemonic, &password)
-            .expect("First encryption should succeed");
+        let encrypted1 =
+            EncryptedMnemonic::new(&mnemonic, &password).expect("First encryption should succeed");
 
-        let encrypted2 = EncryptedMnemonic::new(&mnemonic, &password)
-            .expect("Second encryption should succeed");
+        let encrypted2 =
+            EncryptedMnemonic::new(&mnemonic, &password).expect("Second encryption should succeed");
 
-        assert_ne!(encrypted1.cipher, encrypted2.cipher,
-                   "Cipher text should be different due to random nonce");
+        assert_ne!(
+            encrypted1.cipher, encrypted2.cipher,
+            "Cipher text should be different due to random nonce"
+        );
 
-        assert_ne!(encrypted1.salt, encrypted2.salt,
-                   "Salt should be different due to randomness");
+        assert_ne!(
+            encrypted1.salt, encrypted2.salt,
+            "Salt should be different due to randomness"
+        );
 
         // Both should decrypt to same mnemonic
         let decrypted1 = encrypted1.decrypt(&password).unwrap();
@@ -178,14 +196,17 @@ mod tests {
         let mnemonic = create_known_test_mnemonic();
         let password = "password".to_string();
 
-        let mut encrypted = EncryptedMnemonic::new(&mnemonic, &password)
-            .expect("Encryption should succeed");
+        let mut encrypted =
+            EncryptedMnemonic::new(&mnemonic, &password).expect("Encryption should succeed");
 
         encrypted.cipher = bad_cipher.to_string();
 
         let result = encrypted.decrypt(&password);
-        assert!(result.is_err(),
-                "Decryption should fail with corrupted cipher: {}", bad_cipher);
+        assert!(
+            result.is_err(),
+            "Decryption should fail with corrupted cipher: {}",
+            bad_cipher
+        );
     }
 
     #[rstest]
@@ -195,13 +216,16 @@ mod tests {
         let mnemonic = create_known_test_mnemonic();
         let password = "password".to_string();
 
-        let mut encrypted = EncryptedMnemonic::new(&mnemonic, &password)
-            .expect("Encryption should succeed");
+        let mut encrypted =
+            EncryptedMnemonic::new(&mnemonic, &password).expect("Encryption should succeed");
 
         encrypted.salt = bad_salt.to_string();
 
         let result = encrypted.decrypt(&password);
-        assert!(result.is_err(),
-                "Decryption should fail with corrupted salt: {}", bad_salt);
+        assert!(
+            result.is_err(),
+            "Decryption should fail with corrupted salt: {}",
+            bad_salt
+        );
     }
 }
