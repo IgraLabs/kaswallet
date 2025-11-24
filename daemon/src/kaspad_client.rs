@@ -17,9 +17,11 @@ pub async fn connect(
     };
     info!("Connecting to kaspa node at {}", url);
 
-    let client = Arc::new(GrpcClient::connect(url.to_string()).await.map_err(|e| {
-        DaemonStartError::FailedToConnectToKaspad(url.to_string(), e)
-    })?);
+    let client = Arc::new(
+        GrpcClient::connect(url.to_string())
+            .await
+            .map_err(|e| DaemonStartError::FailedToConnectToKaspad(url.to_string(), e))?,
+    );
 
     info!("Connected to kaspa node successfully");
 

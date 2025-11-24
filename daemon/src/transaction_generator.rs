@@ -18,9 +18,9 @@ use kaspa_grpc_client::GrpcClient;
 use kaspa_rpc_core::api::rpc::RpcApi;
 use kaspa_txscript::pay_to_address_script;
 use kaspa_wallet_core::prelude::AddressPrefix;
-use kaspa_wallet_core::tx::{MassCalculator, MAXIMUM_STANDARD_TRANSACTION_MASS};
+use kaspa_wallet_core::tx::{MAXIMUM_STANDARD_TRANSACTION_MASS, MassCalculator};
 use log::debug;
-use proto::kaswallet_proto::{fee_policy, FeePolicy, Outpoint};
+use proto::kaswallet_proto::{FeePolicy, Outpoint, fee_policy};
 use std::cmp::min;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -297,7 +297,7 @@ impl TransactionGenerator {
             fee_rate,
             max_fee,
         ))
-            .await?;
+        .await?;
 
         let all_transactions = [split_transactions, split_merge_transaction]
             .concat()
@@ -454,7 +454,7 @@ impl TransactionGenerator {
             &utxos_for_merge_transactions,
             original_consensus_transaction.payload.clone(),
         )
-            .await
+        .await
     }
 
     // Returns: (additional_utxos, total_Value_added)
@@ -816,7 +816,7 @@ impl TransactionGenerator {
                                    utxo_manager: &MutexGuard<UtxoManager>,
                                    utxo: &WalletUtxo,
                                    avoid_preselected: bool|
-                                   -> WalletResult<bool> {
+               -> WalletResult<bool> {
             if !from_addresses.is_empty() && !from_addresses.contains(&&utxo.address) {
                 return Ok(true);
             }

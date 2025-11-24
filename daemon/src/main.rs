@@ -1,7 +1,7 @@
-use kaswallet_daemon::{args, daemon::Daemon};
+use ::log::{error, info};
 use clap::Parser;
 use common::args::calculate_path;
-use ::log::{error, info};
+use kaswallet_daemon::{args, daemon::Daemon};
 use std::sync::Arc;
 use tokio::select;
 
@@ -28,21 +28,21 @@ async fn main() {
             error!("{}", e);
             return;
         }
-        Ok((sync_manager_handle, server_handle)) => { (sync_manager_handle, server_handle) }
+        Ok((sync_manager_handle, server_handle)) => (sync_manager_handle, server_handle),
     };
 
     select! {
-            result = sync_manager_handle => {
-                if let Err(e) = result {
-                    panic!("Error from sync manager: {}", e);
-                }
-                info!("Sync manager has finished");
+        result = sync_manager_handle => {
+            if let Err(e) = result {
+                panic!("Error from sync manager: {}", e);
             }
-            result = server_handle => {
-                if let Err(e) = result {
-                    panic!("Error from server: {}", e);
-                }
-                info!("Server has finished");
+            info!("Sync manager has finished");
+        }
+        result = server_handle => {
+            if let Err(e) = result {
+                panic!("Error from server: {}", e);
             }
-        };
+            info!("Server has finished");
+        }
+    };
 }

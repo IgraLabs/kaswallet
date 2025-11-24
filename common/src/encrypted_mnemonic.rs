@@ -1,11 +1,11 @@
 use crate::errors::WalletError::InternalServerError;
 use crate::errors::{ResultExt, WalletResult};
-use argon2::password_hash::{rand_core::OsRng, SaltString};
+use argon2::password_hash::{SaltString, rand_core::OsRng};
 use argon2::{Argon2, PasswordHasher};
 use chacha20poly1305::aead::{AeadMutInPlace, Key, Nonce};
-use chacha20poly1305::{aead::KeyInit, AeadCore, XChaCha20Poly1305};
-use kaspa_bip32::mnemonic::Mnemonic;
+use chacha20poly1305::{AeadCore, XChaCha20Poly1305, aead::KeyInit};
 use kaspa_bip32::Language;
+use kaspa_bip32::mnemonic::Mnemonic;
 use serde::{Deserialize, Serialize};
 
 const NONCE_SIZE: usize = 24;

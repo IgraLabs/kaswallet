@@ -31,7 +31,7 @@ pub fn master_key_path(is_multisig: bool) -> DerivationPath {
 
 #[derive(Debug)]
 pub struct Keys {
-    file_path: String,
+    pub file_path: String,
 
     pub version: i32,
     pub encrypted_mnemonics: Vec<EncryptedMnemonic>,

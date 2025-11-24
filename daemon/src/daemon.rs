@@ -45,12 +45,16 @@ impl Daemon {
     }
 
     pub async fn start(&self) -> DaemonStartResult<(JoinHandle<()>, JoinHandle<()>)> {
-        let kaspa_rpc_client = kaspad_client::connect(&self.args.server, &self.args.network_id()).await?;
+        let kaspa_rpc_client =
+            kaspad_client::connect(&self.args.server, &self.args.network_id()).await?;
 
-        self.start_with_client(kaspa_rpc_client).await
+        self.start_with_kaspad_client(kaspa_rpc_client).await
     }
 
-    pub async fn start_with_client(&self, kaspa_rpc_client: Arc<GrpcClient>) -> DaemonStartResult<(JoinHandle<()>, JoinHandle<()>)> {
+    pub async fn start_with_kaspad_client(
+        &self,
+        kaspa_rpc_client: Arc<GrpcClient>,
+    ) -> DaemonStartResult<(JoinHandle<()>, JoinHandle<()>)> {
         let network_id = self.args.network_id();
 
         let extended_keys_prefix = Prefix::from(network_id);
@@ -64,7 +68,10 @@ impl Daemon {
         let consensus_params = Params::from(network_id.network_type);
         let mass_calculator = Arc::new(MassCalculator::new(&network_id.network_type.into()));
 
-        let block_dag_info = kaspa_rpc_client.get_block_dag_info().await.map_err(RpcError)?;
+        let block_dag_info = kaspa_rpc_client
+            .get_block_dag_info()
+            .await
+            .map_err(RpcError)?;
 
         let address_prefix = network_id.network_type.into();
         let address_manager = Arc::new(Mutex::new(AddressManager::new(
