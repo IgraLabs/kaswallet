@@ -983,13 +983,12 @@ impl TransactionGenerator {
 
 #[cfg(test)]
 mod tests {
-    use kaspa_bip32::{Language, Mnemonic};
 
     // Helper: Create a known test mnemonic
-    fn create_test_mnemonic() -> Mnemonic {
-        let phrase = "decade minimum language dutch option narrow negative weird ball garbage purity guide weapon juice melt trash theory memory warrior rural okay flavor erosion senior";
-        Mnemonic::new(phrase.to_string(), Language::English).unwrap()
-    }
+    //fn create_test_mnemonic() -> Mnemonic {
+    //    let phrase = "decade minimum language dutch option narrow negative weird ball garbage purity guide weapon juice melt trash theory memory warrior rural okay flavor erosion senior";
+    //    Mnemonic::new(phrase.to_string(), Language::English).unwrap()
+    //}
 
     // TODO: Delete
     //#[rstest]

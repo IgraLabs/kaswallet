@@ -37,3 +37,4 @@ borsh.workspace = true
 
 [dev-dependencies]
 rstest.workspace = true
+kaswallet-test-helpers.workspace = true

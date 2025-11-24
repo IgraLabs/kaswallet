@@ -1,11 +1,11 @@
 use crate::errors::WalletError::InternalServerError;
 use crate::errors::{ResultExt, WalletResult};
-use argon2::password_hash::{SaltString, rand_core::OsRng};
+use argon2::password_hash::{rand_core::OsRng, SaltString};
 use argon2::{Argon2, PasswordHasher};
 use chacha20poly1305::aead::{AeadMutInPlace, Key, Nonce};
-use chacha20poly1305::{AeadCore, XChaCha20Poly1305, aead::KeyInit};
-use kaspa_bip32::Language;
+use chacha20poly1305::{aead::KeyInit, AeadCore, XChaCha20Poly1305};
 use kaspa_bip32::mnemonic::Mnemonic;
+use kaspa_bip32::Language;
 use serde::{Deserialize, Serialize};
 
 const NONCE_SIZE: usize = 24;
@@ -81,13 +81,8 @@ mod tests {
     use super::*;
     use kaspa_bip32::mnemonic::Mnemonic;
     use kaspa_bip32::{Language, WordCount};
+    use kaswallet_test_helpers::mnemonics;
     use rstest::rstest;
-
-    // Helper: Known valid 24-word mnemonic with duplicate word ("letter")
-    fn create_known_test_mnemonic() -> Mnemonic {
-        let phrase = "decade minimum language dutch option narrow negative weird ball garbage purity guide weapon juice melt trash theory memory warrior rural okay flavor erosion senior";
-        Mnemonic::new(phrase.to_string(), Language::English).unwrap()
-    }
 
     #[rstest]
     #[case(WordCount::Words12)]
@@ -117,7 +112,7 @@ mod tests {
     #[case("password_with_emojis_🔐🔑💎")]
     #[case(&"x".repeat(1000))]
     fn test_password_variants(#[case] password: &str) {
-        let mnemonic = create_known_test_mnemonic();
+        let mnemonic = mnemonics::create_known_test_mnemonic();
         let password = password.to_string();
 
         let encrypted =
@@ -136,7 +131,7 @@ mod tests {
 
     #[test]
     fn test_wrong_password_fails() {
-        let mnemonic = create_known_test_mnemonic();
+        let mnemonic = mnemonics::create_known_test_mnemonic();
         let correct_password = "correct_password".to_string();
         let wrong_password = "wrong_password".to_string();
 
@@ -162,7 +157,7 @@ mod tests {
 
     #[test]
     fn test_randomness() {
-        let mnemonic = create_known_test_mnemonic();
+        let mnemonic = mnemonics::create_known_test_mnemonic();
         let password = "same_password".to_string();
 
         let encrypted1 =
@@ -193,7 +188,7 @@ mod tests {
     #[case("ZZZZ", "valid")]
     #[case("not_hex_!!!!", "valid")]
     fn test_corrupted_cipher_fails(#[case] bad_cipher: &str, #[case] _desc: &str) {
-        let mnemonic = create_known_test_mnemonic();
+        let mnemonic = mnemonics::create_known_test_mnemonic();
         let password = "password".to_string();
 
         let mut encrypted =
@@ -213,7 +208,7 @@ mod tests {
     #[case("invalid!!!base64")]
     #[case("@#$%")]
     fn test_corrupted_salt_fails(#[case] bad_salt: &str) {
-        let mnemonic = create_known_test_mnemonic();
+        let mnemonic = mnemonics::create_known_test_mnemonic();
         let password = "password".to_string();
 
         let mut encrypted =

@@ -1,6 +1,5 @@
 [package]
-name = "kaswallet-integration"
-
+name = "kaswallet-test-helpers"
 rust-version.workspace = true
 version.workspace = true
 edition.workspace = true
@@ -9,10 +8,11 @@ license.workspace = true
 repository.workspace = true
 include.workspace = true
 
-[dev-dependencies]
+[dependencies]
 kaswallet-common.workspace = true
 kaswallet-daemon.workspace = true
 
+kaspa-bip32.workspace = true
 kaspad.workspace = true
 kaspa-utils.workspace = true
 kaspa-testing-integration.workspace = true

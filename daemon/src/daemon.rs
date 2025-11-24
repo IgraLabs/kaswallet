@@ -4,7 +4,6 @@ use crate::daemon::DaemonStartError::{FailedToLoadKeys, RpcError};
 use crate::service::kaswallet_service::KasWalletService;
 use crate::sync_manager::SyncManager;
 use crate::transaction_generator::TransactionGenerator;
-use crate::Error;
 use crate::{kaspad_client, utxo_manager};
 use common::args::calculate_path;
 use common::keys::Keys;
@@ -12,12 +11,12 @@ use kaspa_bip32::Prefix;
 use kaspa_consensus_core::config::params::Params;
 use kaspa_grpc_client::GrpcClient;
 use kaspa_rpc_core::api::rpc::RpcApi;
-use kaspa_wallet_core::prelude::KaspaRpcClient;
 use kaspa_wallet_core::tx::MassCalculator;
 use log::{debug, error, info};
 use proto::kaswallet_proto::wallet_server::WalletServer;
+use std::error::Error;
 use std::sync::Arc;
-use thiserror::Error;
+use thiserror::Error as ThisError;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tonic::transport::Server;
@@ -26,7 +25,7 @@ pub struct Daemon {
     args: Arc<Args>,
 }
 
-#[derive(Error, Debug)]
+#[derive(ThisError, Debug)]
 pub enum DaemonStartError {
     #[error(
         "Failed to load keys from file {0}: {1} \nPlease run kaswallet-create or provide a `--keys-file` flag"

@@ -7,7 +7,7 @@ members = [
     "dump-mnemonics",
     "test_client",
     "proto"
-    , "tests/integration"]
+    , "test/integration", "test/helpers"]
 
 [workspace.package]
 rust-version = "1.85.0"
@@ -31,6 +31,7 @@ include = [
 kaswallet-common = { path = "common" }
 kaswallet-proto = { path = "proto" }
 kaswallet-daemon = { path = "daemon" }
+kaswallet-test-helpers = { path = "test/helpers" }
 
 kaspad = { git = "https://github.com/IgraLabs/rusty-kaspa.git" }
 kaspa-consensus = { git = "https://github.com/IgraLabs/rusty-kaspa.git" }

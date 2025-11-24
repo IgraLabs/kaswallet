@@ -1,33 +1,36 @@
-use daemon::args::Args;
-use daemon::Daemon;
 use kaspa_grpc_client::GrpcClient;
-use kaspa_testing_integration::common::daemon;
 use kaspa_testing_integration::common::daemon::Daemon as KaspadDaemon;
 use kaspa_utils::fd_budget;
 use kaspad_lib::args::Args as KaspadArgs;
+use kaswallet_daemon::args::Args;
+use kaswallet_daemon::Daemon;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tempfile::NamedTempFile;
 
 #[tokio::test]
 async fn p2pk_test() {
-    let (mut daemon, kaspad_client) = start_kaspad().await;
+    let (mut kaspad_daemon, kaspad_client) = start_kaspad().await;
+    let wallet_daemon = start_wallet_daemon(kaspad_client).await;
 
-
-    daemon.shutdown();
+    kaspad_daemon.shutdown();
 }
 
-async fn start_wallet_daemon(kaspad_client: GrpcClient) -> Daemon {
-    let args = Args {
+pub async fn start_wallet_daemon(kaspad_client: GrpcClient) -> Daemon {
+    let args = Arc::new(Args {
         simnet: true,
-        keys_file_path: NamedTempFile::with_suffix(".json").unwrap(),
-    };
+        keys_file_path: Some(NamedTempFile::with_suffix(".json").unwrap().path().to_string_lossy().to_string()),
+        listen: "".to_string(),
+        ..Default::default()
+    });
 
     let daemon = Daemon::new(args);
-    daemon.start_with_client(Arc::new(kaspad_client)).await.unwrap()
+    daemon.start_with_client(Arc::new(kaspad_client)).await.unwrap();
+
+    daemon
 }
 
-async fn start_kaspad() -> (KaspadDaemon, GrpcClient) {
+pub async fn start_kaspad() -> (KaspadDaemon, GrpcClient) {
     let override_params_file = Some(
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("fixtures")

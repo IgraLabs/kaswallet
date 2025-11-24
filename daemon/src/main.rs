@@ -1,20 +1,9 @@
-use crate::daemon::Daemon;
+use kaswallet_daemon::{args, daemon::Daemon};
 use clap::Parser;
 use common::args::calculate_path;
 use ::log::{error, info};
-use std::error::Error;
 use std::sync::Arc;
 use tokio::select;
-
-mod address_manager;
-pub mod args;
-mod daemon;
-mod kaspad_client;
-mod log;
-mod service;
-mod sync_manager;
-mod transaction_generator;
-mod utxo_manager;
 
 #[tokio::main]
 async fn main() {
@@ -28,7 +17,7 @@ async fn main() {
     }
 
     let logs_path = calculate_path(&args.logs_path, &args.network_id(), "logs");
-    if let Err(e) = crate::log::init_log(&logs_path, &args.logs_level) {
+    if let Err(e) = kaswallet_daemon::log::init_log(&logs_path, &args.logs_level) {
         panic!("Failed to initialize logger: {}", e);
     }
 
