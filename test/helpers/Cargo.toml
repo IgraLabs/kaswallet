@@ -11,9 +11,12 @@ include.workspace = true
 [dependencies]
 kaswallet-common.workspace = true
 kaswallet-create.workspace = true
+kaswallet-client.workspace = true
 kaswallet-daemon.workspace = true
 
+kaspa-addresses.workspace = true
 kaspa-bip32.workspace = true
+kaspa-consensus-core.workspace = true
 kaspad.workspace = true
 kaspa-utils.workspace = true
 kaspa-testing-integration.workspace = true

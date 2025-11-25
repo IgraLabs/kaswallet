@@ -7,14 +7,12 @@ use kaspa_wallet_core::rpc::RpcApi;
 use log::{debug, info};
 use std::cmp::max;
 use std::error::Error;
-use std::sync::Arc;
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::atomic::{AtomicBool, AtomicU32};
+use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tokio::time::interval;
-
-const SYNC_INTERVAL: u64 = 10; // seconds
 
 const NUM_INDEXES_TO_QUERY_FOR_FAR_ADDRESSES: u32 = 100;
 const NUM_INDEXES_TO_QUERY_FOR_RECENT_ADDRESSES: u32 = 1000;
@@ -25,6 +23,7 @@ pub struct SyncManager {
     address_manager: Arc<Mutex<AddressManager>>,
     utxo_manager: Arc<Mutex<UtxoManager>>,
 
+    sync_interval_millis: u64,
     first_sync_done: AtomicBool,
     next_sync_start_index: AtomicU32,
     is_log_final_progress_line_shown: AtomicBool,
@@ -38,12 +37,14 @@ impl SyncManager {
         keys_file: Arc<Keys>,
         address_manager: Arc<Mutex<AddressManager>>,
         utxo_manager: Arc<Mutex<UtxoManager>>,
+        sync_interval: u64,
     ) -> Self {
         Self {
             kaspa_client: kaspa_rpc_client,
             keys_file,
             address_manager,
             utxo_manager,
+            sync_interval_millis: sync_interval,
             first_sync_done: AtomicBool::new(false),
             next_sync_start_index: 0.into(),
             is_log_final_progress_line_shown: false.into(),
@@ -81,7 +82,7 @@ impl SyncManager {
             info!("Finished initial sync");
         }
 
-        let mut interval = interval(core::time::Duration::from_secs(SYNC_INTERVAL));
+        let mut interval = interval(core::time::Duration::from_millis(self.sync_interval_millis));
         loop {
             interval.tick().await;
 

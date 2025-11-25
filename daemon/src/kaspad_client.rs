@@ -2,12 +2,11 @@ use crate::daemon::DaemonStartError;
 use kaspa_consensus_core::network::NetworkId;
 use kaspa_grpc_client::GrpcClient;
 use log::info;
-use std::sync::Arc;
 
 pub async fn connect(
     server: &Option<String>,
     network_id: &NetworkId,
-) -> Result<Arc<GrpcClient>, DaemonStartError> {
+) -> Result<GrpcClient, DaemonStartError> {
     let url = match server {
         Some(server) => server,
         None => &format!(
@@ -17,11 +16,9 @@ pub async fn connect(
     };
     info!("Connecting to kaspa node at {}", url);
 
-    let client = Arc::new(
-        GrpcClient::connect(url.to_string())
-            .await
-            .map_err(|e| DaemonStartError::FailedToConnectToKaspad(url.to_string(), e))?,
-    );
+    let client = GrpcClient::connect(url.to_string())
+        .await
+        .map_err(|e| DaemonStartError::FailedToConnectToKaspad(url.to_string(), e))?;
 
     info!("Connected to kaspa node successfully");
 

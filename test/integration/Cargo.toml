@@ -16,12 +16,10 @@ rstest.workspace = true
 kaswallet-common.workspace = true
 kaswallet-daemon.workspace = true
 kaswallet-create.workspace = true
-kaswallet-proto.workspace = true
+kaswallet-client.workspace = true
 kaswallet-test-helpers.workspace = true
 
-kaspad.workspace = true
-kaspa-utils.workspace = true
-kaspa-testing-integration.workspace = true
+kaspa-consensus-core.workspace = true
 kaspa-grpc-client.workspace = true
 
 tonic.workspace = true

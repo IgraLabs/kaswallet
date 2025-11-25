@@ -45,15 +45,19 @@ impl Daemon {
     }
 
     pub async fn start(&self) -> DaemonStartResult<(JoinHandle<()>, JoinHandle<()>)> {
+        let network_id = self.args.network_id();
         let kaspa_rpc_client =
-            kaspad_client::connect(&self.args.server, &self.args.network_id()).await?;
+            Arc::new(kaspad_client::connect(&self.args.server, &network_id).await?);
+        let consensus_params = Params::from(network_id.network_type);
 
-        self.start_with_kaspad_client(kaspa_rpc_client).await
+        self.start_with_kaspad_client_and_consensus_params(kaspa_rpc_client, consensus_params)
+            .await
     }
 
-    pub async fn start_with_kaspad_client(
+    pub async fn start_with_kaspad_client_and_consensus_params(
         &self,
         kaspa_rpc_client: Arc<GrpcClient>,
+        consensus_params: Params,
     ) -> DaemonStartResult<(JoinHandle<()>, JoinHandle<()>)> {
         let network_id = self.args.network_id();
 
@@ -65,7 +69,6 @@ impl Daemon {
                 .map_err(|e| FailedToLoadKeys(keys_file_path.clone(), e))?,
         );
         info!("Loaded keys from file {}", keys_file_path);
-        let consensus_params = Params::from(network_id.network_type);
         let mass_calculator = Arc::new(MassCalculator::new(&network_id.network_type.into()));
 
         let block_dag_info = kaspa_rpc_client
@@ -95,6 +98,7 @@ impl Daemon {
             keys.clone(),
             address_manager.clone(),
             utxo_manager.clone(),
+            self.args.sync_interval_millis,
         ));
         let sync_manager_handle = SyncManager::start(sync_manager.clone());
 

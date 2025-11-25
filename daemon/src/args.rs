@@ -41,6 +41,14 @@ pub struct Args {
     #[arg(long, help = "Enable tokio console")]
     #[cfg(debug_assertions)]
     pub enable_tokio_console: bool,
+
+    #[arg(
+        long,
+        default_value = "10000",
+        help = "Sync interval in milliseconds",
+        hide = true
+    )]
+    pub sync_interval_millis: u64,
 }
 
 impl Default for Args {
@@ -56,6 +64,7 @@ impl Default for Args {
             server: None,
             listen: "".to_string(),
             enable_tokio_console: false,
+            sync_interval_millis: 10,
         }
     }
 }
