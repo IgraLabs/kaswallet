@@ -1,23 +1,16 @@
 use common::model::WalletSignableTransaction;
-use futures::StreamExt;
 use futures::stream::FuturesUnordered;
+use futures::StreamExt;
 use kaspa_consensus_core::sign::Signed;
 use kaspa_consensus_core::tx::SignableTransaction;
-use proto::kaswallet_proto::wallet_client::WalletClient;
-use proto::kaswallet_proto::{
-    AddressBalances, BroadcastRequest, CreateUnsignedTransactionsRequest, GetAddressesRequest,
-    GetAddressesResponse, GetBalanceRequest, GetBalanceResponse, GetVersionRequest,
-    NewAddressRequest, SendRequest, SignRequest, TransactionDescription,
-};
+use kaswallet_client::client::KaswalletClient;
+use kaswallet_client::model::{AddressBalance, BalanceInfo, TransactionBuilder};
 use std::error::Error;
 use tokio::time::Instant;
-use tonic::Request;
-use tonic::codegen::Bytes;
-use tonic::transport::channel::Channel;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
-    let mut client = WalletClient::connect("http://localhost:8082").await?;
+    let mut client = KaswalletClient::connect("http://localhost:8082").await?;
 
     let scenario = std::env::args()
         .nth(1)
@@ -33,7 +26,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         }
         "parallel" => {
             println!("Running stress test in parallel");
-            stress_test_parallel(&mut client).await?
+            stress_test_parallel(&mut client).await?;
         }
         "mine" => {
             println!("Running mine tx id test");
@@ -48,9 +41,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
 }
 
 const STRESS_TESTS_NUM_ITERATIONS: usize = 100;
-async fn stress_test(
-    client: &mut WalletClient<Channel>,
-) -> Result<(), Box<dyn Error + Send + Sync>> {
+async fn stress_test(client: &mut KaswalletClient) -> Result<(), Box<dyn Error + Send + Sync>> {
     let address = get_address_with_balance(client).await?;
     for _ in 0..STRESS_TESTS_NUM_ITERATIONS {
         test_send(client, &address, &address).await?
@@ -60,7 +51,7 @@ async fn stress_test(
 }
 
 async fn stress_test_parallel(
-    client: &mut WalletClient<Channel>,
+    client: &mut KaswalletClient,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     let address = get_address_with_balance(client).await?;
     let mut futures = FuturesUnordered::new();
@@ -87,35 +78,24 @@ async fn stress_test_parallel(
     Ok(())
 }
 
-async fn mine_tx_id_test(
-    client: &mut WalletClient<Channel>,
-) -> Result<(), Box<dyn Error + Send + Sync>> {
+async fn mine_tx_id_test(client: &mut KaswalletClient) -> Result<(), Box<dyn Error + Send + Sync>> {
     let address = get_address_with_balance(client).await?;
     let actual_payload = b"hello igra!";
     let expected_bitmask: [u8; 2] = [0x97, 0xb1];
-    let create_unsigned_transaction_request = CreateUnsignedTransactionsRequest {
-        transaction_description: Some(TransactionDescription {
-            to_address: address.clone(),
-            amount: 0,
-            is_send_all: true,
-            payload: actual_payload.to_vec().into(),
-            from_addresses: vec![address],
-            utxos: vec![],
-            use_existing_change_address: false,
-            fee_policy: None,
-        }),
-    };
-    let create_unsigned_transaction_response = client
-        .create_unsigned_transactions(create_unsigned_transaction_request)
-        .await?
-        .into_inner();
 
-    let mut unsinged_transactions = create_unsigned_transaction_response.unsigned_transactions;
+    let unsigned_transactions = TransactionBuilder::new(address.clone())
+        .send_all()
+        .payload(actual_payload.to_vec())
+        .from_addresses(vec![address])
+        .create_unsigned_transactions(client)
+        .await?;
 
-    let transactions_count = unsinged_transactions.len();
-    let last_transaction = &unsinged_transactions[transactions_count - 1];
+    let mut unsigned_transactions = unsigned_transactions;
 
-    let mut wallet_transaction: WalletSignableTransaction = last_transaction.clone().into();
+    let transactions_count = unsigned_transactions.len();
+    let last_transaction = &unsigned_transactions[transactions_count - 1];
+
+    let mut wallet_transaction: WalletSignableTransaction = last_transaction.clone();
 
     let mut transaction_to_mine = wallet_transaction.transaction.unwrap();
 
@@ -125,23 +105,15 @@ async fn mine_tx_id_test(
 
     wallet_transaction.transaction = Signed::Partially(transaction_to_mine);
 
-    unsinged_transactions[transactions_count - 1] = wallet_transaction.into();
+    unsigned_transactions[transactions_count - 1] = wallet_transaction;
 
-    let sign_request = SignRequest {
-        unsigned_transactions: unsinged_transactions,
-        password: "".to_string(),
-    };
-    let sign_reponse = client.sign(sign_request).await?;
+    let signed_transactions = client.sign(unsigned_transactions, "".to_string()).await?;
     println!("Transaction signed successfully");
 
-    let broadcast_request = BroadcastRequest {
-        transactions: sign_reponse.into_inner().signed_transactions,
-    };
-
-    let broadcast_response = client.broadcast(broadcast_request).await?;
+    let transaction_ids = client.broadcast(signed_transactions).await?;
     println!(
-        "Transaction broadcast successfully! Broadcast response: {:?}",
-        broadcast_response
+        "Transaction broadcast successfully! Transaction IDs: {:?}",
+        transaction_ids
     );
 
     Ok(())
@@ -196,10 +168,10 @@ fn mine_loop(transaction_to_mine: &mut SignableTransaction, expected_bitmask: [u
 
 // returns address
 async fn get_address_with_balance(
-    client: &mut WalletClient<Channel>,
+    client: &mut KaswalletClient,
 ) -> Result<String, Box<dyn Error + Send + Sync>> {
-    let balances_response = test_get_ballance(client).await?;
-    let address_balance = balances_response
+    let balance_info = test_get_balance(client).await?;
+    let address_balance = balance_info
         .address_balances
         .iter()
         .find(|ab| ab.available > 0);
@@ -215,25 +187,23 @@ async fn get_address_with_balance(
     Ok(address_balance.address.clone())
 }
 
-async fn sanity_test(
-    client: &mut WalletClient<Channel>,
-) -> Result<(), Box<dyn Error + Send + Sync>> {
+async fn sanity_test(client: &mut KaswalletClient) -> Result<(), Box<dyn Error + Send + Sync>> {
     test_version(client).await?;
 
-    let get_addresses_response = test_get_addresses(client).await?;
+    let addresses = test_get_addresses(client).await?;
 
-    if get_addresses_response.address.is_empty() {
+    if addresses.is_empty() {
         new_address(client).await?;
     }
 
-    let get_balance_response = test_get_ballance(client).await?;
+    let balance_info = test_get_balance(client).await?;
 
-    if get_balance_response.available == 0 {
+    if balance_info.available == 0 {
         println!("No available balance to transfer");
         return Ok(());
     }
 
-    let from_address_balance_response = get_balance_response
+    let from_address_balance_response = balance_info
         .address_balances
         .iter()
         .max_by_key(|address_balance| address_balance.available)
@@ -241,8 +211,7 @@ async fn sanity_test(
 
     let from_address = from_address_balance_response.address.clone();
 
-    let to_address = get_addresses_response
-        .address
+    let to_address = addresses
         .iter()
         .find(|address| !address.to_string().eq(&from_address))
         .map(|address| address.to_string());
@@ -252,17 +221,17 @@ async fn sanity_test(
         new_address(client).await?
     };
 
-    let default_address_balances = &AddressBalances {
+    let default_address_balance = AddressBalance {
         address: to_address.clone(),
         available: 0,
         pending: 0,
     };
 
-    let to_address_balance_response = get_balance_response
+    let to_address_balance_response = balance_info
         .address_balances
         .iter()
         .find(|address_balance| address_balance.address.eq(&to_address))
-        .unwrap_or(default_address_balances);
+        .unwrap_or(&default_address_balance);
 
     let to_address = to_address_balance_response.address.clone();
     println!(
@@ -280,83 +249,58 @@ async fn sanity_test(
 }
 
 async fn test_send(
-    client: &mut WalletClient<Channel>,
+    client: &mut KaswalletClient,
     from_address: &str,
     to_address: &str,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
-    let send_response = &client
-        .send(Request::new(SendRequest {
-            transaction_description: Some(TransactionDescription {
-                to_address: to_address.to_string(),
-                amount: 0,
-                is_send_all: true,
-                payload: Bytes::new(),
-                from_addresses: vec![from_address.to_string()],
-                utxos: vec![],
-                use_existing_change_address: false,
-                fee_policy: None,
-            }),
-            password: "".to_string(),
-        }))
-        .await?
-        .into_inner();
-    println!("Send response={:?}", send_response);
+    let send_result = TransactionBuilder::new(to_address.to_string())
+        .send_all()
+        .from_addresses(vec![from_address.to_string()])
+        .send(client, "".to_string())
+        .await?;
+
+    println!(
+        "Send response: transaction_ids={:?}",
+        send_result.transaction_ids
+    );
     Ok(())
 }
 
-async fn test_get_ballance(
-    client: &mut WalletClient<Channel>,
-) -> Result<GetBalanceResponse, Box<dyn Error + Send + Sync>> {
-    let get_balance_response = client
-        .get_balance(Request::new(GetBalanceRequest {
-            include_balance_per_address: true,
-        }))
-        .await?
-        .into_inner();
+async fn test_get_balance(
+    client: &mut KaswalletClient,
+) -> Result<BalanceInfo, Box<dyn Error + Send + Sync>> {
+    let balance_info = client.get_balance(true).await?;
     println!(
         "Balance: Available={}, Pending={}",
-        get_balance_response.available, get_balance_response.pending
+        balance_info.available, balance_info.pending
     );
-    for address_balance in &get_balance_response.address_balances {
+    for address_balance in &balance_info.address_balances {
         println!(
             "\tAddress={:?}; Available={}, Pending={}",
             address_balance.address, address_balance.available, address_balance.pending
         );
     }
-    Ok(get_balance_response)
+    Ok(balance_info)
 }
 
 async fn test_get_addresses(
-    client: &mut WalletClient<Channel>,
-) -> Result<GetAddressesResponse, Box<dyn Error + Send + Sync>> {
-    let get_addresses_response = client
-        .get_addresses(Request::new(GetAddressesRequest {}))
-        .await?
-        .into_inner();
-    for address in &get_addresses_response.address {
+    client: &mut KaswalletClient,
+) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
+    let addresses = client.get_addresses().await?;
+    for address in &addresses {
         println!("Address={:?}", address);
     }
-    Ok(get_addresses_response)
+    Ok(addresses)
 }
 
-async fn test_version(
-    client: &mut WalletClient<Channel>,
-) -> Result<(), Box<dyn Error + Send + Sync>> {
-    let response = client
-        .get_version(Request::new(GetVersionRequest {}))
-        .await?;
-
-    println!("Version={:?}", response.into_inner().version);
+async fn test_version(client: &mut KaswalletClient) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let version = client.get_version().await?;
+    println!("Version={:?}", version);
     Ok(())
 }
 
-async fn new_address(
-    client: &mut WalletClient<Channel>,
-) -> Result<String, Box<dyn Error + Send + Sync>> {
-    let new_address_response = client
-        .new_address(Request::new(NewAddressRequest {}))
-        .await?;
-    let address = new_address_response.into_inner().address;
+async fn new_address(client: &mut KaswalletClient) -> Result<String, Box<dyn Error + Send + Sync>> {
+    let address = client.new_address().await?;
     println!("New Address={:?}", address);
     Ok(address)
 }
