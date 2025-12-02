@@ -50,21 +50,20 @@ impl KasWalletService {
         let virtual_daa_score = self.get_virtual_daa_score().await?;
 
         let filtered_bucketed_utxos: HashMap<String, Vec<ProtoUtxo>>;
-        {
+        let utxos = {
             let utxo_manager = self.utxo_manager.lock().await;
-            let utxos = utxo_manager.utxos_sorted_by_amount();
-
-            filtered_bucketed_utxos = self
-                .filter_utxos_and_bucket_by_address(
-                    utxos,
-                    fee_rate,
-                    virtual_daa_score,
-                    address_strings,
-                    request.include_pending,
-                    request.include_dust,
-                )
-                .await;
-        }
+            utxo_manager.utxos_sorted_by_amount()
+        };
+        filtered_bucketed_utxos = self
+            .filter_utxos_and_bucket_by_address(
+                &utxos,
+                fee_rate,
+                virtual_daa_score,
+                address_strings,
+                request.include_pending,
+                request.include_dust,
+            )
+            .await?;
 
         let addresses_to_utxos = filtered_bucketed_utxos
             .iter()
@@ -85,18 +84,17 @@ impl KasWalletService {
         address_strings: &[String],
         include_pending: bool,
         include_dust: bool,
-    ) -> HashMap<String, Vec<ProtoUtxo>> {
+    ) -> WalletResult<HashMap<String, Vec<ProtoUtxo>>> {
         let mut filtered_bucketed_utxos = HashMap::new();
         for utxo in utxos {
-            let is_pending: bool;
-            {
+            let is_pending = {
                 let utxo_manager = self.utxo_manager.lock().await;
-                is_pending = utxo_manager.is_utxo_pending(utxo, virtual_daa_score);
-            }
+                utxo_manager.is_utxo_pending(utxo, virtual_daa_score)
+            };
             if !include_pending && is_pending {
                 continue;
             }
-            let is_dust = self.is_utxo_dust(utxo, fee_rate);
+            let is_dust = self.is_utxo_dust(utxo, fee_rate).await?;
             if !include_dust && is_dust {
                 continue;
             }
@@ -106,8 +104,7 @@ impl KasWalletService {
                 let address_manager = self.address_manager.lock().await;
                 address = address_manager
                     .kaspa_address_from_wallet_address(&utxo.address, true)
-                    .await
-                    .unwrap()
+                    .await?
                     .address_to_string();
             }
 
@@ -121,11 +118,17 @@ impl KasWalletService {
             entry.push(utxo.to_owned().into_proto(is_pending, is_dust));
         }
 
-        filtered_bucketed_utxos
+        Ok(filtered_bucketed_utxos)
     }
 
-    fn is_utxo_dust(&self, _utxo: &WalletUtxo, _fee_rate: f64) -> bool {
-        // TODO: actually calculate if utxo is dust
-        false
+    async fn is_utxo_dust(&self, utxo: &WalletUtxo, fee_rate: f64) -> WalletResult<bool> {
+        let transaction_generator = self.transaction_generator.lock().await;
+        let mass = transaction_generator
+            .estimate_mass(&vec![utxo.clone()], utxo.utxo_entry.amount, &[])
+            .await?;
+
+        let fee = ((mass as f64) * fee_rate).ceil() as u64;
+
+        Ok(fee >= utxo.utxo_entry.amount)
     }
 }

@@ -15,7 +15,7 @@ impl KasWalletService {
         let virtual_daa_score = self.get_virtual_daa_score().await?;
         let mut balances_map = HashMap::new();
 
-        let utxos_sorted_by_amount: &Vec<WalletUtxo>;
+        let utxos_sorted_by_amount: Vec<WalletUtxo>;
         let utxos_count: usize;
         {
             let utxo_manager = self.utxo_manager.lock().await;
@@ -27,7 +27,7 @@ impl KasWalletService {
                 let balances = balances_map
                     .entry(entry.address.clone())
                     .or_insert_with(BalancesEntry::new);
-                if utxo_manager.is_utxo_pending(entry, virtual_daa_score) {
+                if utxo_manager.is_utxo_pending(&entry, virtual_daa_score) {
                     balances.add_pending(amount);
                 } else {
                     balances.add_available(amount);
