@@ -1,7 +1,7 @@
 use kaspa_addresses::Address;
 use kaspa_grpc_client::GrpcClient;
-use kaspa_rpc_core::api::rpc::RpcApi;
 use kaspa_rpc_core::RpcRawBlock;
+use kaspa_rpc_core::api::rpc::RpcApi;
 use std::sync::Arc;
 
 pub async fn mine_block(kaspad_client: Arc<GrpcClient>, address: &str) -> RpcRawBlock {

@@ -7,7 +7,6 @@ use kaswallet_daemon::log::init_log;
 use kaswallet_test_helpers::mine_block::mine_block;
 use kaswallet_test_helpers::mnemonics::create_known_test_mnemonic;
 use kaswallet_test_helpers::start_daemon::{start_kaspad, start_wallet_daemon};
-use log::info;
 use rstest::rstest;
 use std::time::Duration;
 use tempfile::tempdir;
@@ -46,9 +45,6 @@ pub async fn test_p2pk_send() {
         .new_address()
         .await
         .expect("Failed to get to address");
-
-    info!("~~~~ Send: From address: {}", from_address);
-    info!("~~~~ Send: To address: {}", to_address);
 
     mine_block(kaspad_client.clone(), &from_address).await;
     mine_block(kaspad_client.clone(), null_address).await;
@@ -150,9 +146,6 @@ pub async fn test_p2pk_create_sign_broadcast() {
         .new_address()
         .await
         .expect("Failed to get to address");
-
-    info!("~~~~ Sign: From address: {}", from_address);
-    info!("~~~~ Sign: To address: {}", to_address);
 
     mine_block(kaspad_client.clone(), &from_address).await;
     mine_block(kaspad_client.clone(), null_address).await;

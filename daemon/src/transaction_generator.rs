@@ -122,7 +122,7 @@ impl TransactionGenerator {
             let utxos_by_outpoint = utxo_manager.utxos_by_outpoint();
             for preselected_outpoint in &preselected_utxo_outpoints {
                 if let Some(utxo) = utxos_by_outpoint.get(&preselected_outpoint.clone().into()) {
-                    preselected_utxos.insert(utxo.outpoint.clone(), utxo);
+                    preselected_utxos.insert(utxo.outpoint.clone(), utxo.clone());
                 } else {
                     return Err(UserInputError(format!(
                         "Preselected UTXO {:?} is not in UTXO set",
@@ -485,8 +485,8 @@ impl TransactionGenerator {
         let mut additional_utxos = vec![];
         let mut total_value_added = 0;
         for utxo in utxos_sorted_by_amount {
-            if already_selected_utxos.contains(utxo)
-                || utxo_manager.is_utxo_pending(utxo, dag_info.virtual_daa_score)
+            if already_selected_utxos.contains(&utxo)
+                || utxo_manager.is_utxo_pending(&utxo, dag_info.virtual_daa_score)
             {
                 continue;
             }
@@ -785,7 +785,7 @@ impl TransactionGenerator {
     pub async fn select_utxos(
         &mut self,
         utxo_manager: &MutexGuard<'_, UtxoManager>,
-        preselected_utxos: &HashMap<WalletOutpoint, &WalletUtxo>,
+        preselected_utxos: &HashMap<WalletOutpoint, WalletUtxo>,
         amount: u64,
         is_send_all: bool,
         fee_rate: f64,
@@ -873,7 +873,7 @@ impl TransactionGenerator {
         if should_continue {
             let utxos_sorted_by_amount = utxo_manager.utxos_sorted_by_amount();
             for utxo in utxos_sorted_by_amount {
-                should_continue = iteration(self, utxo_manager, utxo, true).await?;
+                should_continue = iteration(self, utxo_manager, &utxo, true).await?;
                 if !should_continue {
                     break;
                 }
@@ -928,7 +928,7 @@ impl TransactionGenerator {
         Ok(fee)
     }
 
-    async fn estimate_mass(
+    pub async fn estimate_mass(
         &self,
         selected_utxos: &Vec<WalletUtxo>,
         estimated_recipient_value: u64,

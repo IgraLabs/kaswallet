@@ -2,7 +2,7 @@ use crate::args::Args;
 use common::encrypted_mnemonic::EncryptedMnemonic;
 use common::errors::WalletError::InternalServerError;
 use common::errors::WalletResult;
-use common::keys::{master_key_path, Keys, KEY_FILE_VERSION};
+use common::keys::{KEY_FILE_VERSION, Keys, master_key_path};
 use kaspa_bip32::secp256k1::PublicKey;
 use kaspa_bip32::{ExtendedPrivateKey, ExtendedPublicKey, Mnemonic, Prefix, SecretKey};
 use std::sync::Arc;

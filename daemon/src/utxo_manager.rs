@@ -42,12 +42,12 @@ impl UtxoManager {
         }
     }
 
-    pub fn utxos_sorted_by_amount(&self) -> &Vec<WalletUtxo> {
-        &self.utxos_sorted_by_amount
+    pub fn utxos_sorted_by_amount(&self) -> Vec<WalletUtxo> {
+        self.utxos_sorted_by_amount.clone()
     }
 
-    pub fn utxos_by_outpoint(&self) -> &HashMap<WalletOutpoint, WalletUtxo> {
-        &self.utxos_by_outpoint
+    pub fn utxos_by_outpoint(&self) -> HashMap<WalletOutpoint, WalletUtxo> {
+        self.utxos_by_outpoint.clone()
     }
 
     pub async fn add_mempool_transaction(&mut self, transaction: &WalletSignableTransaction) {

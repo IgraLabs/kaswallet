@@ -1,6 +1,6 @@
 use common::model::WalletSignableTransaction;
-use futures::stream::FuturesUnordered;
 use futures::StreamExt;
+use futures::stream::FuturesUnordered;
 use kaspa_consensus_core::sign::Signed;
 use kaspa_consensus_core::tx::SignableTransaction;
 use kaswallet_client::client::KaswalletClient;
@@ -28,6 +28,10 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
             println!("Running stress test in parallel");
             stress_test_parallel(&mut client).await?;
         }
+        "get_utxos" => {
+            println!("Running get_utxos test");
+            get_utxos_test(&mut client).await?;
+        }
         "mine" => {
             println!("Running mine tx id test");
             mine_tx_id_test(&mut client).await?;
@@ -37,6 +41,12 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         }
     }
 
+    Ok(())
+}
+
+async fn get_utxos_test(client: &mut KaswalletClient) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let utxos = client.get_utxos(vec![], true, true).await?;
+    println!("UTXOs: {:?}", utxos);
     Ok(())
 }
 

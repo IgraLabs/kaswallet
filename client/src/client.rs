@@ -8,8 +8,8 @@ use proto::kaswallet_proto::{
     SendRequest, SignRequest, TransactionDescription,
 };
 use std::str::FromStr;
-use tonic::transport::{Channel, Endpoint};
 use tonic::Request;
+use tonic::transport::{Channel, Endpoint};
 
 /// A convenient wrapper around the kaswallet gRPC client.
 ///
