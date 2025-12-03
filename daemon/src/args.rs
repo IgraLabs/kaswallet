@@ -18,6 +18,10 @@ pub struct Args {
     #[arg(long, help = "Use the simulation test network")]
     pub simnet: bool,
 
+    // TODO: Remove when wallet is more stable
+    #[arg(long = "enable-mainnet-pre-launch", hide = true)]
+    pub enable_mainnet_pre_launch: bool,
+
     #[arg(long = "keys", short = 'k', help = "Path to keys file")]
     pub keys_file_path: Option<String>,
 
@@ -58,6 +62,7 @@ impl Default for Args {
             testnet_suffix: 10,
             devnet: false,
             simnet: false,
+            enable_mainnet_pre_launch: false,
             keys_file_path: None,
             logs_path: None,
             logs_level: Default::default(),
@@ -95,6 +100,12 @@ impl From<LogsLevel> for LevelFilter {
 
 impl Args {
     pub fn network_id(&self) -> NetworkId {
-        parse_network_type(self.testnet, self.devnet, self.simnet, self.testnet_suffix)
+        parse_network_type(
+            self.testnet,
+            self.devnet,
+            self.simnet,
+            self.testnet_suffix,
+            self.enable_mainnet_pre_launch,
+        )
     }
 }
