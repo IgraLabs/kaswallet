@@ -7,9 +7,16 @@ pub fn parse_network_type(
     devnet: bool,
     simnet: bool,
     testnet_suffix: u32,
+    enable_mainnet_pre_launch: bool,
 ) -> NetworkId {
     match (testnet, devnet, simnet) {
-        (false, false, false) => NetworkId::new(NetworkType::Mainnet),
+        (false, false, false) => {
+            if enable_mainnet_pre_launch {
+                NetworkId::new(NetworkType::Mainnet)
+            } else {
+                panic!("mainnet is not yet enabled, use --testnet, --devnet, or --simnet")
+            }
+        }
         (true, false, false) => NetworkId::with_suffix(NetworkType::Testnet, testnet_suffix),
         (false, true, false) => NetworkId::new(NetworkType::Devnet),
         (false, false, true) => NetworkId::new(NetworkType::Simnet),

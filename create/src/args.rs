@@ -16,6 +16,10 @@ pub struct Args {
     #[arg(long, help = "Use the simulation test network")]
     pub simnet: bool,
 
+    // TODO: Remove when wallet is more stable
+    #[arg(long = "enable-mainnet-pre-launch", hide = true)]
+    pub enable_mainnet_pre_launch: bool,
+
     #[arg(long = "keys", short = 'k', help = "Path to keys file")]
     pub keys_file_path: Option<String>,
 
@@ -44,6 +48,7 @@ impl Args {
             self.devnet,
             self.simnet,
             self.testnet_suffix,
+            self.enable_mainnet_pre_launch,
         )
     }
 }
@@ -55,6 +60,7 @@ impl Default for Args {
             testnet_suffix: 10,
             devnet: false,
             simnet: false,
+            enable_mainnet_pre_launch: false,
             keys_file_path: None,
             import: false,
             min_signatures: 1,
