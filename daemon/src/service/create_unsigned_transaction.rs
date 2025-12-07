@@ -40,11 +40,6 @@ impl KasWalletService {
         transaction_description: TransactionDescription,
         utxo_manager: &MutexGuard<'_, UtxoManager>,
     ) -> WalletResult<Vec<WalletSignableTransaction>> {
-        // TODO: implement manual utxo selection
-        if !transaction_description.utxos.is_empty() {
-            return Err(UserInputError("UTXOs are not supported yet".to_string()));
-        }
-
         self.check_is_synced().await?;
 
         let mut transaction_generator = self.transaction_generator.lock().await;

@@ -18,9 +18,9 @@ use kaspa_grpc_client::GrpcClient;
 use kaspa_rpc_core::api::rpc::RpcApi;
 use kaspa_txscript::pay_to_address_script;
 use kaspa_wallet_core::prelude::AddressPrefix;
-use kaspa_wallet_core::tx::{MAXIMUM_STANDARD_TRANSACTION_MASS, MassCalculator};
+use kaspa_wallet_core::tx::{MassCalculator, MAXIMUM_STANDARD_TRANSACTION_MASS};
 use log::debug;
-use proto::kaswallet_proto::{FeePolicy, Outpoint, fee_policy};
+use proto::kaswallet_proto::{fee_policy, FeePolicy, Outpoint};
 use std::cmp::min;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -95,7 +95,7 @@ impl TransactionGenerator {
         }
 
         if !from_addresses_strings.is_empty() && !preselected_utxo_outpoints.is_empty() {
-            return Err(WalletError::UserInputError(
+            return Err(UserInputError(
                 "Cannot specify both from_addresses and utxos".to_string(),
             ));
         }
@@ -106,7 +106,7 @@ impl TransactionGenerator {
             let mut from_addresses = vec![];
             for address_string in from_addresses_strings {
                 let wallet_address = address_set.get(&address_string).ok_or_else(|| {
-                    WalletError::UserInputError(format!(
+                    UserInputError(format!(
                         "From address is not in address set: {}",
                         address_string
                     ))
@@ -814,17 +814,12 @@ impl TransactionGenerator {
         let mut fee_per_utxo = None;
         let mut iteration = async |transaction_generator: &mut TransactionGenerator,
                                    utxo_manager: &MutexGuard<UtxoManager>,
-                                   utxo: &WalletUtxo,
-                                   avoid_preselected: bool|
+                                   utxo: &WalletUtxo|
                -> WalletResult<bool> {
             if !from_addresses.is_empty() && !from_addresses.contains(&&utxo.address) {
                 return Ok(true);
             }
             if utxo_manager.is_utxo_pending(utxo, dag_info.virtual_daa_score) {
-                return Ok(true);
-            }
-
-            if avoid_preselected && preselected_utxos.contains_key(&utxo.outpoint) {
                 return Ok(true);
             }
 
@@ -849,7 +844,7 @@ impl TransactionGenerator {
             let total_spend = amount + fee;
             // Two break cases (if not send all):
             // 		1. total_value == totalSpend, so there's no change needed -> number of outputs = 1, so a single input is sufficient
-            // 		2. total_value > totalSpend, so there will be change and 2 outputs, therefor in order to not struggle with --
+            // 		2. total_value > totalSpend, so there will be change and 2 outputs, therefore in order to not struggle with --
             //		   2.1 go-nodes dust patch we try and find at least 2 inputs (even though the next one is not necessary in terms of spend value)
             // 		   2.2 KIP9 we try and make sure that the change amount is not too small
             if is_send_all {
@@ -863,20 +858,16 @@ impl TransactionGenerator {
             }
             Ok(true)
         };
-        let mut should_continue = true;
-        for preselected_utxo in preselected_utxos.values() {
-            should_continue = iteration(self, utxo_manager, preselected_utxo, false).await?;
+        let owned_utxos = utxo_manager.utxos_sorted_by_amount();
+        let available_utxos: Vec<_> = if !preselected_utxos.is_empty() {
+            preselected_utxos.values().collect()
+        } else {
+            owned_utxos.iter().collect()
+        };
+        for utxo in available_utxos {
+            let should_continue = iteration(self, utxo_manager, utxo).await?;
             if !should_continue {
                 break;
-            };
-        }
-        if should_continue {
-            let utxos_sorted_by_amount = utxo_manager.utxos_sorted_by_amount();
-            for utxo in utxos_sorted_by_amount {
-                should_continue = iteration(self, utxo_manager, &utxo, true).await?;
-                if !should_continue {
-                    break;
-                }
             }
         }
 

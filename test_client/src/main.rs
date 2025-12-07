@@ -1,6 +1,6 @@
 use common::model::WalletSignableTransaction;
-use futures::StreamExt;
 use futures::stream::FuturesUnordered;
+use futures::StreamExt;
 use kaspa_consensus_core::sign::Signed;
 use kaspa_consensus_core::tx::SignableTransaction;
 use kaswallet_client::client::KaswalletClient;
@@ -28,9 +28,9 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
             println!("Running stress test in parallel");
             stress_test_parallel(&mut client).await?;
         }
-        "get_utxos" => {
+        "preselected_utxos" => {
             println!("Running get_utxos test");
-            get_utxos_test(&mut client).await?;
+            preselected_utxos_test(&mut client).await?;
         }
         "mine" => {
             println!("Running mine tx id test");
@@ -44,9 +44,100 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     Ok(())
 }
 
-async fn get_utxos_test(client: &mut KaswalletClient) -> Result<(), Box<dyn Error + Send + Sync>> {
+async fn preselected_utxos_test(
+    client: &mut KaswalletClient,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
     let utxos = client.get_utxos(vec![], true, true).await?;
-    println!("UTXOs: {:?}", utxos);
+
+    if utxos.is_empty() {
+        return Err("No UTXOs found in the wallet".into());
+    }
+    let to_address = utxos[0].address.clone();
+    let flattened_spendable_utxos: Vec<_> = utxos // select the smallest spendable utxo
+        .iter()
+        .flat_map(|address_utxos| &address_utxos.utxos)
+        .filter(|utxo| !utxo.is_pending && !utxo.is_dust)
+        .collect();
+
+    println!(
+        "Got UTXOS: \n{}",
+        flattened_spendable_utxos
+            .iter()
+            .map(|utxo| format!("\t[{:?} : -> {}]", utxo.outpoint, utxo.amount))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+
+    let selected_utxo = flattened_spendable_utxos
+        .iter()
+        .min_by_key(|u| u.amount)
+        .unwrap();
+
+    println!("Selected UTXO: {:?}", selected_utxo.outpoint);
+
+    // Divide by 2 to leave some fee, and create multiple outpoints to avoid only 1 spendable UTXO in the next run.
+    // If the smallest UTXO is too small, this may fail due to dust limits. In that case - run sanity test to consolidate UTXOs.
+    let send_amount = selected_utxo.amount / 2;
+    let send_result = client
+        .send(
+            to_address,
+            send_amount,
+            false,
+            vec![],
+            vec![],
+            vec![selected_utxo.outpoint.clone()],
+            true,
+            None,
+            "".to_string(),
+        )
+        .await?;
+
+    println!(
+        "Send response: transaction_ids={:?}",
+        send_result.transaction_ids
+    );
+
+    let utxos_after_send = client.get_utxos(vec![], true, true).await?;
+    let flattened_utxos_after_send: Vec<_> = utxos_after_send
+        .iter()
+        .flat_map(|address_utxos| &address_utxos.utxos)
+        .collect();
+
+    println!(
+        "UTXOs after send: \n{}",
+        flattened_spendable_utxos
+            .iter()
+            .map(|utxo| format!("\t[{:?} : -> {}]", utxo.outpoint, utxo.amount))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+
+    for utxo in flattened_utxos_after_send.iter() {
+        if utxo.outpoint == selected_utxo.outpoint {
+            return Err("Selected UTXO was not spent".into());
+        }
+    }
+
+    if flattened_spendable_utxos.len() > 1 {
+        for utxo_before_send in flattened_spendable_utxos.iter() {
+            if utxo_before_send.outpoint == selected_utxo.outpoint {
+                continue;
+            }
+            let found = flattened_utxos_after_send
+                .iter()
+                .any(|utxo_after_send| utxo_after_send.outpoint == utxo_before_send.outpoint);
+            if !found {
+                return Err(format!(
+                    "An unselected UTXO was spent: {:?}",
+                    utxo_before_send.outpoint
+                )
+                .into());
+            }
+        }
+    } else {
+        println!("Only one spendable UTXO in the wallet, skipping unselected UTXOs check");
+    }
+
     Ok(())
 }
 
@@ -180,8 +271,8 @@ fn mine_loop(transaction_to_mine: &mut SignableTransaction, expected_bitmask: [u
 async fn get_address_with_balance(
     client: &mut KaswalletClient,
 ) -> Result<String, Box<dyn Error + Send + Sync>> {
-    let balance_info = test_get_balance(client).await?;
-    let address_balance = balance_info
+    let balance_println = test_get_balance(client).await?;
+    let address_balance = balance_println
         .address_balances
         .iter()
         .find(|ab| ab.available > 0);
@@ -206,14 +297,14 @@ async fn sanity_test(client: &mut KaswalletClient) -> Result<(), Box<dyn Error +
         new_address(client).await?;
     }
 
-    let balance_info = test_get_balance(client).await?;
+    let balance_println = test_get_balance(client).await?;
 
-    if balance_info.available == 0 {
+    if balance_println.available == 0 {
         println!("No available balance to transfer");
         return Ok(());
     }
 
-    let from_address_balance_response = balance_info
+    let from_address_balance_response = balance_println
         .address_balances
         .iter()
         .max_by_key(|address_balance| address_balance.available)
@@ -237,7 +328,7 @@ async fn sanity_test(client: &mut KaswalletClient) -> Result<(), Box<dyn Error +
         pending: 0,
     };
 
-    let to_address_balance_response = balance_info
+    let to_address_balance_response = balance_println
         .address_balances
         .iter()
         .find(|address_balance| address_balance.address.eq(&to_address))
@@ -279,18 +370,18 @@ async fn test_send(
 async fn test_get_balance(
     client: &mut KaswalletClient,
 ) -> Result<BalanceInfo, Box<dyn Error + Send + Sync>> {
-    let balance_info = client.get_balance(true).await?;
+    let balance_println = client.get_balance(true).await?;
     println!(
         "Balance: Available={}, Pending={}",
-        balance_info.available, balance_info.pending
+        balance_println.available, balance_println.pending
     );
-    for address_balance in &balance_info.address_balances {
+    for address_balance in &balance_println.address_balances {
         println!(
             "\tAddress={:?}; Available={}, Pending={}",
             address_balance.address, address_balance.available, address_balance.pending
         );
     }
-    Ok(balance_info)
+    Ok(balance_println)
 }
 
 async fn test_get_addresses(
