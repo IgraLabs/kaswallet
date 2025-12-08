@@ -15,8 +15,7 @@ impl KasWalletService {
         &self,
         request: GetUtxosRequest,
     ) -> WalletResult<GetUtxosResponse> {
-        let request_addresses = &request.addresses;
-        for address in request_addresses {
+        for address in &request.addresses {
             Address::try_from(address.as_str()).to_wallet_result_user_input()?;
         }
 
@@ -25,10 +24,10 @@ impl KasWalletService {
             let address_manager = self.address_manager.lock().await;
             address_set = address_manager.address_set().await;
         }
-        let address_strings: &Vec<String> = if request_addresses.is_empty() {
-            &address_set.keys().cloned().collect()
+        let address_strings: Vec<String> = if request.addresses.is_empty() {
+            address_set.keys().cloned().collect()
         } else {
-            for address in request_addresses {
+            for address in &request.addresses {
                 if !address_set.contains_key(address) {
                     return Err(UserInputError(format!(
                         "Address {} not found in wallet",
@@ -36,7 +35,7 @@ impl KasWalletService {
                     )));
                 }
             }
-            request_addresses
+            request.addresses
         };
 
         let fee_estimate = self
@@ -59,7 +58,7 @@ impl KasWalletService {
                 &utxos,
                 fee_rate,
                 virtual_daa_score,
-                address_strings,
+                &address_strings,
                 request.include_pending,
                 request.include_dust,
             )
