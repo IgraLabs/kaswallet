@@ -68,6 +68,7 @@ impl Default for Args {
             logs_level: Default::default(),
             server: None,
             listen: "".to_string(),
+            #[cfg(debug_assertions)]
             enable_tokio_console: false,
             sync_interval_millis: 10,
         }
