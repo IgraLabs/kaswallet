@@ -201,6 +201,7 @@ pub async fn send(
     max_fee: Option<u64>,
     password: Option<String>,
     show_serialized: bool,
+    payload: Option<&str>,
 ) -> Result<()> {
     // Validate that either send_amount or send_all is specified
     if send_amount.is_none() && !send_all {
@@ -217,6 +218,12 @@ pub async fn send(
 
     let fee_policy = build_fee_policy(max_fee_rate, fee_rate, max_fee);
 
+    let payload_bytes = if let Some(payload_hex) = payload {
+        hex::decode(payload_hex).map_err(|e| format!("Invalid payload hex: {}", e))?
+    } else {
+        Vec::new()
+    };
+
     let password = get_password("Password: ", password)?;
 
     let result = client
@@ -224,7 +231,7 @@ pub async fn send(
             to_address.to_string(),
             amount_sompi,
             send_all,
-            Vec::new(), // payload
+            payload_bytes,
             from_addresses,
             Vec::new(), // utxos
             use_existing_change_address,
@@ -267,6 +274,7 @@ pub async fn create_unsigned_transaction(
     max_fee_rate: Option<f64>,
     fee_rate: Option<f64>,
     max_fee: Option<u64>,
+    payload: Option<&str>,
 ) -> Result<()> {
     // Validate that either send_amount or send_all is specified
     if send_amount.is_none() && !send_all {
@@ -283,12 +291,18 @@ pub async fn create_unsigned_transaction(
 
     let fee_policy = build_fee_policy(max_fee_rate, fee_rate, max_fee);
 
+    let payload_bytes = if let Some(payload_hex) = payload {
+        hex::decode(payload_hex).map_err(|e| format!("Invalid payload hex: {}", e))?
+    } else {
+        Vec::new()
+    };
+
     let unsigned_transactions = client
         .create_unsigned_transactions(
             to_address.to_string(),
             amount_sompi,
             send_all,
-            Vec::new(), // payload
+            payload_bytes,
             from_addresses,
             Vec::new(), // utxos
             use_existing_change_address,
