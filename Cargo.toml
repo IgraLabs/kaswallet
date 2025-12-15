@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "cli",
     "common",
     "create",
     "daemon",
@@ -31,6 +32,7 @@ include = [
 ]
 
 [workspace.dependencies]
+kaswallet-cli = { path = "cli" }
 kaswallet-common = { path = "common" }
 kaswallet-proto = { path = "proto" }
 kaswallet-daemon = { path = "daemon" }
