@@ -3,8 +3,8 @@ use kaspa_grpc_client::GrpcClient;
 use kaspa_testing_integration::common::daemon::Daemon as KaspadDaemon;
 use kaspa_utils::fd_budget;
 use kaspad_lib::args::Args as KaspadArgs;
-use kaswallet_daemon::Daemon;
 use kaswallet_daemon::args::Args;
+use kaswallet_daemon::Daemon;
 use std::net::TcpListener;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -14,9 +14,8 @@ async fn p2pk_test() {}
 
 fn pick_unused_port() -> u16 {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let port = listener.local_addr().unwrap().port();
+    listener.local_addr().unwrap().port()
     // Dropping listener here frees the port (eventually)
-    port
 }
 
 pub async fn start_wallet_daemon(

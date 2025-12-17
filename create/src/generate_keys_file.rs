@@ -103,7 +103,7 @@ fn minimum_cosigner_index(
     for x_public_key in signer_public_keys {
         let current_key_cosigner_index = sorted_public_keys
             .iter()
-            .position(|x| x.eq(&x_public_key))
+            .position(|x| x.eq(x_public_key))
             .unwrap_or(0);
         if current_key_cosigner_index < minimum_cosigner_index {
             minimum_cosigner_index = current_key_cosigner_index;

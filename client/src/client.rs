@@ -8,8 +8,8 @@ use proto::kaswallet_proto::{
     TransactionDescription,
 };
 use std::str::FromStr;
-use tonic::Request;
 use tonic::transport::{Channel, Endpoint};
+use tonic::Request;
 
 /// A convenient wrapper around the kaswallet gRPC client.
 ///
@@ -249,6 +249,7 @@ impl KaswalletClient {
         })
     }
 
+    #[allow(clippy::result_large_err)]
     fn transaction_ids_to_hashes(transaction_ids: Vec<String>) -> Result<Vec<Hash>> {
         transaction_ids
             .into_iter()
