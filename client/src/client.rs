@@ -3,9 +3,9 @@ use common::model::WalletSignableTransaction;
 use kaspa_hashes::Hash;
 use proto::kaswallet_proto::wallet_client::WalletClient as GrpcWalletClient;
 use proto::kaswallet_proto::{
-    BroadcastRequest, CreateUnsignedTransactionsRequest, FeePolicy, GetAddressesRequest,
-    GetBalanceRequest, GetUtxosRequest, GetVersionRequest, NewAddressRequest, Outpoint,
-    SendRequest, SignRequest, TransactionDescription,
+    BroadcastRequest, CreateUnsignedTransactionsRequest, GetAddressesRequest, GetBalanceRequest,
+    GetUtxosRequest, GetVersionRequest, NewAddressRequest, SendRequest, SignRequest,
+    TransactionDescription,
 };
 use std::str::FromStr;
 use tonic::Request;
@@ -139,28 +139,12 @@ impl KaswalletClient {
     /// * `fee_policy` - Optional fee policy for the transaction
     pub async fn create_unsigned_transactions(
         &mut self,
-        to_address: String,
-        amount: u64,
-        is_send_all: bool,
-        payload: Vec<u8>,
-        from_addresses: Vec<String>,
-        utxos: Vec<Outpoint>,
-        use_existing_change_address: bool,
-        fee_policy: Option<FeePolicy>,
+        transaction_description: TransactionDescription,
     ) -> Result<Vec<WalletSignableTransaction>> {
         let response = self
             .grpc_client
             .create_unsigned_transactions(Request::new(CreateUnsignedTransactionsRequest {
-                transaction_description: Some(TransactionDescription {
-                    to_address,
-                    amount,
-                    is_send_all,
-                    payload: payload.into(),
-                    from_addresses,
-                    utxos,
-                    use_existing_change_address,
-                    fee_policy,
-                }),
+                transaction_description: Some(transaction_description),
             }))
             .await?
             .into_inner();
@@ -240,29 +224,13 @@ impl KaswalletClient {
     /// This command sends the password over the network. Only use on trusted or secure connections.
     pub async fn send(
         &mut self,
-        to_address: String,
-        amount: u64,
-        is_send_all: bool,
-        payload: Vec<u8>,
-        from_addresses: Vec<String>,
-        utxos: Vec<Outpoint>,
-        use_existing_change_address: bool,
-        fee_policy: Option<FeePolicy>,
+        transaction_description: TransactionDescription,
         password: String,
     ) -> Result<SendResult> {
         let response = self
             .grpc_client
             .send(Request::new(SendRequest {
-                transaction_description: Some(TransactionDescription {
-                    to_address,
-                    amount,
-                    is_send_all,
-                    payload: payload.into(),
-                    from_addresses,
-                    utxos,
-                    use_existing_change_address,
-                    fee_policy,
-                }),
+                transaction_description: Some(transaction_description),
                 password,
             }))
             .await?

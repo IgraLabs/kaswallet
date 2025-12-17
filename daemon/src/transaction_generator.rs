@@ -18,9 +18,9 @@ use kaspa_grpc_client::GrpcClient;
 use kaspa_rpc_core::api::rpc::RpcApi;
 use kaspa_txscript::pay_to_address_script;
 use kaspa_wallet_core::prelude::AddressPrefix;
-use kaspa_wallet_core::tx::{MassCalculator, MAXIMUM_STANDARD_TRANSACTION_MASS};
+use kaspa_wallet_core::tx::{MAXIMUM_STANDARD_TRANSACTION_MASS, MassCalculator};
 use log::debug;
-use proto::kaswallet_proto::{fee_policy, FeePolicy, Outpoint, TransactionDescription};
+use proto::kaswallet_proto::{FeePolicy, Outpoint, TransactionDescription, fee_policy};
 use std::cmp::min;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -95,7 +95,9 @@ impl TransactionGenerator {
             address_set = address_manager.address_set().await;
         }
 
-        if !transaction_description.from_addresses.is_empty() && !transaction_description.utxos.is_empty() {
+        if !transaction_description.from_addresses.is_empty()
+            && !transaction_description.utxos.is_empty()
+        {
             return Err(UserInputError(
                 "Cannot specify both from_addresses and utxos".to_string(),
             ));
@@ -134,7 +136,9 @@ impl TransactionGenerator {
             preselected_utxos
         };
 
-        let (fee_rate, max_fee) = self.calculate_fee_limits(transaction_description.fee_policy).await?;
+        let (fee_rate, max_fee) = self
+            .calculate_fee_limits(transaction_description.fee_policy)
+            .await?;
 
         let change_address: Address;
         let change_wallet_address: WalletAddress;
@@ -173,7 +177,11 @@ impl TransactionGenerator {
             payments.push(WalletPayment::new(change_address.clone(), change_sompi));
         }
         let unsigned_transaction = self
-            .generate_unsigned_transaction(payments, &selected_utxos, transaction_description.payload.into())
+            .generate_unsigned_transaction(
+                payments,
+                &selected_utxos,
+                transaction_description.payload.into(),
+            )
             .await?;
 
         let unsigned_transactions = self
@@ -298,7 +306,7 @@ impl TransactionGenerator {
             fee_rate,
             max_fee,
         ))
-            .await?;
+        .await?;
 
         let all_transactions = [split_transactions, split_merge_transaction]
             .concat()
@@ -455,7 +463,7 @@ impl TransactionGenerator {
             &utxos_for_merge_transactions,
             original_consensus_transaction.payload.clone(),
         )
-            .await
+        .await
     }
 
     // Returns: (additional_utxos, total_Value_added)
@@ -816,7 +824,7 @@ impl TransactionGenerator {
         let mut iteration = async |transaction_generator: &mut TransactionGenerator,
                                    utxo_manager: &MutexGuard<UtxoManager>,
                                    utxo: &WalletUtxo|
-                                   -> WalletResult<bool> {
+               -> WalletResult<bool> {
             if !from_addresses.is_empty() && !from_addresses.contains(&&utxo.address) {
                 return Ok(true);
             }

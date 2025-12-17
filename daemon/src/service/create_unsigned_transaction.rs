@@ -44,10 +44,7 @@ impl KasWalletService {
 
         let mut transaction_generator = self.transaction_generator.lock().await;
         transaction_generator
-            .create_unsigned_transactions(
-                utxo_manager,
-                transaction_description,
-            )
+            .create_unsigned_transactions(utxo_manager, transaction_description)
             .await
     }
 }
