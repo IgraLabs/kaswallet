@@ -25,3 +25,4 @@ rpassword.workspace = true
 hex.workspace = true
 borsh.workspace = true
 regex.workspace = true
+rust_decimal.workspace = true

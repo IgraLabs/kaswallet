@@ -1,3 +1,5 @@
+extern crate core;
+
 use args::{Args, Commands};
 use clap::Parser;
 use std::process;

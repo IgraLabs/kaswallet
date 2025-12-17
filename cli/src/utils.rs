@@ -1,4 +1,6 @@
 use kaspa_consensus_core::constants::SOMPI_PER_KASPA;
+use rust_decimal::prelude::*;
+use rust_decimal::Decimal;
 use std::error::Error;
 use std::fmt;
 
@@ -30,19 +32,12 @@ pub fn kas_to_sompi(amount: &str) -> Result<u64, ParseError> {
     if !re.is_match(amount) {
         return Err(ParseError("Invalid amount format".to_string()));
     }
-
-    let parts: Vec<&str> = amount.split('.').collect();
-    let integer_part = parts[0];
-    let decimal_part = if parts.len() > 1 { parts[1] } else { "" };
-
-    // Pad decimal part to 8 digits
-    let decimal_padded = format!("{:0<8}", decimal_part);
-
-    // Combine and parse
-    let combined = format!("{}{}", integer_part, decimal_padded);
-    combined
-        .parse::<u64>()
-        .map_err(|e| ParseError(format!("Failed to parse amount: {}", e)))
+    let decimal =
+        Decimal::from_str(amount).map_err(|e| ParseError(format!("Invalid decimal: {}", e)))?;
+    let sompi = decimal * Decimal::from(SOMPI_PER_KASPA);
+    sompi
+        .to_u64()
+        .ok_or_else(|| ParseError("Amount out of range for u64".to_string()))
 }
 
 #[cfg(test)]
