@@ -41,10 +41,10 @@ async fn main() {
             from_addresses,
             use_existing_change_address,
             max_fee_rate,
-            fee_rate,
+            exact_fee_rate: fee_rate,
             max_fee,
             password,
-            show_serialized,
+            show_transactions,
             payload,
         } => {
             commands::send(
@@ -58,10 +58,10 @@ async fn main() {
                 fee_rate,
                 max_fee,
                 password,
-                show_serialized,
+                show_transactions,
                 payload.as_deref(),
             )
-            .await
+                .await
         }
 
         Commands::CreateUnsignedTransaction {
@@ -72,8 +72,7 @@ async fn main() {
             from_addresses,
             use_existing_change_address,
             max_fee_rate,
-            fee_rate,
-            max_fee,
+            exact_fee_rate, max_fee,
             payload,
         } => {
             commands::create_unsigned_transaction(
@@ -84,11 +83,11 @@ async fn main() {
                 from_addresses,
                 use_existing_change_address,
                 max_fee_rate,
-                fee_rate,
+                exact_fee_rate,
                 max_fee,
                 payload.as_deref(),
             )
-            .await
+                .await
         }
 
         Commands::Sign {
