@@ -34,12 +34,6 @@ pub enum Commands {
         daemon_address: String,
     },
 
-    /// Get the wallet daemon version
-    GetDaemonVersion {
-        #[arg(short = 'd', long = "daemonaddress", default_value = DEFAULT_DAEMON_ADDRESS)]
-        daemon_address: String,
-    },
-
     /// Get UTXOs for the wallet
     GetUtxos {
         #[arg(short = 'd', long = "daemonaddress", default_value = DEFAULT_DAEMON_ADDRESS)]
@@ -63,36 +57,40 @@ pub enum Commands {
         #[arg(short = 'd', long = "daemonaddress", default_value = DEFAULT_DAEMON_ADDRESS)]
         daemon_address: String,
 
+        /// Specific public address to send Kaspa from (can be specified multiple times)
+        #[arg(short = 'f', long = "from")]
+        from_addresses: Vec<String>,
+
         /// The public address to send Kaspa to
-        #[arg(short = 't', long = "to-address")]
+        #[arg(short = 't', long = "to")]
         to_address: String,
 
         /// An amount to send in Kaspa (e.g. 1234.12345678)
-        #[arg(short = 'v', long = "send-amount", conflicts_with = "send_all")]
+        #[arg(short = 'a', long = "amount", conflicts_with = "send_all")]
         send_amount: Option<String>,
 
         /// Send all the Kaspa in the wallet
         #[arg(long = "send-all", conflicts_with = "send_amount")]
         send_all: bool,
 
-        /// Specific public address to send Kaspa from (can be specified multiple times)
-        #[arg(short = 'a', long = "from-address")]
-        from_addresses: Vec<String>,
+        /// Transaction payload (hex-encoded)
+        #[arg(long = "payload")]
+        payload: Option<String>,
 
         /// Use an existing change address instead of generating a new one
         #[arg(short = 'u', long = "use-existing-change-address")]
         use_existing_change_address: bool,
 
         /// Maximum fee rate in Sompi/gram
-        #[arg(short = 'm', long = "max-fee-rate", conflicts_with_all = ["fee_rate", "max_fee"])]
+        #[arg(long = "fee-rate-max", conflicts_with_all = ["exact_fee_rate", "max_fee"])]
         max_fee_rate: Option<f64>,
 
         /// Exact fee rate in Sompi/gram
-        #[arg(short = 'r', long = "fee-rate", conflicts_with_all = ["max_fee_rate", "max_fee"])]
-        fee_rate: Option<f64>,
+        #[arg(long = "fee-rate-exact", conflicts_with_all = ["max_fee_rate", "max_fee"])]
+        exact_fee_rate: Option<f64>,
 
         /// Maximum fee in Sompi
-        #[arg(short = 'x', long = "max-fee", conflicts_with_all = ["max_fee_rate", "fee_rate"])]
+        #[arg(long = "fee-max", conflicts_with_all = ["max_fee_rate", "exact_fee_rate"])]
         max_fee: Option<u64>,
 
         /// Wallet password
@@ -101,11 +99,7 @@ pub enum Commands {
 
         /// Show serialized transactions
         #[arg(short = 's', long = "show-serialized")]
-        show_serialized: bool,
-
-        /// Transaction payload (hex-encoded)
-        #[arg(long = "payload")]
-        payload: Option<String>,
+        show_transactions: bool,
     },
 
     /// Create an unsigned Kaspa transaction
@@ -114,11 +108,11 @@ pub enum Commands {
         daemon_address: String,
 
         /// The public address to send Kaspa to
-        #[arg(short = 't', long = "to-address")]
+        #[arg(short = 't', long = "to")]
         to_address: String,
 
         /// An amount to send in Kaspa (e.g. 1234.12345678)
-        #[arg(short = 'v', long = "send-amount", conflicts_with = "send_all")]
+        #[arg(short = 'a', long = "amount", conflicts_with = "send_all")]
         send_amount: Option<String>,
 
         /// Send all the Kaspa in the wallet
@@ -126,28 +120,28 @@ pub enum Commands {
         send_all: bool,
 
         /// Specific public address to send Kaspa from (can be specified multiple times)
-        #[arg(short = 'a', long = "from-address")]
+        #[arg(short = 'f', long = "from")]
         from_addresses: Vec<String>,
+
+        /// Transaction payload (hex-encoded)
+        #[arg(long = "payload")]
+        payload: Option<String>,
 
         /// Use an existing change address instead of generating a new one
         #[arg(short = 'u', long = "use-existing-change-address")]
         use_existing_change_address: bool,
 
         /// Maximum fee rate in Sompi/gram
-        #[arg(short = 'm', long = "max-fee-rate", conflicts_with_all = ["fee_rate", "max_fee"])]
+        #[arg(long = "fee-rate-max", conflicts_with_all = ["exact_fee_rate", "max_fee"])]
         max_fee_rate: Option<f64>,
 
         /// Exact fee rate in Sompi/gram
-        #[arg(short = 'r', long = "fee-rate", conflicts_with_all = ["max_fee_rate", "max_fee"])]
-        fee_rate: Option<f64>,
+        #[arg(long = "fee-rate-exact", conflicts_with_all = ["max_fee_rate", "max_fee"])]
+        exact_fee_rate: Option<f64>,
 
         /// Maximum fee in Sompi
-        #[arg(short = 'x', long = "max-fee", conflicts_with_all = ["max_fee_rate", "fee_rate"])]
+        #[arg(long = "fee-max", conflicts_with_all = ["max_fee_rate", "exact_fee_rate"])]
         max_fee: Option<u64>,
-
-        /// Transaction payload (hex-encoded)
-        #[arg(long = "payload")]
-        payload: Option<String>,
     },
 
     /// Sign the given unsigned transaction(s)
@@ -181,4 +175,11 @@ pub enum Commands {
         #[arg(short = 'F', long = "transaction-file", conflicts_with = "transaction")]
         transaction_file: Option<String>,
     },
+
+    /// Get the wallet daemon version
+    GetDaemonVersion {
+        #[arg(short = 'd', long = "daemonaddress", default_value = DEFAULT_DAEMON_ADDRESS)]
+        daemon_address: String,
+    },
+
 }
