@@ -1,0 +1,28 @@
+[package]
+name = "kaswallet-cli"
+rust-version.workspace = true
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+include.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "kaswallet-cli"
+path = "src/main.rs"
+
+[dependencies]
+kaswallet-client.workspace = true
+kaswallet-common.workspace = true
+kaswallet-proto.workspace = true
+
+kaspa-consensus-core.workspace = true
+
+clap.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+rpassword.workspace = true
+hex.workspace = true
+borsh.workspace = true
+regex.workspace = true
+rust_decimal.workspace = true
