@@ -71,7 +71,7 @@ pub enum Commands {
 
         /// Send all the Kaspa in the wallet
         #[arg(long = "send-all", conflicts_with = "send_amount")]
-        send_all: bool,
+        is_send_all: bool,
 
         /// Transaction payload (hex-encoded)
         #[arg(long = "payload")]
@@ -117,7 +117,7 @@ pub enum Commands {
 
         /// Send all the Kaspa in the wallet
         #[arg(long = "send-all", conflicts_with = "send_amount")]
-        send_all: bool,
+        is_send_all: bool,
 
         /// Specific public address to send Kaspa from (can be specified multiple times)
         #[arg(short = 'f', long = "from")]

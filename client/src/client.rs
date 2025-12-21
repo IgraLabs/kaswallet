@@ -129,14 +129,16 @@ impl KaswalletClient {
     /// Create unsigned transactions based on the transaction description.
     ///
     /// # Arguments
-    /// * `to_address` - Destination address
-    /// * `amount` - Amount to send (mutually exclusive with is_send_all)
-    /// * `is_send_all` - If true, sends all available funds (mutually exclusive with amount)
-    /// * `payload` - Optional transaction payload
-    /// * `from_addresses` - Optional list of source addresses to spend from
-    /// * `utxos` - Optional list of specific UTXOs to spend (mutually exclusive with from_addresses)
-    /// * `use_existing_change_address` - If true, uses existing change address instead of generating new one
-    /// * `fee_policy` - Optional fee policy for the transaction
+    /// * transaction_description - description of requested transaction:
+    ///   * `to_address` - Destination address
+    ///   * `amount` - Amount to send (mutually exclusive with is_send_all)
+    ///   * `is_send_all` - If true, sends all available funds (mutually exclusive with amount)
+    ///   * `payload` - Optional transaction payload
+    ///   * `from_addresses` - Optional list of source addresses to spend from
+    ///   * `utxos` - Optional list of specific UTXOs to spend (mutually exclusive with from_addresses)
+    ///   * `use_existing_change_address` - If true, uses existing change address instead of generating new one
+    ///   * `fee_policy` - Optional fee policy for the transaction
+    /// * `password` - The wallet password
     pub async fn create_unsigned_transactions(
         &mut self,
         transaction_description: TransactionDescription,
@@ -210,14 +212,15 @@ impl KaswalletClient {
     /// Send funds in a single operation (create, sign, and broadcast).
     ///
     /// # Arguments
-    /// * `to_address` - Destination address
-    /// * `amount` - Amount to send (mutually exclusive with is_send_all)
-    /// * `is_send_all` - If true, sends all available funds (mutually exclusive with amount)
-    /// * `payload` - Optional transaction payload
-    /// * `from_addresses` - Optional list of source addresses to spend from
-    /// * `utxos` - Optional list of specific UTXOs to spend (mutually exclusive with from_addresses)
-    /// * `use_existing_change_address` - If true, uses existing change address instead of generating new one
-    /// * `fee_policy` - Optional fee policy for the transaction
+    /// * transaction_description - description of requested transaction:
+    ///   * `to_address` - Destination address
+    ///   * `amount` - Amount to send (mutually exclusive with is_send_all)
+    ///   * `is_send_all` - If true, sends all available funds (mutually exclusive with amount)
+    ///   * `payload` - Optional transaction payload
+    ///   * `from_addresses` - Optional list of source addresses to spend from
+    ///   * `utxos` - Optional list of specific UTXOs to spend (mutually exclusive with from_addresses)
+    ///   * `use_existing_change_address` - If true, uses existing change address instead of generating new one
+    ///   * `fee_policy` - Optional fee policy for the transaction
     /// * `password` - The wallet password
     ///
     /// # Security Note
