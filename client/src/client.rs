@@ -3,13 +3,13 @@ use common::model::WalletSignableTransaction;
 use kaspa_hashes::Hash;
 use proto::kaswallet_proto::wallet_client::WalletClient as GrpcWalletClient;
 use proto::kaswallet_proto::{
-    BroadcastRequest, CreateUnsignedTransactionsRequest, FeePolicy, GetAddressesRequest,
-    GetBalanceRequest, GetUtxosRequest, GetVersionRequest, NewAddressRequest, Outpoint,
-    SendRequest, SignRequest, TransactionDescription,
+    BroadcastRequest, CreateUnsignedTransactionsRequest, GetAddressesRequest, GetBalanceRequest,
+    GetUtxosRequest, GetVersionRequest, NewAddressRequest, SendRequest, SignRequest,
+    TransactionDescription,
 };
 use std::str::FromStr;
-use tonic::Request;
 use tonic::transport::{Channel, Endpoint};
+use tonic::Request;
 
 /// A convenient wrapper around the kaswallet gRPC client.
 ///
@@ -129,38 +129,24 @@ impl KaswalletClient {
     /// Create unsigned transactions based on the transaction description.
     ///
     /// # Arguments
-    /// * `to_address` - Destination address
-    /// * `amount` - Amount to send (mutually exclusive with is_send_all)
-    /// * `is_send_all` - If true, sends all available funds (mutually exclusive with amount)
-    /// * `payload` - Optional transaction payload
-    /// * `from_addresses` - Optional list of source addresses to spend from
-    /// * `utxos` - Optional list of specific UTXOs to spend (mutually exclusive with from_addresses)
-    /// * `use_existing_change_address` - If true, uses existing change address instead of generating new one
-    /// * `fee_policy` - Optional fee policy for the transaction
+    /// * transaction_description - description of requested transaction:
+    ///   * `to_address` - Destination address
+    ///   * `amount` - Amount to send (mutually exclusive with is_send_all)
+    ///   * `is_send_all` - If true, sends all available funds (mutually exclusive with amount)
+    ///   * `payload` - Optional transaction payload
+    ///   * `from_addresses` - Optional list of source addresses to spend from
+    ///   * `utxos` - Optional list of specific UTXOs to spend (mutually exclusive with from_addresses)
+    ///   * `use_existing_change_address` - If true, uses existing change address instead of generating new one
+    ///   * `fee_policy` - Optional fee policy for the transaction
+    /// * `password` - The wallet password
     pub async fn create_unsigned_transactions(
         &mut self,
-        to_address: String,
-        amount: u64,
-        is_send_all: bool,
-        payload: Vec<u8>,
-        from_addresses: Vec<String>,
-        utxos: Vec<Outpoint>,
-        use_existing_change_address: bool,
-        fee_policy: Option<FeePolicy>,
+        transaction_description: TransactionDescription,
     ) -> Result<Vec<WalletSignableTransaction>> {
         let response = self
             .grpc_client
             .create_unsigned_transactions(Request::new(CreateUnsignedTransactionsRequest {
-                transaction_description: Some(TransactionDescription {
-                    to_address,
-                    amount,
-                    is_send_all,
-                    payload: payload.into(),
-                    from_addresses,
-                    utxos,
-                    use_existing_change_address,
-                    fee_policy,
-                }),
+                transaction_description: Some(transaction_description),
             }))
             .await?
             .into_inner();
@@ -226,43 +212,28 @@ impl KaswalletClient {
     /// Send funds in a single operation (create, sign, and broadcast).
     ///
     /// # Arguments
-    /// * `to_address` - Destination address
-    /// * `amount` - Amount to send (mutually exclusive with is_send_all)
-    /// * `is_send_all` - If true, sends all available funds (mutually exclusive with amount)
-    /// * `payload` - Optional transaction payload
-    /// * `from_addresses` - Optional list of source addresses to spend from
-    /// * `utxos` - Optional list of specific UTXOs to spend (mutually exclusive with from_addresses)
-    /// * `use_existing_change_address` - If true, uses existing change address instead of generating new one
-    /// * `fee_policy` - Optional fee policy for the transaction
+    /// * transaction_description - description of requested transaction:
+    ///   * `to_address` - Destination address
+    ///   * `amount` - Amount to send (mutually exclusive with is_send_all)
+    ///   * `is_send_all` - If true, sends all available funds (mutually exclusive with amount)
+    ///   * `payload` - Optional transaction payload
+    ///   * `from_addresses` - Optional list of source addresses to spend from
+    ///   * `utxos` - Optional list of specific UTXOs to spend (mutually exclusive with from_addresses)
+    ///   * `use_existing_change_address` - If true, uses existing change address instead of generating new one
+    ///   * `fee_policy` - Optional fee policy for the transaction
     /// * `password` - The wallet password
     ///
     /// # Security Note
     /// This command sends the password over the network. Only use on trusted or secure connections.
     pub async fn send(
         &mut self,
-        to_address: String,
-        amount: u64,
-        is_send_all: bool,
-        payload: Vec<u8>,
-        from_addresses: Vec<String>,
-        utxos: Vec<Outpoint>,
-        use_existing_change_address: bool,
-        fee_policy: Option<FeePolicy>,
+        transaction_description: TransactionDescription,
         password: String,
     ) -> Result<SendResult> {
         let response = self
             .grpc_client
             .send(Request::new(SendRequest {
-                transaction_description: Some(TransactionDescription {
-                    to_address,
-                    amount,
-                    is_send_all,
-                    payload: payload.into(),
-                    from_addresses,
-                    utxos,
-                    use_existing_change_address,
-                    fee_policy,
-                }),
+                transaction_description: Some(transaction_description),
                 password,
             }))
             .await?
@@ -281,6 +252,7 @@ impl KaswalletClient {
         })
     }
 
+    #[allow(clippy::result_large_err)]
     fn transaction_ids_to_hashes(transaction_ids: Vec<String>) -> Result<Vec<Hash>> {
         transaction_ids
             .into_iter()

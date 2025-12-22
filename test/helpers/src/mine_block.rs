@@ -1,13 +1,13 @@
 use kaspa_addresses::Address;
 use kaspa_grpc_client::GrpcClient;
-use kaspa_rpc_core::RpcRawBlock;
 use kaspa_rpc_core::api::rpc::RpcApi;
+use kaspa_rpc_core::RpcRawBlock;
 use std::sync::Arc;
 
 pub async fn mine_block(kaspad_client: Arc<GrpcClient>, address: &str) -> RpcRawBlock {
     let address: Address = address
         .try_into()
-        .expect(format!("Invalid address: {}", address).as_str());
+        .unwrap_or_else(|_| panic!("Invalid address: {}", address));
 
     let block_template = kaspad_client
         .get_block_template(address, vec![])

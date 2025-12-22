@@ -11,6 +11,7 @@ repository.workspace = true
 [dependencies]
 kaswallet-client.workspace = true
 kaswallet-common.workspace = true
+kaswallet-proto.workspace = true
 
 kaspa-consensus-core.workspace = true
 

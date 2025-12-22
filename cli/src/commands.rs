@@ -1,7 +1,9 @@
 use crate::utils::{format_kas, kas_to_sompi};
 use common::model::WalletSignableTransaction;
 use kaswallet_client::client::KaswalletClient;
-use proto::kaswallet_proto::{fee_policy, FeePolicy};
+use prost::Message;
+use proto::kaswallet_proto::WalletSignableTransaction as ProtoWalletSignableTransaction;
+use proto::kaswallet_proto::{fee_policy, FeePolicy, TransactionDescription};
 use std::fs;
 use std::io::{self, Write};
 
@@ -130,10 +132,10 @@ pub async fn get_utxos(
                 },
                 if utxo.is_dust { Some("dust") } else { None },
             ]
-            .into_iter()
-            .flatten()
-            .collect::<Vec<_>>()
-            .join(", ");
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>()
+                .join(", ");
 
             let flags_str = if flags.is_empty() {
                 String::new()
@@ -168,12 +170,10 @@ fn build_fee_policy(
         Some(FeePolicy {
             fee_policy: Some(fee_policy::FeePolicy::MaxFeeRate(rate)),
         })
-    } else if let Some(fee) = max_fee {
-        Some(FeePolicy {
+    } else {
+        max_fee.map(|fee| FeePolicy {
             fee_policy: Some(fee_policy::FeePolicy::MaxFee(fee)),
         })
-    } else {
-        None
     }
 }
 
@@ -193,7 +193,7 @@ pub async fn send(
     daemon_address: &str,
     to_address: &str,
     send_amount: Option<&str>,
-    send_all: bool,
+    is_send_all: bool,
     from_addresses: Vec<String>,
     use_existing_change_address: bool,
     max_fee_rate: Option<f64>,
@@ -204,7 +204,7 @@ pub async fn send(
     payload: Option<&str>,
 ) -> Result<()> {
     // Validate that either send_amount or send_all is specified
-    if send_amount.is_none() && !send_all {
+    if send_amount.is_none() && !is_send_all {
         return Err("Exactly one of '--send-amount' or '--send-all' must be specified".into());
     }
 
@@ -228,16 +228,17 @@ pub async fn send(
 
     let result = client
         .send(
-            to_address.to_string(),
-            amount_sompi,
-            send_all,
-            payload_bytes,
-            from_addresses,
-            Vec::new(), // utxos
-            use_existing_change_address,
-            fee_policy,
-            password,
-        )
+            TransactionDescription {
+                to_address: to_address.to_string(),
+                amount: amount_sompi,
+                is_send_all,
+                payload: payload_bytes.into(),
+                from_addresses,
+                utxos: vec![],
+                use_existing_change_address,
+                fee_policy,
+            },
+            password)
         .await?;
 
     println!(
@@ -252,7 +253,7 @@ pub async fn send(
     if show_serialized {
         println!();
         println!("Serialized Transaction(s):");
-        for tx in &result.signed_transactions {
+        for tx in result.signed_transactions {
             let serialized = serialize_transaction(tx);
             println!("  {}", serialized);
             println!();
@@ -268,7 +269,7 @@ pub async fn create_unsigned_transaction(
     daemon_address: &str,
     to_address: &str,
     send_amount: Option<&str>,
-    send_all: bool,
+    is_send_all: bool,
     from_addresses: Vec<String>,
     use_existing_change_address: bool,
     max_fee_rate: Option<f64>,
@@ -277,7 +278,7 @@ pub async fn create_unsigned_transaction(
     payload: Option<&str>,
 ) -> Result<()> {
     // Validate that either send_amount or send_all is specified
-    if send_amount.is_none() && !send_all {
+    if send_amount.is_none() && !is_send_all {
         return Err("Exactly one of '--send-amount' or '--send-all' must be specified".into());
     }
 
@@ -298,25 +299,24 @@ pub async fn create_unsigned_transaction(
     };
 
     let unsigned_transactions = client
-        .create_unsigned_transactions(
-            to_address.to_string(),
-            amount_sompi,
-            send_all,
-            payload_bytes,
+        .create_unsigned_transactions(TransactionDescription {
+            to_address: to_address.to_string(),
+            amount: amount_sompi,
+            is_send_all,
+            payload: payload_bytes.into(),
             from_addresses,
-            Vec::new(), // utxos
+            utxos: vec![],
             use_existing_change_address,
             fee_policy,
-        )
-        .await?;
+        }).await?;
 
     println!(
         "Created {} unsigned transaction(s)",
         unsigned_transactions.len()
     );
     println!("Unsigned Transaction(s) (hex encoded):");
-    for tx in &unsigned_transactions {
-        let serialized = serialize_transaction(tx);
+    for transaction in unsigned_transactions {
+        let serialized = serialize_transaction(transaction);
         println!("{}", serialized);
         println!();
     }
@@ -342,8 +342,8 @@ pub async fn sign(
 
     println!("Signed {} transaction(s)", signed_transactions.len());
     println!("Signed Transaction(s) (hex encoded):");
-    for tx in &signed_transactions {
-        let serialized = serialize_transaction(tx);
+    for transaction in signed_transactions {
+        let serialized = serialize_transaction(transaction);
         println!("{}", serialized);
         println!();
     }
@@ -377,8 +377,8 @@ fn get_transactions_hex(
     transaction: Option<String>,
     transaction_file: Option<String>,
 ) -> Result<String> {
-    if let Some(tx) = transaction {
-        Ok(tx)
+    if let Some(transaction) = transaction {
+        Ok(transaction)
     } else if let Some(file_path) = transaction_file {
         fs::read_to_string(&file_path)
             .map(|s| s.trim().to_string())
@@ -397,14 +397,9 @@ fn parse_transactions_hex(hex_str: &str) -> Result<Vec<WalletSignableTransaction
         if line.is_empty() {
             continue;
         }
+        let transaction = deserialize_transaction(line)?;
 
-        let bytes =
-            hex::decode(line).map_err(|e| format!("Invalid hex in transaction: {}", e))?;
-
-        let tx: WalletSignableTransaction = borsh::from_slice(&bytes)
-            .map_err(|e| format!("Failed to deserialize transaction: {}", e))?;
-
-        transactions.push(tx);
+        transactions.push(transaction);
     }
 
     if transactions.is_empty() {
@@ -414,7 +409,15 @@ fn parse_transactions_hex(hex_str: &str) -> Result<Vec<WalletSignableTransaction
     Ok(transactions)
 }
 
-fn serialize_transaction(tx: &WalletSignableTransaction) -> String {
-    let bytes = borsh::to_vec(tx).expect("Failed to serialize transaction");
+fn deserialize_transaction(hex: &str) -> Result<WalletSignableTransaction> {
+    let bytes =
+        hex::decode(hex).map_err(|e| format!("Invalid hex in transaction: {}", e))?;
+
+    let proto_transaction = ProtoWalletSignableTransaction::decode(bytes.as_slice())?;
+    Ok(proto_transaction.into())
+}
+fn serialize_transaction(tx: WalletSignableTransaction) -> String {
+    let proto_transaction: ProtoWalletSignableTransaction = tx.into();
+    let bytes = proto_transaction.encode_to_vec();
     hex::encode(bytes)
 }

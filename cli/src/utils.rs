@@ -1,8 +1,7 @@
 use kaspa_consensus_core::constants::SOMPI_PER_KASPA;
-use rust_decimal::prelude::*;
+use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
-use std::error::Error;
-
+use std::str::FromStr;
 
 /// Format sompi amount as KAS with 8 decimal places, right-aligned in 19 characters.
 pub fn format_kas(amount: u64) -> String {

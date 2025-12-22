@@ -1,5 +1,3 @@
-extern crate core;
-
 use args::{Args, Commands};
 use clap::Parser;
 use std::process;
@@ -39,7 +37,7 @@ async fn main() {
             daemon_address,
             to_address,
             send_amount,
-            send_all,
+            is_send_all,
             from_addresses,
             use_existing_change_address,
             max_fee_rate,
@@ -53,7 +51,7 @@ async fn main() {
                 &daemon_address,
                 &to_address,
                 send_amount.as_deref(),
-                send_all,
+                is_send_all,
                 from_addresses,
                 use_existing_change_address,
                 max_fee_rate,
@@ -70,7 +68,7 @@ async fn main() {
             daemon_address,
             to_address,
             send_amount,
-            send_all,
+            is_send_all,
             from_addresses,
             use_existing_change_address,
             max_fee_rate,
@@ -81,7 +79,7 @@ async fn main() {
                 &daemon_address,
                 &to_address,
                 send_amount.as_deref(),
-                send_all,
+                is_send_all,
                 from_addresses,
                 use_existing_change_address,
                 max_fee_rate,

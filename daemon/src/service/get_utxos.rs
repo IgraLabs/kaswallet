@@ -48,12 +48,11 @@ impl KasWalletService {
 
         let virtual_daa_score = self.get_virtual_daa_score().await?;
 
-        let filtered_bucketed_utxos: HashMap<String, Vec<ProtoUtxo>>;
         let utxos = {
             let utxo_manager = self.utxo_manager.lock().await;
             utxo_manager.utxos_sorted_by_amount()
         };
-        filtered_bucketed_utxos = self
+        let filtered_bucketed_utxos = self
             .filter_utxos_and_bucket_by_address(
                 &utxos,
                 fee_rate,

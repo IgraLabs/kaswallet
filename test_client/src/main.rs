@@ -1,6 +1,6 @@
 use common::model::WalletSignableTransaction;
-use futures::stream::FuturesUnordered;
 use futures::StreamExt;
+use futures::stream::FuturesUnordered;
 use kaspa_consensus_core::sign::Signed;
 use kaspa_consensus_core::tx::SignableTransaction;
 use kaswallet_client::client::KaswalletClient;
@@ -77,19 +77,12 @@ async fn preselected_utxos_test(
 
     // Divide by 2 to leave some fee, and create multiple outpoints to avoid only 1 spendable UTXO in the next run.
     // If the smallest UTXO is too small, this may fail due to dust limits. In that case - run sanity test to consolidate UTXOs.
-    let send_amount = selected_utxo.amount / 2;
-    let send_result = client
-        .send(
-            to_address,
-            send_amount,
-            false,
-            vec![],
-            vec![],
-            vec![selected_utxo.outpoint.clone()],
-            true,
-            None,
-            "".to_string(),
-        )
+    let amount = selected_utxo.amount / 2;
+
+    let send_result = TransactionBuilder::new(to_address)
+        .amount(amount)
+        .utxos(vec![selected_utxo.outpoint.clone()])
+        .send(client, "".to_string())
         .await?;
 
     println!(

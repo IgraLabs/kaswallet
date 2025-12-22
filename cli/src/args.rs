@@ -66,12 +66,12 @@ pub enum Commands {
         to_address: String,
 
         /// An amount to send in Kaspa (e.g. 1234.12345678)
-        #[arg(short = 'a', long = "amount", conflicts_with = "send_all")]
+        #[arg(short = 'a', long = "amount", conflicts_with = "is_send_all")]
         send_amount: Option<String>,
 
         /// Send all the Kaspa in the wallet
         #[arg(long = "send-all", conflicts_with = "send_amount")]
-        send_all: bool,
+        is_send_all: bool,
 
         /// Transaction payload (hex-encoded)
         #[arg(long = "payload")]
@@ -112,12 +112,12 @@ pub enum Commands {
         to_address: String,
 
         /// An amount to send in Kaspa (e.g. 1234.12345678)
-        #[arg(short = 'a', long = "amount", conflicts_with = "send_all")]
+        #[arg(short = 'a', long = "amount", conflicts_with = "is_send_all")]
         send_amount: Option<String>,
 
         /// Send all the Kaspa in the wallet
         #[arg(long = "send-all", conflicts_with = "send_amount")]
-        send_all: bool,
+        is_send_all: bool,
 
         /// Specific public address to send Kaspa from (can be specified multiple times)
         #[arg(short = 'f', long = "from")]

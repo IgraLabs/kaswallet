@@ -2,7 +2,7 @@ use crate::args::Args;
 use common::encrypted_mnemonic::EncryptedMnemonic;
 use common::errors::WalletError::InternalServerError;
 use common::errors::WalletResult;
-use common::keys::{KEY_FILE_VERSION, Keys, master_key_path};
+use common::keys::{master_key_path, Keys, KEY_FILE_VERSION};
 use kaspa_bip32::secp256k1::PublicKey;
 use kaspa_bip32::{ExtendedPrivateKey, ExtendedPublicKey, Mnemonic, Prefix, SecretKey};
 use std::sync::Arc;
@@ -80,11 +80,11 @@ fn extract_x_public_keys(
 
 fn encrypt_mnemonics(
     password: &String,
-    mnemonics: &Vec<Mnemonic>,
+    mnemonics: &[Mnemonic],
 ) -> WalletResult<Vec<EncryptedMnemonic>> {
     let mut encrypted_mnemonics = vec![];
     for mnemonic in mnemonics.iter() {
-        let encrypted_mnemonic = EncryptedMnemonic::new(mnemonic, &password)
+        let encrypted_mnemonic = EncryptedMnemonic::new(mnemonic, password)
             .map_err(|e| InternalServerError(format!("Error encrypting mnemonics: {}", e)))?;
         encrypted_mnemonics.push(encrypted_mnemonic);
     }
@@ -92,18 +92,18 @@ fn encrypt_mnemonics(
 }
 
 fn minimum_cosigner_index(
-    all_public_keys: &Vec<ExtendedPublicKey<PublicKey>>,
-    signer_public_keys: &Vec<ExtendedPublicKey<PublicKey>>,
+    all_public_keys: &[ExtendedPublicKey<PublicKey>],
+    signer_public_keys: &[ExtendedPublicKey<PublicKey>],
     prefix: Prefix,
 ) -> u16 {
-    let mut sorted_public_keys = all_public_keys.clone();
+    let mut sorted_public_keys = all_public_keys.to_vec();
     sorted_public_keys.sort_by_key(|a| a.to_string(Some(prefix)));
 
     let mut minimum_cosigner_index = sorted_public_keys.len();
     for x_public_key in signer_public_keys {
         let current_key_cosigner_index = sorted_public_keys
             .iter()
-            .position(|x| x.eq(&x_public_key))
+            .position(|x| x.eq(x_public_key))
             .unwrap_or(0);
         if current_key_cosigner_index < minimum_cosigner_index {
             minimum_cosigner_index = current_key_cosigner_index;

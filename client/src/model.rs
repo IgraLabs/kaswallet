@@ -3,7 +3,7 @@ use common::model::WalletSignableTransaction;
 use kaspa_hashes::Hash;
 use proto::kaswallet_proto::{
     AddressBalances as ProtoAddressBalances, AddressToUtxos as ProtoAddressToUtxos, FeePolicy,
-    Outpoint, Utxo as ProtoUtxo,
+    Outpoint, TransactionDescription, Utxo as ProtoUtxo,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -173,22 +173,26 @@ impl TransactionBuilder {
         self
     }
 
+    pub fn transaction_description(&self) -> TransactionDescription {
+        TransactionDescription {
+            to_address: self.to_address.clone(),
+            amount: self.amount.unwrap_or(0),
+            is_send_all: self.is_send_all,
+            payload: self.payload.clone().into(),
+            from_addresses: self.from_addresses.clone(),
+            utxos: self.utxos.clone(),
+            use_existing_change_address: self.use_existing_change_address,
+            fee_policy: self.fee_policy,
+        }
+    }
+
     /// Create unsigned transactions without signing or broadcasting.
     pub async fn create_unsigned_transactions(
         &self,
         client: &mut KaswalletClient,
     ) -> Result<Vec<WalletSignableTransaction>> {
         client
-            .create_unsigned_transactions(
-                self.to_address.clone(),
-                self.amount.unwrap_or(0),
-                self.is_send_all,
-                self.payload.clone(),
-                self.from_addresses.clone(),
-                self.utxos.clone(),
-                self.use_existing_change_address,
-                self.fee_policy.clone(),
-            )
+            .create_unsigned_transactions(self.transaction_description())
             .await
     }
 
@@ -197,18 +201,6 @@ impl TransactionBuilder {
     /// # Security Note
     /// This command sends the password over the network. Only use on trusted or secure connections.
     pub async fn send(self, client: &mut KaswalletClient, password: String) -> Result<SendResult> {
-        client
-            .send(
-                self.to_address,
-                self.amount.unwrap_or(0),
-                self.is_send_all,
-                self.payload,
-                self.from_addresses,
-                self.utxos,
-                self.use_existing_change_address,
-                self.fee_policy,
-                password,
-            )
-            .await
+        client.send(self.transaction_description(), password).await
     }
 }
