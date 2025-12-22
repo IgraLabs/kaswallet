@@ -11,6 +11,9 @@ include.workspace = true
 
 [dependencies]
 
+[features]
+integration-tests = []
+
 [dev-dependencies]
 rstest.workspace = true
 kaswallet-common.workspace = true
