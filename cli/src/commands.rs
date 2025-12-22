@@ -1,6 +1,8 @@
 use crate::utils::{format_kas, kas_to_sompi};
 use common::model::WalletSignableTransaction;
 use kaswallet_client::client::KaswalletClient;
+use prost::Message;
+use proto::kaswallet_proto::WalletSignableTransaction as ProtoWalletSignableTransaction;
 use proto::kaswallet_proto::{fee_policy, FeePolicy, TransactionDescription};
 use std::fs;
 use std::io::{self, Write};
@@ -251,7 +253,7 @@ pub async fn send(
     if show_serialized {
         println!();
         println!("Serialized Transaction(s):");
-        for tx in &result.signed_transactions {
+        for tx in result.signed_transactions {
             let serialized = serialize_transaction(tx);
             println!("  {}", serialized);
             println!();
@@ -313,8 +315,8 @@ pub async fn create_unsigned_transaction(
         unsigned_transactions.len()
     );
     println!("Unsigned Transaction(s) (hex encoded):");
-    for tx in &unsigned_transactions {
-        let serialized = serialize_transaction(tx);
+    for transaction in unsigned_transactions {
+        let serialized = serialize_transaction(transaction);
         println!("{}", serialized);
         println!();
     }
@@ -340,8 +342,8 @@ pub async fn sign(
 
     println!("Signed {} transaction(s)", signed_transactions.len());
     println!("Signed Transaction(s) (hex encoded):");
-    for tx in &signed_transactions {
-        let serialized = serialize_transaction(tx);
+    for transaction in signed_transactions {
+        let serialized = serialize_transaction(transaction);
         println!("{}", serialized);
         println!();
     }
@@ -375,8 +377,8 @@ fn get_transactions_hex(
     transaction: Option<String>,
     transaction_file: Option<String>,
 ) -> Result<String> {
-    if let Some(tx) = transaction {
-        Ok(tx)
+    if let Some(transaction) = transaction {
+        Ok(transaction)
     } else if let Some(file_path) = transaction_file {
         fs::read_to_string(&file_path)
             .map(|s| s.trim().to_string())
@@ -395,14 +397,9 @@ fn parse_transactions_hex(hex_str: &str) -> Result<Vec<WalletSignableTransaction
         if line.is_empty() {
             continue;
         }
+        let transaction = deserialize_transaction(line)?;
 
-        let bytes =
-            hex::decode(line).map_err(|e| format!("Invalid hex in transaction: {}", e))?;
-
-        let tx: WalletSignableTransaction = borsh::from_slice(&bytes)
-            .map_err(|e| format!("Failed to deserialize transaction: {}", e))?;
-
-        transactions.push(tx);
+        transactions.push(transaction);
     }
 
     if transactions.is_empty() {
@@ -412,7 +409,15 @@ fn parse_transactions_hex(hex_str: &str) -> Result<Vec<WalletSignableTransaction
     Ok(transactions)
 }
 
-fn serialize_transaction(tx: &WalletSignableTransaction) -> String {
-    let bytes = borsh::to_vec(tx).expect("Failed to serialize transaction");
+fn deserialize_transaction(hex: &str) -> Result<WalletSignableTransaction> {
+    let bytes =
+        hex::decode(hex).map_err(|e| format!("Invalid hex in transaction: {}", e))?;
+
+    let proto_transaction = ProtoWalletSignableTransaction::decode(bytes.as_slice())?;
+    Ok(proto_transaction.into())
+}
+fn serialize_transaction(tx: WalletSignableTransaction) -> String {
+    let proto_transaction: ProtoWalletSignableTransaction = tx.into();
+    let bytes = proto_transaction.encode_to_vec();
     hex::encode(bytes)
 }

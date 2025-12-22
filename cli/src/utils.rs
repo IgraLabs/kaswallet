@@ -1,22 +1,12 @@
 use kaspa_consensus_core::constants::SOMPI_PER_KASPA;
-use std::error::Error;
-use std::fmt;
-
-#[derive(Debug)]
-pub struct ParseError(pub String);
-
-impl fmt::Display for ParseError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl Error for ParseError {}
+use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::Decimal;
+use std::str::FromStr;
 
 /// Format sompi amount as KAS with 8 decimal places, right-aligned in 19 characters.
 pub fn format_kas(amount: u64) -> String {
     if amount == 0 {
-        "                   ".to_string()
+        " ".repeat(19)
     } else {
         format!("{:>19.8}", amount as f64 / SOMPI_PER_KASPA as f64)
     }
@@ -24,25 +14,18 @@ pub fn format_kas(amount: u64) -> String {
 
 /// Parse a KAS amount string into sompi.
 /// Accepts formats like "1234" or "1234.12345678"
-pub fn kas_to_sompi(amount: &str) -> Result<u64, ParseError> {
+pub fn kas_to_sompi(amount: &str) -> Result<u64, String> {
     // Validate format: either an integer or a float with max 8 decimal places
     let re = regex::Regex::new(r"^([1-9]\d{0,11}|0)(\.\d{0,8})?$").unwrap();
     if !re.is_match(amount) {
-        return Err(ParseError("Invalid amount format".to_string()));
+        return Err("Invalid amount format".to_string());
     }
-
-    let parts: Vec<&str> = amount.split('.').collect();
-    let integer_part = parts[0];
-    let decimal_part = if parts.len() > 1 { parts[1] } else { "" };
-
-    // Pad decimal part to 8 digits
-    let decimal_padded = format!("{:0<8}", decimal_part);
-
-    // Combine and parse
-    let combined = format!("{}{}", integer_part, decimal_padded);
-    combined
-        .parse::<u64>()
-        .map_err(|e| ParseError(format!("Failed to parse amount: {}", e)))
+    let decimal =
+        Decimal::from_str(amount).map_err(|e| format!("Invalid decimal: {}", e))?;
+    let sompi = decimal * Decimal::from(SOMPI_PER_KASPA);
+    sompi
+        .to_u64()
+        .ok_or_else(|| "Amount out of range for u64".to_string())
 }
 
 #[cfg(test)]
