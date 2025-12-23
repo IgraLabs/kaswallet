@@ -1,7 +1,5 @@
 use crate::address_manager::{AddressManager, AddressSet};
-use common::model::{
-    WalletAddress, WalletOutpoint, WalletSignableTransaction, WalletUtxo, WalletUtxoEntry,
-};
+use common::model::{WalletOutpoint, WalletSignableTransaction, WalletUtxo, WalletUtxoEntry};
 use itertools::Itertools;
 use kaspa_consensus_core::config::params::Params;
 use kaspa_rpc_core::{GetBlockDagInfoResponse, RpcMempoolEntryByAddress, RpcUtxosByAddressesEntry};
@@ -64,13 +62,13 @@ impl UtxoManager {
         }
 
         for (i, output) in tx.outputs.iter().enumerate() {
-            let wallet_address: Option<WalletAddress>;
-            {
+            let address_string = transaction.address_by_output_index[i].to_string();
+            let wallet_address = {
                 let address_manager = self.address_manager.lock().await;
-                wallet_address = address_manager
-                    .wallet_address_from_string(&transaction.address_by_output_index[i].to_string())
-                    .await;
-            }
+                address_manager
+                    .wallet_address_from_string(&address_string)
+                    .await
+            };
             if wallet_address.is_none() {
                 // this means payment is not to this wallet
                 continue;

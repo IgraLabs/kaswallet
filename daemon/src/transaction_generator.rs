@@ -18,9 +18,9 @@ use kaspa_grpc_client::GrpcClient;
 use kaspa_rpc_core::api::rpc::RpcApi;
 use kaspa_txscript::pay_to_address_script;
 use kaspa_wallet_core::prelude::AddressPrefix;
-use kaspa_wallet_core::tx::{MAXIMUM_STANDARD_TRANSACTION_MASS, MassCalculator};
+use kaspa_wallet_core::tx::{MassCalculator, MAXIMUM_STANDARD_TRANSACTION_MASS};
 use log::debug;
-use proto::kaswallet_proto::{FeePolicy, Outpoint, TransactionDescription, fee_policy};
+use proto::kaswallet_proto::{fee_policy, FeePolicy, Outpoint, TransactionDescription};
 use std::cmp::min;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -67,19 +67,10 @@ impl TransactionGenerator {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub async fn create_unsigned_transactions(
         &mut self,
         utxo_manager: &MutexGuard<'_, UtxoManager>,
         transaction_description: TransactionDescription,
-        //to_address: String,
-        //amount: u64,
-        //is_send_all: bool,
-        //payload: Vec<u8>,
-        //from_addresses_strings: Vec<String>,
-        //preselected_utxo_outpoints: Vec<Outpoint>,
-        //use_existing_change_address: bool,
-        //fee_policy: Option<FeePolicy>,
     ) -> WalletResult<Vec<WalletSignableTransaction>> {
         let validate_address = |address_string, name| -> WalletResult<Address> {
             match Address::try_from(address_string) {
