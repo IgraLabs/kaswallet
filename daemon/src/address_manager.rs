@@ -1,7 +1,7 @@
 use common::addresses::{multisig_address, p2pk_address};
 use common::errors::{ResultExt, WalletResult};
 use common::keys::Keys;
-use common::model::{Keychain, WalletAddress, KEYCHAINS};
+use common::model::{KEYCHAINS, Keychain, WalletAddress};
 use kaspa_addresses::{Address, Prefix as AddressPrefix};
 use kaspa_bip32::secp256k1::PublicKey;
 use kaspa_bip32::{DerivationPath, ExtendedPublicKey};
@@ -9,8 +9,8 @@ use kaspa_rpc_core::RpcBalancesByAddressesEntry;
 use std::collections::HashMap;
 use std::error::Error;
 use std::str::FromStr;
-use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
+use std::sync::atomic::Ordering::Relaxed;
 use tokio::sync::Mutex;
 
 pub type AddressSet = HashMap<String, WalletAddress>;

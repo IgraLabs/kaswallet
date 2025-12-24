@@ -3,7 +3,7 @@ use common::model::WalletSignableTransaction;
 use kaswallet_client::client::KaswalletClient;
 use prost::Message;
 use proto::kaswallet_proto::WalletSignableTransaction as ProtoWalletSignableTransaction;
-use proto::kaswallet_proto::{fee_policy, FeePolicy, TransactionDescription};
+use proto::kaswallet_proto::{FeePolicy, TransactionDescription, fee_policy};
 use std::fs;
 use std::io::{self, Write};
 
@@ -132,10 +132,10 @@ pub async fn get_utxos(
                 },
                 if utxo.is_dust { Some("dust") } else { None },
             ]
-                .into_iter()
-                .flatten()
-                .collect::<Vec<_>>()
-                .join(", ");
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join(", ");
 
             let flags_str = if flags.is_empty() {
                 String::new()
@@ -238,7 +238,8 @@ pub async fn send(
                 use_existing_change_address,
                 fee_policy,
             },
-            password)
+            password,
+        )
         .await?;
 
     println!(
@@ -308,7 +309,8 @@ pub async fn create_unsigned_transaction(
             utxos: vec![],
             use_existing_change_address,
             fee_policy,
-        }).await?;
+        })
+        .await?;
 
     println!(
         "Created {} unsigned transaction(s)",
@@ -410,8 +412,7 @@ fn parse_transactions_hex(hex_str: &str) -> Result<Vec<WalletSignableTransaction
 }
 
 fn deserialize_transaction(hex: &str) -> Result<WalletSignableTransaction> {
-    let bytes =
-        hex::decode(hex).map_err(|e| format!("Invalid hex in transaction: {}", e))?;
+    let bytes = hex::decode(hex).map_err(|e| format!("Invalid hex in transaction: {}", e))?;
 
     let proto_transaction = ProtoWalletSignableTransaction::decode(bytes.as_slice())?;
     Ok(proto_transaction.into())

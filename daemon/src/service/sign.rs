@@ -4,9 +4,9 @@ use common::errors::{ResultExt, WalletResult};
 use common::keys::master_key_path;
 use common::model::WalletSignableTransaction;
 use itertools::Itertools;
-use kaspa_bip32::{secp256k1, ExtendedPrivateKey, Mnemonic, SecretKey};
+use kaspa_bip32::{ExtendedPrivateKey, Mnemonic, SecretKey, secp256k1};
 use kaspa_consensus_core::hashing::sighash::{
-    calc_schnorr_signature_hash, SigHashReusedValuesUnsync,
+    SigHashReusedValuesUnsync, calc_schnorr_signature_hash,
 };
 use kaspa_consensus_core::hashing::sighash_type::SIG_HASH_ALL;
 use kaspa_consensus_core::sign::Signed;
