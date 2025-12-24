@@ -1,6 +1,6 @@
 use kaspa_consensus_core::constants::SOMPI_PER_KASPA;
-use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
+use rust_decimal::prelude::ToPrimitive;
 use std::str::FromStr;
 
 /// Format sompi amount as KAS with 8 decimal places, right-aligned in 19 characters.
@@ -20,8 +20,7 @@ pub fn kas_to_sompi(amount: &str) -> Result<u64, String> {
     if !re.is_match(amount) {
         return Err("Invalid amount format".to_string());
     }
-    let decimal =
-        Decimal::from_str(amount).map_err(|e| format!("Invalid decimal: {}", e))?;
+    let decimal = Decimal::from_str(amount).map_err(|e| format!("Invalid decimal: {}", e))?;
     let sompi = decimal * Decimal::from(SOMPI_PER_KASPA);
     sompi
         .to_u64()

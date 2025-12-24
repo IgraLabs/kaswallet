@@ -77,6 +77,13 @@ impl AddressManager {
             .kaspa_address_from_wallet_address(&wallet_address, true)
             .await?;
 
+        {
+            self.addresses
+                .lock()
+                .await
+                .insert(address.to_string(), wallet_address.clone());
+        }
+
         Ok((address.to_string(), wallet_address))
     }
 
@@ -246,6 +253,13 @@ impl AddressManager {
         let address = self
             .kaspa_address_from_wallet_address(&wallet_address, true)
             .await?;
+
+        {
+            self.addresses
+                .lock()
+                .await
+                .insert(address.to_string(), wallet_address.clone());
+        }
 
         Ok((address, wallet_address))
     }

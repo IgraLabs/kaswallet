@@ -67,19 +67,10 @@ impl TransactionGenerator {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub async fn create_unsigned_transactions(
         &mut self,
         utxo_manager: &MutexGuard<'_, UtxoManager>,
         transaction_description: TransactionDescription,
-        //to_address: String,
-        //amount: u64,
-        //is_send_all: bool,
-        //payload: Vec<u8>,
-        //from_addresses_strings: Vec<String>,
-        //preselected_utxo_outpoints: Vec<Outpoint>,
-        //use_existing_change_address: bool,
-        //fee_policy: Option<FeePolicy>,
     ) -> WalletResult<Vec<WalletSignableTransaction>> {
         let validate_address = |address_string, name| -> WalletResult<Address> {
             match Address::try_from(address_string) {
