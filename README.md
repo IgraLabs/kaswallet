@@ -39,7 +39,7 @@ Use `--keys [path_to_keys_file]` to specify a custom location.
 You will be asked for a password (leave blank for no password), and then your mnemonic will be printed.  
 Write down this mnemonic and store it in a safe place.
 
-#### Import mnemmonic
+#### Import Mnemonic
 
 ```bash
 kaswallet-create \\
