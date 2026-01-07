@@ -4,10 +4,41 @@ use kaswallet_client::client::KaswalletClient;
 use prost::Message;
 use proto::kaswallet_proto::WalletSignableTransaction as ProtoWalletSignableTransaction;
 use proto::kaswallet_proto::{FeePolicy, TransactionDescription, fee_policy};
+use serde::Serialize;
+use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Write};
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+
+/// JSON output structure for the address-balances command
+#[derive(Serialize)]
+struct AddressBalancesOutput {
+    default_address: String,
+    total_available: u64,
+    total_pending: u64,
+    addresses: Vec<AddressDetailOutput>,
+}
+
+/// Per-address balance and UTXO details
+#[derive(Serialize)]
+struct AddressDetailOutput {
+    address: String,
+    available: u64,
+    pending: u64,
+    utxos: Vec<UtxoDetailOutput>,
+}
+
+/// Individual UTXO information
+#[derive(Serialize)]
+struct UtxoDetailOutput {
+    transaction_id: String,
+    index: u32,
+    amount: u64,
+    is_coinbase: bool,
+    is_pending: bool,
+    block_daa_score: u64,
+}
 
 async fn connect(daemon_address: &str) -> Result<KaswalletClient> {
     KaswalletClient::connect(daemon_address.to_string())
@@ -421,4 +452,74 @@ fn serialize_transaction(tx: WalletSignableTransaction) -> String {
     let proto_transaction: ProtoWalletSignableTransaction = tx.into();
     let bytes = proto_transaction.encode_to_vec();
     hex::encode(bytes)
+}
+
+/// Get balance per address with UTXO details as JSON
+pub async fn address_balances(daemon_address: &str) -> Result<()> {
+    let mut client = connect(daemon_address).await?;
+
+    // Get all generated addresses to find the default (first) address
+    // If no addresses exist yet, auto-generate the first one
+    let all_addresses = client.get_addresses().await?;
+    let default_address = if let Some(addr) = all_addresses.first() {
+        addr.clone()
+    } else {
+        client.new_address().await?
+    };
+
+    let balance_info = client.get_balance(true).await?;
+
+    let address_list: Vec<String> = balance_info
+        .address_balances
+        .iter()
+        .map(|ab| ab.address.clone())
+        .collect();
+
+    // Include pending UTXOs but exclude dust UTXOs
+    let utxos_by_address = client.get_utxos(address_list, true, false).await?;
+
+    let utxo_map: HashMap<String, Vec<kaswallet_client::model::Utxo>> = utxos_by_address
+        .into_iter()
+        .map(|au| (au.address, au.utxos))
+        .collect();
+
+    let address_details: Vec<AddressDetailOutput> = balance_info
+        .address_balances
+        .iter()
+        .map(|ab| {
+            let utxos = utxo_map
+                .get(&ab.address)
+                .map(|address_utxos| {
+                    address_utxos
+                        .iter()
+                        .map(|u| UtxoDetailOutput {
+                            transaction_id: u.outpoint.transaction_id.clone(),
+                            index: u.outpoint.index,
+                            amount: u.amount,
+                            is_coinbase: u.is_coinbase,
+                            is_pending: u.is_pending,
+                            block_daa_score: u.block_daa_score,
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+
+            AddressDetailOutput {
+                address: ab.address.clone(),
+                available: ab.available,
+                pending: ab.pending,
+                utxos,
+            }
+        })
+        .collect();
+
+    let output = AddressBalancesOutput {
+        default_address,
+        total_available: balance_info.available,
+        total_pending: balance_info.pending,
+        addresses: address_details,
+    };
+
+    println!("{}", serde_json::to_string_pretty(&output)?);
+    Ok(())
 }
