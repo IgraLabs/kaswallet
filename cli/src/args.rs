@@ -181,4 +181,10 @@ pub enum Commands {
         #[arg(short = 'd', long = "daemonaddress", default_value = DEFAULT_DAEMON_ADDRESS)]
         daemon_address: String,
     },
+
+    /// Show balance per address with UTXO details as JSON
+    AddressBalances {
+        #[arg(short = 'd', long = "daemonaddress", default_value = DEFAULT_DAEMON_ADDRESS)]
+        daemon_address: String,
+    },
 }

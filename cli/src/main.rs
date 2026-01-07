@@ -103,6 +103,10 @@ async fn main() {
             transaction,
             transaction_file,
         } => commands::broadcast(&daemon_address, transaction, transaction_file).await,
+
+        Commands::AddressBalances { daemon_address } => {
+            commands::address_balances(&daemon_address).await
+        }
     };
 
     if let Err(e) = result {

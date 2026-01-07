@@ -85,6 +85,7 @@ Available commands are:
   sign                         Sign the given unsigned transaction(s)
   broadcast                    Broadcast the given signed transaction(s)
   get-daemon-version           Get the wallet daemon version
+  address-balances             Show balance per address with UTXO details as JSON
   help                         Print this message or the help of the given subcommand(s)
 ```
 
