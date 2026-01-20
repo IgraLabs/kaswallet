@@ -1,0 +1,52 @@
+name: UB (undefined behavior) detection
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTC_WRAPPER: "sccache"
+  MIRIFLAGS: "-Zmiri-strict-provenance -Zmiri-backtrace=full"
+  # Use git CLI for fetching (required for SSH auth with private repos in isolated env)
+  CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+  # COMPLETE ISOLATION: Each job gets its own environment
+  CARGO_TARGET_DIR: /tmp/cargo-target-${{ github.run_id }}-${{ github.job }}
+  CARGO_HOME: /tmp/cargo-home-${{ github.run_id }}-${{ github.job }}
+  RUSTUP_HOME: /tmp/rustup-${{ github.run_id }}-${{ github.job }}
+  SCCACHE_DIR: /tmp/sccache-${{ github.run_id }}-${{ github.job }}
+  MIRI_SYSROOT: /tmp/miri-sysroot-${{ github.run_id }}-${{ github.job }}
+
+jobs:
+  ub_detection:
+    if: github.event_name == 'push' || github.event.pull_request.draft == false
+    name: Check for undefined behaviour (UB) with Miri
+    runs-on: [self-hosted, kaswallet]
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup isolated Rust environment
+        run: |
+          mkdir -p "$CARGO_HOME" "$RUSTUP_HOME" "$SCCACHE_DIR" "$MIRI_SYSROOT"
+          echo "$CARGO_HOME/bin" >> $GITHUB_PATH
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: miri, rust-src
+      - uses: mozilla-actions/sccache-action@v0.0.9
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+          prefix-key: "v1-rust-${{ github.job }}"
+
+      - name: Setup Miri sysroot
+        run: cargo +nightly miri setup
+
+      - name: Run Miri tests
+        run: cargo +nightly miri test --lib --all-features
