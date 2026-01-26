@@ -32,6 +32,7 @@ jobs:
         with:
           images: igranetwork/kaswallet
           tags: |
+            type=raw,value=latest
             type=raw,value=nightly
             type=sha,prefix=,format=short
 
