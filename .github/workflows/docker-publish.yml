@@ -32,8 +32,14 @@ jobs:
         with:
           images: igranetwork/kaswallet
           tags: |
-            type=raw,value=latest
-            type=raw,value=nightly
+            # latest and nightly only for main branch
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=nightly,enable={{is_default_branch}}
+            # Semantic versioning from tags (v1.2.3 → 1.2.3)
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            # Short SHA
             type=sha,prefix=,format=short
 
       - name: Build and push Docker image
