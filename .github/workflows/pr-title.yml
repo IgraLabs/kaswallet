@@ -1,0 +1,85 @@
+name: PR Title Validation
+
+on:
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - edited
+      - synchronize
+
+permissions:
+  pull-requests: read
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  validate-pr-title:
+    name: Validate PR title format
+    runs-on: [self-hosted, kaswallet]
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Check PR title format
+        id: lint_pr_title
+        uses: amannn/action-semantic-pull-request@v6
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          headerPattern: '^\[ENG-\d+\] (\w+!?)(?:\(([\w$.\-*/ ]*)\))?: (.*)$'
+          headerPatternCorrespondence: type, scope, subject
+          types: |
+            feat
+            fix
+            chore
+            test
+            bench
+            perf
+            refactor
+            docs
+            ci
+            revert
+            deps
+        continue-on-error: true
+
+      - name: Add PR comment for invalid title
+        if: steps.lint_pr_title.outcome == 'failure'
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: pr-title-lint-error
+          message: |
+            ## :x: Invalid PR Title
+
+            Your PR title doesn't follow the required format.
+
+            **Required format:** `[ENG-N] type(scope): title`
+
+            **Examples of valid titles:**
+            - `[ENG-700] ci: add ARM64 Docker build support`
+            - `[ENG-696] feat(atan): add new API endpoint`
+            - `[ENG-123] fix: correct memory leak`
+            - `[ENG-456] refactor(igra): improve error handling`
+
+            **Components:**
+            - `[ENG-N]` - Required task ID (e.g., `[ENG-123]`)
+            - `type` - One of: `feat`, `fix`, `chore`, `test`, `bench`, `perf`, `refactor`, `docs`, `ci`, `revert`, `deps`
+            - `(scope)` - Optional scope (e.g., `(atan)`, `(igra)`)
+            - `title` - Brief description
+
+            **Breaking Changes:** Use `!` for breaking changes (e.g., `[ENG-100] feat!: changed the API`)
+
+            **Documentation:** [IGRA Coding Standards & Git Workflow](https://www.notion.so/IGRA-Coding-Standards-Git-Workflow-1dde2b1f1b7d80529604e4f6bcca55cc)
+
+      - name: Remove comment for valid title
+        if: steps.lint_pr_title.outcome == 'success'
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: pr-title-lint-error
+          delete: true
+
+      - name: Fail workflow if title invalid
+        if: steps.lint_pr_title.outcome == 'failure'
+        run: exit 1
