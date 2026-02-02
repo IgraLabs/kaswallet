@@ -24,7 +24,7 @@ env:
 jobs:
   format-lint-typos:
     runs-on: [self-hosted, kaswallet]
-    timeout-minutes: 60
+    timeout-minutes: 240
     steps:
       - uses: actions/checkout@v4
       - name: Setup isolated Rust environment
