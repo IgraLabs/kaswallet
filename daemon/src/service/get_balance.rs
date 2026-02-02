@@ -1,6 +1,5 @@
 use crate::service::kaswallet_service::KasWalletService;
 use common::errors::{ResultExt, WalletResult};
-use common::model::WalletUtxo;
 use log::info;
 use proto::kaswallet_proto::{AddressBalances, GetBalanceRequest, GetBalanceResponse};
 use std::collections::HashMap;
@@ -15,19 +14,16 @@ impl KasWalletService {
         let virtual_daa_score = self.get_virtual_daa_score().await?;
         let mut balances_map = HashMap::new();
 
-        let utxos_sorted_by_amount: Vec<WalletUtxo>;
         let utxos_count: usize;
         {
             let utxo_manager = self.utxo_manager.lock().await;
-            utxos_sorted_by_amount = utxo_manager.utxos_sorted_by_amount();
-
-            utxos_count = utxos_sorted_by_amount.len();
-            for entry in utxos_sorted_by_amount {
-                let amount = entry.utxo_entry.amount;
+            utxos_count = utxo_manager.utxos_by_outpoint().len();
+            for utxo in utxo_manager.utxos_by_outpoint().values() {
+                let amount = utxo.utxo_entry.amount;
                 let balances = balances_map
-                    .entry(entry.address.clone())
+                    .entry(utxo.address.clone())
                     .or_insert_with(BalancesEntry::new);
-                if utxo_manager.is_utxo_pending(&entry, virtual_daa_score) {
+                if utxo_manager.is_utxo_pending(utxo, virtual_daa_score) {
                     balances.add_pending(amount);
                 } else {
                     balances.add_available(amount);

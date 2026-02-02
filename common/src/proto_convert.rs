@@ -128,6 +128,20 @@ impl From<WalletUtxoEntry> for ProtoUtxoEntry {
     }
 }
 
+impl From<&WalletUtxoEntry> for ProtoUtxoEntry {
+    fn from(value: &WalletUtxoEntry) -> ProtoUtxoEntry {
+        ProtoUtxoEntry {
+            amount: value.amount,
+            script_public_key: Some(ProtoScriptPublicKey {
+                version: value.script_public_key.version as u32,
+                script_public_key: hex::encode(value.script_public_key.script()),
+            }),
+            block_daa_score: value.block_daa_score,
+            is_coinbase: value.is_coinbase,
+        }
+    }
+}
+
 pub fn utxo_entry_to_proto(value: UtxoEntry) -> ProtoUtxoEntry {
     ProtoUtxoEntry {
         amount: value.amount,
@@ -148,13 +162,17 @@ pub fn utxo_entry_from_proto(value: ProtoUtxoEntry) -> UtxoEntry {
 }
 
 impl WalletUtxo {
-    pub fn into_proto(self, is_pending: bool, is_dust: bool) -> ProtoUtxo {
+    pub fn to_proto(&self, is_pending: bool, is_dust: bool) -> ProtoUtxo {
         ProtoUtxo {
-            outpoint: Some(self.outpoint.into()),
-            utxo_entry: Some(self.utxo_entry.into()),
+            outpoint: Some(self.outpoint.clone().into()),
+            utxo_entry: Some(ProtoUtxoEntry::from(&self.utxo_entry)),
             is_pending,
             is_dust,
         }
+    }
+
+    pub fn into_proto(self, is_pending: bool, is_dust: bool) -> ProtoUtxo {
+        self.to_proto(is_pending, is_dust)
     }
 }
 

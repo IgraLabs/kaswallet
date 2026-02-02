@@ -1,4 +1,4 @@
-use crate::address_manager::{AddressManager, AddressSet};
+use crate::address_manager::{AddressManager, AddressQuerySet};
 use crate::utxo_manager::UtxoManager;
 use common::keys::Keys;
 use kaspa_addresses::Address;
@@ -26,6 +26,7 @@ pub struct SyncManager {
     sync_interval_millis: u64,
     first_sync_done: AtomicBool,
     next_sync_start_index: AtomicU32,
+    recent_scan_next_index: AtomicU32,
     is_log_final_progress_line_shown: AtomicBool,
     max_used_addresses_for_log: AtomicU32,
     max_processed_addresses_for_log: AtomicU32,
@@ -47,6 +48,7 @@ impl SyncManager {
             sync_interval_millis: sync_interval,
             first_sync_done: AtomicBool::new(false),
             next_sync_start_index: 0.into(),
+            recent_scan_next_index: 0.into(),
             is_log_final_progress_line_shown: false.into(),
             max_used_addresses_for_log: 0.into(),
             max_processed_addresses_for_log: 0.into(),
@@ -94,19 +96,18 @@ impl SyncManager {
 
     async fn refresh_utxos(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
         debug!("Refreshing UTXOs...");
-        let address_strings: Vec<String>;
+        let monitored_addresses: Arc<Vec<Address>>;
         {
             let address_manager = self.address_manager.lock().await;
-            address_strings = address_manager.address_strings().await?;
+            monitored_addresses = address_manager.monitored_addresses().await?;
         }
-        let addresses: Vec<Address> = address_strings
-            .iter()
-            .map(|address_string| Address::constructor(address_string))
-            .collect();
+        let addresses: Vec<Address> = monitored_addresses.as_ref().clone();
 
-        // Lock utxo_manager at this stage, so that nobody tries to generate transactions while
-        // we update the utxo set
-        let mut utxo_manager = self.utxo_manager.lock().await;
+        if addresses.is_empty() {
+            let mut utxo_manager = self.utxo_manager.lock().await;
+            utxo_manager.update_utxo_set(vec![], vec![]).await?;
+            return Ok(());
+        }
 
         debug!("Getting mempool entries for addresses: {:?}...", addresses);
         // It's important to check the mempool before calling `GetUTXOsByAddresses`:
@@ -135,6 +136,9 @@ impl SyncManager {
             self.kaspa_client.get_utxos_by_addresses(addresses).await?;
         debug!("Got {} utxo entries", get_utxo_by_addresses_response.len());
 
+        // Lock utxo_manager only for the actual update, so callers are not blocked while we
+        // perform RPC calls that can take significant time for large address/UTXO sets.
+        let mut utxo_manager = self.utxo_manager.lock().await;
         utxo_manager
             .update_utxo_set(get_utxo_by_addresses_response, mempool_entries_by_addresses)
             .await?;
@@ -158,24 +162,69 @@ impl SyncManager {
     pub async fn collect_recent_addresses(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
         debug!("Collecting recent addresses");
 
+        if !self.first_sync_done.load(Relaxed) {
+            return self.collect_recent_addresses_full_scan().await;
+        }
+        self.collect_recent_addresses_incremental().await
+    }
+
+    async fn collect_recent_addresses_full_scan(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
         let mut index: u32 = 0;
         let mut max_used_index: u32 = 0;
 
-        while index < max_used_index + NUM_INDEXES_TO_QUERY_FOR_RECENT_ADDRESSES {
+        while index < max_used_index.saturating_add(NUM_INDEXES_TO_QUERY_FOR_RECENT_ADDRESSES) {
             self.collect_addresses(index, index + NUM_INDEXES_TO_QUERY_FOR_RECENT_ADDRESSES)
                 .await?;
-            index += NUM_INDEXES_TO_QUERY_FOR_RECENT_ADDRESSES;
+            index = index.saturating_add(NUM_INDEXES_TO_QUERY_FOR_RECENT_ADDRESSES);
 
             max_used_index = self.last_used_index().await;
 
             self.update_address_collection_progress_log(index, max_used_index);
         }
 
-        let next_sync_start_index = self.next_sync_start_index.load(Relaxed);
-        if index > next_sync_start_index {
-            self.next_sync_start_index.store(index, Relaxed);
-        }
+        self.bump_next_sync_start_index(index);
         Ok(())
+    }
+
+    async fn collect_recent_addresses_incremental(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
+        // After the initial full scan, we avoid rescanning from index 0 on every tick. Instead we
+        // scan a fixed-size chunk per cycle and advance a cursor, eventually covering the full
+        // range [0, last_used_index + LOOKAHEAD).
+        let last_used_index = self.last_used_index().await;
+        let frontier = Self::recent_scan_frontier(last_used_index);
+
+        // Keep "synced" semantics stable as last_used_index grows.
+        self.bump_next_sync_start_index(frontier);
+
+        let cursor = self.recent_scan_next_index.load(Relaxed);
+        let (start, end, next_cursor) = Self::recent_scan_step(frontier, cursor);
+
+        debug!(
+            "Incremental recent-address scan: [{}, {}) (cursor={}, frontier={}, last_used_index={})",
+            start, end, cursor, frontier, last_used_index
+        );
+
+        if start < end {
+            self.collect_addresses(start, end).await?;
+        }
+        self.recent_scan_next_index.store(next_cursor, Relaxed);
+        Ok(())
+    }
+
+    fn recent_scan_frontier(last_used_index: u32) -> u32 {
+        last_used_index.saturating_add(NUM_INDEXES_TO_QUERY_FOR_RECENT_ADDRESSES)
+    }
+
+    fn recent_scan_step(frontier: u32, cursor: u32) -> (u32, u32, u32) {
+        if frontier == 0 {
+            return (0, 0, 0);
+        }
+        let start = if cursor >= frontier { 0 } else { cursor };
+        let end = start
+            .saturating_add(NUM_INDEXES_TO_QUERY_FOR_RECENT_ADDRESSES)
+            .min(frontier);
+        let next_cursor = if end >= frontier { 0 } else { end };
+        (start, end, next_cursor)
     }
 
     pub async fn collect_far_addresses(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
@@ -195,6 +244,13 @@ impl SyncManager {
         Ok(())
     }
 
+    fn bump_next_sync_start_index(&self, candidate: u32) {
+        let current = self.next_sync_start_index.load(Relaxed);
+        if candidate > current {
+            self.next_sync_start_index.store(candidate, Relaxed);
+        }
+    }
+
     async fn collect_addresses(
         &self,
         start: u32,
@@ -202,7 +258,7 @@ impl SyncManager {
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         debug!("Collecting addresses from {} to {}", start, end);
 
-        let addresses: AddressSet;
+        let addresses: AddressQuerySet;
         {
             let address_manager = self.address_manager.lock().await;
             addresses = address_manager.addresses_to_query(start, end).await?;
@@ -212,10 +268,7 @@ impl SyncManager {
         let get_balances_by_addresses_response = self
             .kaspa_client
             .get_balances_by_addresses(
-                addresses
-                    .keys()
-                    .map(|address_string| Address::constructor(address_string))
-                    .collect(),
+                addresses.keys().cloned().collect(),
             )
             .await?;
 
@@ -266,5 +319,65 @@ impl SyncManager {
                 percent_processed
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SyncManager;
+
+    #[test]
+    fn recent_scan_frontier_saturates_at_u32_max() {
+        let lookahead = super::NUM_INDEXES_TO_QUERY_FOR_RECENT_ADDRESSES;
+        assert_eq!(SyncManager::recent_scan_frontier(u32::MAX), u32::MAX);
+        assert_eq!(
+            SyncManager::recent_scan_frontier(u32::MAX - lookahead + 1),
+            u32::MAX
+        );
+    }
+
+    #[test]
+    fn recent_scan_step_clamps_end_to_frontier_and_wraps() {
+        let lookahead = super::NUM_INDEXES_TO_QUERY_FOR_RECENT_ADDRESSES;
+        let frontier = lookahead / 2;
+        let (start, end, next_cursor) = SyncManager::recent_scan_step(frontier, 0);
+        assert_eq!(start, 0);
+        assert_eq!(end, frontier);
+        assert_eq!(next_cursor, 0);
+    }
+
+    #[test]
+    fn recent_scan_step_advances_cursor_in_chunks_and_wraps() {
+        let lookahead = super::NUM_INDEXES_TO_QUERY_FOR_RECENT_ADDRESSES;
+        let frontier = lookahead * 2 + 500;
+
+        let (start1, end1, cursor1) = SyncManager::recent_scan_step(frontier, 0);
+        assert_eq!((start1, end1, cursor1), (0, lookahead, lookahead));
+
+        let (start2, end2, cursor2) = SyncManager::recent_scan_step(frontier, cursor1);
+        assert_eq!(
+            (start2, end2, cursor2),
+            (lookahead, lookahead * 2, lookahead * 2)
+        );
+
+        let (start3, end3, cursor3) = SyncManager::recent_scan_step(frontier, cursor2);
+        assert_eq!((start3, end3, cursor3), (lookahead * 2, frontier, 0));
+
+        let (start4, end4, cursor4) = SyncManager::recent_scan_step(frontier, cursor3);
+        assert_eq!((start4, end4, cursor4), (0, lookahead, lookahead));
+    }
+
+    #[test]
+    fn recent_scan_step_resets_stale_cursor_to_zero() {
+        let lookahead = super::NUM_INDEXES_TO_QUERY_FOR_RECENT_ADDRESSES;
+        let frontier = lookahead;
+        let (start, end, next_cursor) = SyncManager::recent_scan_step(frontier, lookahead * 2);
+        assert_eq!((start, end, next_cursor), (0, frontier, 0));
+    }
+
+    #[test]
+    fn recent_scan_step_zero_frontier_is_empty() {
+        assert_eq!(SyncManager::recent_scan_step(0, 0), (0, 0, 0));
+        assert_eq!(SyncManager::recent_scan_step(0, 123), (0, 0, 0));
     }
 }

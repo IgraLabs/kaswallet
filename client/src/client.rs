@@ -28,9 +28,10 @@ impl KaswalletClient {
     ///
     /// # Example
     /// ```no_run
-    /// # use kaswallet_client::WalletClient;
-    /// # async fn example() -> kaswallet_client::Result<()> {
-    /// let client = WalletClient::connect("http://localhost:8082").await?;
+    /// # use kaswallet_client::client::KaswalletClient;
+    /// # use kaswallet_client::model::Result;
+    /// # async fn example() -> Result<()> {
+    /// let client = KaswalletClient::connect("http://localhost:8082").await?;
     /// # Ok(())
     /// # }
     /// ```

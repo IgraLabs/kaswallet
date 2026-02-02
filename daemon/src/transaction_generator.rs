@@ -478,15 +478,17 @@ impl TransactionGenerator {
             .await;
         let fee_per_input = (mass_per_input as f64 * fee_rate).ceil() as u64;
 
-        let utxos_sorted_by_amount = utxo_manager.utxos_sorted_by_amount();
-        let already_selected_utxos =
-            HashSet::<WalletUtxo>::from_iter(original_selected_utxos.iter().cloned());
+        let already_selected_outpoints = HashSet::<WalletOutpoint>::from_iter(
+            original_selected_utxos
+                .iter()
+                .map(|utxo| utxo.outpoint.clone()),
+        );
 
         let mut additional_utxos = vec![];
         let mut total_value_added = 0;
-        for utxo in utxos_sorted_by_amount {
-            if already_selected_utxos.contains(&utxo)
-                || utxo_manager.is_utxo_pending(&utxo, dag_info.virtual_daa_score)
+        for utxo in utxo_manager.utxos_sorted_by_amount() {
+            if already_selected_outpoints.contains(&utxo.outpoint)
+                || utxo_manager.is_utxo_pending(utxo, dag_info.virtual_daa_score)
             {
                 continue;
             }
@@ -858,16 +860,19 @@ impl TransactionGenerator {
             }
             Ok(true)
         };
-        let owned_utxos = utxo_manager.utxos_sorted_by_amount();
-        let available_utxos: Vec<_> = if !preselected_utxos.is_empty() {
-            preselected_utxos.values().collect()
+        if !preselected_utxos.is_empty() {
+            for utxo in preselected_utxos.values() {
+                let should_continue = iteration(self, utxo_manager, utxo).await?;
+                if !should_continue {
+                    break;
+                }
+            }
         } else {
-            owned_utxos.iter().collect()
-        };
-        for utxo in available_utxos {
-            let should_continue = iteration(self, utxo_manager, utxo).await?;
-            if !should_continue {
-                break;
+            for utxo in utxo_manager.utxos_sorted_by_amount() {
+                let should_continue = iteration(self, utxo_manager, utxo).await?;
+                if !should_continue {
+                    break;
+                }
             }
         }
 
