@@ -313,7 +313,7 @@ impl SyncManager {
                 * 100.0;
 
             info!(
-                "{} addressed of {} of processed ({:.2}%)",
+                "{} addresses of {} processed ({:.2}%)",
                 self.max_processed_addresses_for_log.load(Relaxed),
                 self.max_used_addresses_for_log.load(Relaxed),
                 percent_processed

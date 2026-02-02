@@ -219,6 +219,23 @@ In this environment, builds/tests were run with `RUSTC_WRAPPER=` to avoid the co
 RUSTC_WRAPPER= CARGO_TARGET_DIR=target cargo test -q
 ```
 
+# F) Post-review refinements (2026-02-02)
+
+After reviewing `PERF_OPTIMIZATIONS-REVIEW.md`, a few low-risk fixes were applied:
+
+- `daemon/src/address_manager.rs`
+  - Moved `address_set_version` increment **inside** the `addresses` mutex scope in `new_address(...)` and `change_address(...)` to remove the “inserted-but-old-version” window.
+  - Avoided double `to_string()` by computing `address_string` once in `new_address(...)`.
+- `daemon/src/service/get_balance.rs`
+  - Added an early return for empty wallets (`utxos_count == 0`).
+  - Avoided deriving address strings unless `include_balance_per_address` is `true`.
+- `daemon/src/utxo_manager.rs`
+  - Renamed typo variable `exculde` → `exclude`.
+- `daemon/src/sync_manager.rs`
+  - Fixed progress log typo: “addressed” → “addresses”.
+- `common/src/proto_convert.rs`
+  - Made `WalletUtxo::into_proto(self, ...)` actually consume `self` (no clone of outpoint/entry), matching naming expectations.
+
 # E) Follow-ups (not implemented here)
 
 - Replace periodic full `get_utxos_by_addresses` refresh with incremental updates/subscriptions if the node/RPC supports it.

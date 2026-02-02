@@ -123,15 +123,14 @@ impl AddressManager {
             .kaspa_address_from_wallet_address(&wallet_address, true)
             .await?;
 
+        let address_string = address.to_string();
         {
-            self.addresses
-                .lock()
-                .await
-                .insert(address.to_string(), wallet_address.clone());
+            let mut addresses = self.addresses.lock().await;
+            addresses.insert(address_string.clone(), wallet_address.clone());
+            self.address_set_version.fetch_add(1, Relaxed);
         }
-        self.address_set_version.fetch_add(1, Relaxed);
 
-        Ok((address.to_string(), wallet_address))
+        Ok((address_string, wallet_address))
     }
 
     pub async fn addresses_to_query(
@@ -306,13 +305,12 @@ impl AddressManager {
             .kaspa_address_from_wallet_address(&wallet_address, true)
             .await?;
 
+        let address_string = address.to_string();
         {
-            self.addresses
-                .lock()
-                .await
-                .insert(address.to_string(), wallet_address.clone());
+            let mut addresses = self.addresses.lock().await;
+            addresses.insert(address_string, wallet_address.clone());
+            self.address_set_version.fetch_add(1, Relaxed);
         }
-        self.address_set_version.fetch_add(1, Relaxed);
 
         Ok((address, wallet_address))
     }

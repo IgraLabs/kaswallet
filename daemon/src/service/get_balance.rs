@@ -18,6 +18,15 @@ impl KasWalletService {
         {
             let utxo_manager = self.utxo_manager.lock().await;
             utxos_count = utxo_manager.utxos_by_outpoint().len();
+            if utxos_count == 0 {
+                info!("GetBalance request scanned 0 UTXOs overall over 0 addresses");
+                return Ok(GetBalanceResponse {
+                    available: 0,
+                    pending: 0,
+                    address_balances: vec![],
+                });
+            }
+
             for utxo in utxo_manager.utxos_by_outpoint().values() {
                 let amount = utxo.utxo_entry.amount;
                 let balances = balances_map
@@ -33,21 +42,26 @@ impl KasWalletService {
         let mut address_balances = vec![];
         let mut total_balances = BalancesEntry::new();
 
-        let address_manager = self.address_manager.lock().await;
-        for (wallet_address, balances) in &balances_map {
-            let address = address_manager
-                .kaspa_address_from_wallet_address(wallet_address, true)
-                .await
-                .to_wallet_result_internal()?;
+        if request.include_balance_per_address {
+            let address_manager = self.address_manager.lock().await;
+            address_balances.reserve(balances_map.len());
+            for (wallet_address, balances) in &balances_map {
+                let address = address_manager
+                    .kaspa_address_from_wallet_address(wallet_address, true)
+                    .await
+                    .to_wallet_result_internal()?;
 
-            if request.include_balance_per_address {
                 address_balances.push(AddressBalances {
                     address: address.to_string(),
                     available: balances.available,
                     pending: balances.pending,
                 });
+                total_balances.add(balances);
             }
-            total_balances.add(balances);
+        } else {
+            for balances in balances_map.values() {
+                total_balances.add(balances);
+            }
         }
 
         info!(
