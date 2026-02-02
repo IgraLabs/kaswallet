@@ -1,13 +1,19 @@
 use crate::utils::{format_kas, kas_to_sompi};
+use common::addresses::p2pk_address;
 use common::model::WalletSignableTransaction;
+use kaspa_addresses::Prefix as AddressPrefix;
+use kaspa_bip32::secp256k1::PublicKey;
+use kaspa_bip32::{DerivationPath, ExtendedPublicKey, Prefix as Bip32Prefix};
+use kaspa_consensus_core::network::{NetworkId, NetworkType};
 use kaswallet_client::client::KaswalletClient;
 use prost::Message;
 use proto::kaswallet_proto::WalletSignableTransaction as ProtoWalletSignableTransaction;
 use proto::kaswallet_proto::{FeePolicy, TransactionDescription, fee_policy};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Write};
+use std::str::FromStr;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -521,5 +527,96 @@ pub async fn address_balances(daemon_address: &str) -> Result<()> {
     };
 
     println!("{}", serde_json::to_string_pretty(&output)?);
+    Ok(())
+}
+
+/// Structure matching the keys.json file format
+#[derive(Deserialize)]
+struct KeysJson {
+    version: i32,
+    public_keys: Vec<String>,
+    minimum_signatures: u16,
+}
+
+/// Show extended public keys and addresses for all networks
+pub fn show_keys(keys_file: &str) -> Result<()> {
+    // Read and parse the keys file
+    let file_content = fs::read_to_string(keys_file)
+        .map_err(|e| format!("Failed to read keys file '{}': {}", keys_file, e))?;
+
+    let keys: KeysJson = serde_json::from_str(&file_content)
+        .map_err(|e| format!("Failed to parse keys file: {}", e))?;
+
+    // Determine if this is single-sig or multisig based on minimum_signatures
+    let is_multisig = keys.minimum_signatures > 1;
+
+    // BIP32 path for deriving the first receive address
+    // The public keys stored in keys.json are already at m/44'/111111'/0' level
+    // For single-sig: m/{keychain}/{index} where keychain=0 (External), index=1 (first address)
+    // For multisig: m/{cosigner_index}/{keychain}/{index}
+    // Note: The first address has index 1, not 0 (because new_address increments before use)
+    let derivation_path = if is_multisig {
+        DerivationPath::from_str("m/0/0/1")? // cosigner_index=0, External=0, index=1
+    } else {
+        DerivationPath::from_str("m/0/1")? // External=0, index=1
+    };
+
+    // Define all networks to display
+    let networks = vec![
+        ("Mainnet", NetworkId::new(NetworkType::Mainnet)),
+        (
+            "Testnet-10",
+            NetworkId::with_suffix(NetworkType::Testnet, 10),
+        ),
+        (
+            "Testnet-11",
+            NetworkId::with_suffix(NetworkType::Testnet, 11),
+        ),
+        ("Devnet", NetworkId::new(NetworkType::Devnet)),
+        ("Simnet", NetworkId::new(NetworkType::Simnet)),
+    ];
+
+    println!("Keys File: {}", keys_file);
+    println!("Version: {}", keys.version);
+    println!(
+        "Type: {}",
+        if is_multisig {
+            "Multisig"
+        } else {
+            "Single-sig"
+        }
+    );
+    if is_multisig {
+        println!("Minimum Signatures: {}", keys.minimum_signatures);
+    }
+    println!();
+
+    for (key_index, xpub_str) in keys.public_keys.iter().enumerate() {
+        println!("═══════════════════════════════════════════════════════════════════════");
+        println!("Public Key #{}", key_index + 1);
+        println!("═══════════════════════════════════════════════════════════════════════");
+        println!();
+
+        let xpub = ExtendedPublicKey::<PublicKey>::from_str(xpub_str)
+            .map_err(|e| format!("Failed to parse public key: {}", e))?;
+
+        for (network_name, network_id) in &networks {
+            let bip32_prefix = Bip32Prefix::from(*network_id);
+            let address_prefix = AddressPrefix::from(*network_id);
+
+            println!(
+                "{:12} xpub: {}",
+                network_name,
+                xpub.to_string(Some(bip32_prefix))
+            );
+
+            let address = p2pk_address(&xpub, address_prefix, &derivation_path)
+                .map_err(|e| format!("Failed to derive address: {}", e))?;
+
+            println!("{:12} addr:  {}", "", address);
+            println!();
+        }
+    }
+
     Ok(())
 }

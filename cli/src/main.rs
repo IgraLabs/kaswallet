@@ -107,6 +107,8 @@ async fn main() {
         Commands::AddressBalances { daemon_address } => {
             commands::address_balances(&daemon_address).await
         }
+
+        Commands::ShowKeys { keys_file } => commands::show_keys(&keys_file),
     };
 
     if let Err(e) = result {

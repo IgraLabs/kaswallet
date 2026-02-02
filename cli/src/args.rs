@@ -187,4 +187,11 @@ pub enum Commands {
         #[arg(short = 'd', long = "daemonaddress", default_value = DEFAULT_DAEMON_ADDRESS)]
         daemon_address: String,
     },
+
+    /// Show extended public keys and addresses for all networks from a keys file
+    ShowKeys {
+        /// Path to the keys.json file
+        #[arg(short = 'f', long = "file")]
+        keys_file: String,
+    },
 }

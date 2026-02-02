@@ -18,6 +18,8 @@ kaswallet-common.workspace = true
 kaswallet-proto.workspace = true
 
 kaspa-consensus-core.workspace = true
+kaspa-addresses.workspace = true
+kaspa-bip32.workspace = true
 
 clap.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
