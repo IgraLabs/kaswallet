@@ -79,3 +79,4 @@ tonic-build = { version = "0.12.3", features = ["prost"] }
 rstest = "0.26.1"
 tempfile = "3.23.0"
 rust_decimal = "1.36"
+criterion = "0.5.1"

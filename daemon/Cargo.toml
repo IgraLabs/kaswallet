@@ -33,7 +33,21 @@ tokio.workspace = true
 console-subscriber.workspace = true
 thiserror.workspace = true
 
+[features]
+bench = []
+
 [dev-dependencies]
 kaspa-consensus.workspace = true
 kaspa-hashes.workspace = true
 rstest.workspace = true
+criterion.workspace = true
+
+[[bench]]
+name = "address_scaling"
+harness = false
+required-features = ["bench"]
+
+[[bench]]
+name = "utxo_scaling"
+harness = false
+required-features = ["bench"]

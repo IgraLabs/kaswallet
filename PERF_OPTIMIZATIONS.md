@@ -219,6 +219,21 @@ In this environment, builds/tests were run with `RUSTC_WRAPPER=` to avoid the co
 RUSTC_WRAPPER= CARGO_TARGET_DIR=target cargo test -q
 ```
 
+# D2) Benchmarks
+
+Criterion benchmarks were added to make performance regressions measurable (and to quantify improvements locally).
+
+Run them with:
+
+```bash
+RUSTC_WRAPPER= CARGO_TARGET_DIR=target cargo bench -p kaswallet-daemon --features bench
+```
+
+Bench targets:
+
+- Address/BIP32 scaling: `daemon/benches/address_scaling.rs`
+- UTXO refresh scaling: `daemon/benches/utxo_scaling.rs`
+
 # F) Post-review refinements (2026-02-02)
 
 After reviewing `PERF_OPTIMIZATIONS-REVIEW.md`, a few low-risk fixes were applied:

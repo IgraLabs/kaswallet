@@ -314,6 +314,18 @@ impl AddressManager {
 
         Ok((address, wallet_address))
     }
+
+    #[cfg(feature = "bench")]
+    pub async fn insert_address_for_bench(&self, address: Address, wallet_address: WalletAddress) {
+        let mut addresses = self.addresses.lock().await;
+        addresses.insert(address.to_string(), wallet_address);
+        self.address_set_version.fetch_add(1, Relaxed);
+    }
+
+    #[cfg(feature = "bench")]
+    pub fn bump_address_set_version_for_bench(&self) {
+        self.address_set_version.fetch_add(1, Relaxed);
+    }
 }
 
 #[cfg(test)]

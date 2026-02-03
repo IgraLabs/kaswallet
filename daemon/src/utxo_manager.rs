@@ -274,6 +274,27 @@ impl UtxoManager {
 
         utxo.utxo_entry.block_daa_score + self.coinbase_maturity > virtual_daa_score
     }
+
+    #[cfg(feature = "bench")]
+    pub fn new_for_bench(address_manager: Arc<Mutex<AddressManager>>) -> Self {
+        Self {
+            address_manager,
+            coinbase_maturity: 0,
+            utxos_by_outpoint: HashMap::new(),
+            utxo_keys_sorted_by_amount: Vec::new(),
+            mempool_transactions: Vec::new(),
+        }
+    }
+
+    #[cfg(feature = "bench")]
+    pub fn insert_utxo_for_bench(&mut self, utxo: WalletUtxo) {
+        self.insert_utxo(utxo.outpoint.clone(), utxo);
+    }
+
+    #[cfg(feature = "bench")]
+    pub fn remove_utxo_for_bench(&mut self, outpoint: &WalletOutpoint) {
+        self.remove_utxo(outpoint);
+    }
 }
 
 #[cfg(test)]
