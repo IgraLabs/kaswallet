@@ -54,17 +54,26 @@ impl KasWalletService {
 
         let virtual_daa_score = self.get_virtual_daa_score().await?;
 
+        let utxo_state = self
+            .utxo_manager
+            .state_with_mempool()
+            .await
+            .map_err(|e| InternalServerError(e.to_string()))?;
+
         let dust_fee_for_single_utxo = if request.include_dust {
             None
         } else {
             let sample_utxo = {
-                let utxo_manager = self.utxo_manager.lock().await;
-                utxo_manager.utxos_sorted_by_amount().next().cloned()
+                utxo_state.utxos_sorted_by_amount().next().cloned()
             };
             if let Some(sample_utxo) = sample_utxo {
                 let transaction_generator = self.transaction_generator.lock().await;
                 let mass = transaction_generator
-                    .estimate_mass(&vec![sample_utxo.clone()], sample_utxo.utxo_entry.amount, &[])
+                    .estimate_mass(
+                        &vec![sample_utxo.clone()],
+                        sample_utxo.utxo_entry.amount,
+                        &[] as &[u8],
+                    )
                     .await?;
                 Some(((mass as f64) * fee_rate).ceil() as u64)
             } else {
@@ -73,40 +82,37 @@ impl KasWalletService {
         };
 
         let mut filtered_bucketed_utxos: HashMap<String, Vec<ProtoUtxo>> = HashMap::new();
-        {
-            let utxo_manager = self.utxo_manager.lock().await;
-            for utxo in utxo_manager.utxos_sorted_by_amount() {
-                let is_pending = utxo_manager.is_utxo_pending(utxo, virtual_daa_score);
-                if !request.include_pending && is_pending {
+        for utxo in utxo_state.utxos_sorted_by_amount() {
+            let is_pending = self.utxo_manager.is_utxo_pending(utxo, virtual_daa_score);
+            if !request.include_pending && is_pending {
+                continue;
+            }
+
+            let is_dust = dust_fee_for_single_utxo
+                .is_some_and(|dust_fee| dust_fee >= utxo.utxo_entry.amount);
+            if !request.include_dust && is_dust {
+                continue;
+            }
+
+            let address = wallet_address_to_string.get(&utxo.address).ok_or_else(|| {
+                InternalServerError(format!(
+                    "wallet address missing from address_set: {:?}",
+                    utxo.address
+                ))
+            })?;
+            if let Some(allowed_addresses) = &allowed_addresses {
+                if !allowed_addresses.contains(address) {
                     continue;
                 }
+            }
 
-                let is_dust = dust_fee_for_single_utxo
-                    .is_some_and(|dust_fee| dust_fee >= utxo.utxo_entry.amount);
-                if !request.include_dust && is_dust {
-                    continue;
-                }
-
-                let address = wallet_address_to_string.get(&utxo.address).ok_or_else(|| {
-                    InternalServerError(format!(
-                        "wallet address missing from address_set: {:?}",
-                        utxo.address
-                    ))
-                })?;
-                if let Some(allowed_addresses) = &allowed_addresses {
-                    if !allowed_addresses.contains(address) {
-                        continue;
-                    }
-                }
-
-                match filtered_bucketed_utxos.get_mut(address) {
-                    Some(bucket) => bucket.push(utxo.to_proto(is_pending, is_dust)),
-                    None => {
-                        filtered_bucketed_utxos.insert(
-                            address.clone(),
-                            vec![utxo.to_proto(is_pending, is_dust)],
-                        );
-                    }
+            match filtered_bucketed_utxos.get_mut(address) {
+                Some(bucket) => bucket.push(utxo.to_proto(is_pending, is_dust)),
+                None => {
+                    filtered_bucketed_utxos.insert(
+                        address.clone(),
+                        vec![utxo.to_proto(is_pending, is_dust)],
+                    );
                 }
             }
         }

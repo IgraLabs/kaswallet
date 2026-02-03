@@ -69,7 +69,7 @@ fn bench_update_utxo_set(c: &mut Criterion) {
     });
 
     let address_manager = Arc::new(Mutex::new(address_manager));
-    let mut utxo_manager = UtxoManager::new_for_bench(address_manager);
+    let utxo_manager = UtxoManager::new_for_bench(address_manager);
 
     let mut group = c.benchmark_group("update_utxo_set");
     for &utxo_count in &[1_000u32, 10_000, 50_000] {
@@ -84,7 +84,8 @@ fn bench_update_utxo_set(c: &mut Criterion) {
                 |entries| {
                     rt.block_on(utxo_manager.update_utxo_set(entries, vec![]))
                         .unwrap();
-                    black_box(utxo_manager.utxos_by_outpoint().len());
+                    let count = rt.block_on(async { utxo_manager.state().await.utxo_count() });
+                    black_box(count);
                 },
                 BatchSize::LargeInput,
             )

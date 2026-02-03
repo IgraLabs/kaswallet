@@ -1,5 +1,5 @@
 use crate::address_manager::AddressManager;
-use crate::utxo_manager::UtxoManager;
+use crate::utxo_manager::{UtxoManager, UtxoStateView};
 use common::errors::WalletError::{SanityCheckFailed, UserInputError};
 use common::errors::{ResultExt, WalletError, WalletResult};
 use common::keys::Keys;
@@ -24,7 +24,7 @@ use proto::kaswallet_proto::{FeePolicy, Outpoint, TransactionDescription, fee_po
 use std::cmp::min;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use tokio::sync::{Mutex, MutexGuard};
+use tokio::sync::Mutex;
 
 // The current minimal fee rate according to mempool standards
 const MIN_FEE_RATE: f64 = 1.0;
@@ -69,7 +69,8 @@ impl TransactionGenerator {
 
     pub async fn create_unsigned_transactions(
         &mut self,
-        utxo_manager: &MutexGuard<'_, UtxoManager>,
+        utxo_manager: &UtxoManager,
+        utxo_state: &UtxoStateView,
         transaction_description: TransactionDescription,
     ) -> WalletResult<Vec<WalletSignableTransaction>> {
         let validate_address = |address_string, name| -> WalletResult<Address> {
@@ -113,9 +114,9 @@ impl TransactionGenerator {
             HashMap::new()
         } else {
             let mut preselected_utxos = HashMap::new();
-            let utxos_by_outpoint = utxo_manager.utxos_by_outpoint();
             for preselected_outpoint in &transaction_description.utxos {
-                if let Some(utxo) = utxos_by_outpoint.get(&preselected_outpoint.clone().into()) {
+                let outpoint: WalletOutpoint = preselected_outpoint.clone().into();
+                if let Some(utxo) = utxo_state.get_utxo_by_outpoint(&outpoint) {
                     preselected_utxos.insert(utxo.outpoint.clone(), utxo.clone());
                 } else {
                     return Err(UserInputError(format!(
@@ -145,6 +146,7 @@ impl TransactionGenerator {
         (selected_utxos, amount_sent_to_recipient, change_sompi) = self
             .select_utxos(
                 utxo_manager,
+                utxo_state,
                 &preselected_utxos,
                 transaction_description.amount,
                 transaction_description.is_send_all,
@@ -178,6 +180,7 @@ impl TransactionGenerator {
         let unsigned_transactions = self
             .maybe_auto_compound_transaction(
                 utxo_manager,
+                utxo_state,
                 unsigned_transaction,
                 &selected_utxos,
                 from_addresses,
@@ -198,7 +201,8 @@ impl TransactionGenerator {
     #[allow(clippy::too_many_arguments)]
     async fn maybe_auto_compound_transaction(
         &self,
-        utxo_manager: &MutexGuard<'_, UtxoManager>,
+        utxo_manager: &UtxoManager,
+        utxo_state: &UtxoStateView,
         original_wallet_transaction: WalletSignableTransaction,
         original_selected_utxos: &Vec<WalletUtxo>,
         from_addresses: Vec<&WalletAddress>,
@@ -267,6 +271,7 @@ impl TransactionGenerator {
         let merge_transaction = self
             .merge_transaction(
                 utxo_manager,
+                utxo_state,
                 &split_transactions,
                 &original_consensus_transaction.tx,
                 original_selected_utxos,
@@ -285,6 +290,7 @@ impl TransactionGenerator {
         // Recursion will be 2-3 iterations deep even in the rarest cases, so considered safe...
         let split_merge_transaction = Box::pin(self.maybe_auto_compound_transaction(
             utxo_manager,
+            utxo_state,
             merge_transaction,
             original_selected_utxos,
             from_addresses,
@@ -309,7 +315,8 @@ impl TransactionGenerator {
     #[allow(clippy::too_many_arguments)]
     async fn merge_transaction(
         &self,
-        utxo_manager: &MutexGuard<'_, UtxoManager>,
+        utxo_manager: &UtxoManager,
+        utxo_state: &UtxoStateView,
         split_transactions: &[WalletSignableTransaction],
         original_consensus_transaction: &Transaction,
         original_selected_utxos: &[WalletUtxo],
@@ -412,6 +419,7 @@ impl TransactionGenerator {
                 let (additional_utxos, total_value_added) = self
                     .more_utxos_for_merge_transaction(
                         utxo_manager,
+                        utxo_state,
                         original_consensus_transaction,
                         original_selected_utxos,
                         from_addresses,
@@ -460,7 +468,8 @@ impl TransactionGenerator {
     // Returns: (additional_utxos, total_Value_added)
     async fn more_utxos_for_merge_transaction(
         &self,
-        utxo_manager: &MutexGuard<'_, UtxoManager>,
+        utxo_manager: &UtxoManager,
+        utxo_state: &UtxoStateView,
         original_consensus_transaction: &Transaction,
         original_selected_utxos: &[WalletUtxo],
         from_addresses: &[&WalletAddress],
@@ -492,7 +501,7 @@ impl TransactionGenerator {
 
         let mut additional_utxos = vec![];
         let mut total_value_added = 0;
-        for utxo in utxo_manager.utxos_sorted_by_amount() {
+        for utxo in utxo_state.utxos_sorted_by_amount() {
             if already_selected_outpoints.contains(&utxo.outpoint)
                 || utxo_manager.is_utxo_pending(utxo, dag_info.virtual_daa_score)
             {
@@ -794,7 +803,8 @@ impl TransactionGenerator {
     #[allow(clippy::too_many_arguments)]
     pub async fn select_utxos(
         &mut self,
-        utxo_manager: &MutexGuard<'_, UtxoManager>,
+        utxo_manager: &UtxoManager,
+        utxo_state: &UtxoStateView,
         preselected_utxos: &HashMap<WalletOutpoint, WalletUtxo>,
         amount: u64,
         is_send_all: bool,
@@ -829,7 +839,6 @@ impl TransactionGenerator {
         let mut fee = 0;
         let mut fee_per_utxo = None;
         let mut iteration = async |transaction_generator: &mut TransactionGenerator,
-                                   utxo_manager: &MutexGuard<UtxoManager>,
                                    utxo: &WalletUtxo|
                -> WalletResult<bool> {
             if let Some(ref allowed_set) = from_addresses_set {
@@ -878,14 +887,14 @@ impl TransactionGenerator {
         };
         if !preselected_utxos.is_empty() {
             for utxo in preselected_utxos.values() {
-                let should_continue = iteration(self, utxo_manager, utxo).await?;
+                let should_continue = iteration(self, utxo).await?;
                 if !should_continue {
                     break;
                 }
             }
         } else {
-            for utxo in utxo_manager.utxos_sorted_by_amount() {
-                let should_continue = iteration(self, utxo_manager, utxo).await?;
+            for utxo in utxo_state.utxos_sorted_by_amount() {
+                let should_continue = iteration(self, utxo).await?;
                 if !should_continue {
                     break;
                 }

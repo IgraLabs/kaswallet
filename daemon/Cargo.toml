@@ -61,3 +61,8 @@ required-features = ["bench"]
 name = "from_addresses_filter"
 harness = false
 required-features = ["bench"]
+
+[[bench]]
+name = "utxo_contention"
+harness = false
+required-features = ["bench"]

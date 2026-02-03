@@ -1,8 +1,8 @@
-# Lock Contention Solution: Double Buffering for UTXO Manager
+# Lock Contention Solution: UTXO Snapshot Double Buffering
 
 **Date:** 2026-02-03 (Revised after team review)
 **Author:** Technical Analysis
-**Status:** Proposal for Review
+**Status:** Implemented (Phase 1: `RwLock<Arc<UtxoState>>` snapshots)
 
 ---
 
@@ -12,7 +12,7 @@ This document has been updated based on team review to correct:
 - **Critical:** Explicitly remove outer Mutex, not just add ArcSwap inside it
 - **Critical:** Fix iterator pattern to avoid impossible lifetimes
 - **Critical:** Redesign mempool updates to avoid cloning entire state
-- **Clarified:** RwLock vs ArcSwap trade-offs
+- **Clarified:** RwLock vs ArcSwap trade-offs (we implemented the RwLock variant first)
 - **Marked:** All memory numbers as placeholders requiring measurement
 
 ---
@@ -23,13 +23,13 @@ This document has been updated based on team review to correct:
 
 **Root Cause:** `UtxoManager` is wrapped in `Arc<Mutex<UtxoManager>>` with exclusive access. During sync's 2.3+ second update, all readers block on the Mutex.
 
-**Solution:** Remove the outer Mutex entirely. Use `Arc<UtxoManager>` directly with `ArcSwap` inside for lock-free reads. Build new state without holding locks, then atomically swap.
+**Solution (implemented):** Remove the outer Mutex entirely. Use `Arc<UtxoManager>` directly and store the consensus UTXO set as an immutable snapshot behind `tokio::RwLock<Arc<UtxoState>>`. Build new state without holding the UTXO lock, then swap the `Arc` under a brief write-lock. Apply wallet-local mempool transactions as a lightweight overlay (`UtxoStateView`) rather than cloning/rebuilding the full state per pending transaction.
 
 **Impact:**
-- **Availability:** Readers blocked <0.1% of time (vs 23% currently)
-- **Memory:** 2× peak during transition (needs measurement to confirm risk)
-- **Complexity:** High - requires removing Mutex from all call sites
-- **Breaking change:** All code accessing UtxoManager needs updates
+- **Availability:** Readers no longer wait for the full rebuild+sort; only a brief swap lock remains
+- **Memory:** Snapshot double-buffering can transiently require ~2× state during rebuild (needs measurement)
+- **Complexity:** Medium–high (requires removing Mutex from call sites + introducing snapshot/view APIs)
+- **Breaking change:** Call sites must stop taking `MutexGuard<UtxoManager>` and use snapshots instead
 
 ---
 
@@ -37,7 +37,7 @@ This document has been updated based on team review to correct:
 
 1. [Current Problem Analysis](#1-current-problem-analysis)
 2. [Why Readers Block](#2-why-readers-block)
-3. [Proposed Solution: Remove Outer Mutex + ArcSwap](#3-proposed-solution-remove-outer-mutex--arcswap)
+3. [Implemented Solution: Remove Outer Mutex + Snapshot State](#3-implemented-solution-remove-outer-mutex--snapshot-state)
 4. [Detailed Implementation](#4-detailed-implementation)
 5. [Mempool Update Strategy](#5-mempool-update-strategy)
 6. [Memory & Performance Analysis](#6-memory--performance-analysis)
@@ -52,7 +52,7 @@ This document has been updated based on team review to correct:
 
 ### 1.1 The Lock Contention Issue
 
-**Current architecture:**
+**Before (pre-fix) architecture:**
 
 ```rust
 // daemon/src/sync_manager.rs:24
@@ -173,7 +173,7 @@ Current code mutates the single UtxoManager in-place. There IS no "old" data - i
 
 ---
 
-## 3. Proposed Solution: Remove Outer Mutex + ArcSwap
+## 3. Implemented Solution: Remove Outer Mutex + Snapshot State
 
 ### 3.1 Core Architecture Change
 
@@ -186,17 +186,19 @@ Arc<Mutex<UtxoManager>>  ← ALL access requires lock
 UtxoManager { HashMap, Vec }
 ```
 
-**After (proposed):**
+**After (implemented):**
 ```
 Daemon/Services
     ↓
 Arc<UtxoManager>  ← NO MUTEX for reads!
     ↓
 UtxoManager {
-    current_state: ArcSwap<UtxoState>  ← Atomic swap, lock-free load
+    state: RwLock<Arc<UtxoState>>  ← brief lock to clone Arc
+    mempool_transactions: Mutex<Vec<WalletSignableTransaction>>  ← wallet-local overlay
 }
     ↓
-UtxoState { HashMap, Vec }  ← Immutable snapshots
+UtxoState { HashMap, Vec }  ← Immutable consensus snapshots
+UtxoStateView               ← lightweight overlay (wallet mempool)
 ```
 
 ### 3.2 Key Changes
@@ -204,17 +206,17 @@ UtxoState { HashMap, Vec }  ← Immutable snapshots
 1. **Remove outer Mutex** from all code:
    - `Arc<Mutex<UtxoManager>>` → `Arc<UtxoManager>`
    - All `.lock().await` calls removed for reads
-   - Only sync needs to call methods, no locking needed
+   - Readers use snapshots (`state()` / `state_with_mempool()`), not `MutexGuard<UtxoManager>`
 
-2. **Use ArcSwap inside UtxoManager**:
-   - Stores current state as atomic Arc pointer
-   - Readers call `.load()` - atomic, lock-free
-   - Writers call `.store()` - atomic swap
+2. **Use a snapshot pointer inside UtxoManager**:
+   - Store current state as `RwLock<Arc<UtxoState>>`
+   - Readers call `state().await` (read-lock held only long enough to clone `Arc`)
+   - Writer builds new state off-lock, then swaps the `Arc` under a brief write-lock
 
-3. **Extract state into UtxoState**:
-   - Contains HashMap, Vec, mempool
-   - Immutable after creation
-   - Multiple versions can coexist via Arc
+3. **Extract immutable consensus state into UtxoState**:
+   - `UtxoState` contains `HashMap` + sorted index `Vec`
+   - Immutable after creation; multiple versions coexist via `Arc`
+   - Wallet-local (not-yet-accepted) transactions are applied via `UtxoStateView` overlay
 
 ### 3.3 How This Solves The Problem
 
@@ -223,14 +225,17 @@ UtxoState { HashMap, Vec }  ← Immutable snapshots
 // Build new state (NO LOCKS, 2.3 seconds)
 let new_state = build_new_utxo_state(...);
 
-// Atomic swap (<1ms)
-utxo_manager.current_state.store(Arc::new(new_state));
+// Swap snapshot under brief write lock (<1ms typical)
+{
+    let mut guard = utxo_manager.state.write().await;
+    *guard = Arc::new(new_state);
+}
 ```
 
 **Readers (concurrent with sync):**
 ```rust
-// Load current state (atomic, lock-free, <1μs)
-let state = utxo_manager.state();  // Returns Arc<UtxoState>
+// Load current state snapshot (brief read lock to clone Arc)
+let state = utxo_manager.state().await;  // Returns Arc<UtxoState>
 
 // Use it (old state remains valid during sync)
 for (_, outpoint) in &state.utxo_keys_sorted_by_amount {
@@ -260,14 +265,11 @@ SendTx:                 [reads old state.............][reads new]
 **File:** `daemon/src/utxo_manager.rs`
 
 ```rust
-use arc_swap::ArcSwap;
-use std::sync::Arc;
 use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::{Mutex, RwLock};
 
-/// The actual UTXO data - now immutable per version
-///
-/// IMPORTANT: This struct should NOT derive Clone - cloning 10M UTXOs is catastrophic.
-/// State transitions happen by building new instances, not cloning.
+/// The actual UTXO data - immutable per snapshot.
 pub struct UtxoState {
     /// Primary storage: outpoint -> UTXO
     pub utxos_by_outpoint: HashMap<WalletOutpoint, WalletUtxo>,
@@ -275,9 +277,6 @@ pub struct UtxoState {
     /// Sorted index for efficient traversal by amount
     /// Stores (amount, outpoint) tuples, sorted
     pub utxo_keys_sorted_by_amount: Vec<(u64, WalletOutpoint)>,
-
-    /// Metadata
-    pub last_update_timestamp: std::time::Instant,
 }
 
 impl UtxoState {
@@ -285,7 +284,6 @@ impl UtxoState {
         Self {
             utxos_by_outpoint: HashMap::new(),
             utxo_keys_sorted_by_amount: Vec::new(),
-            last_update_timestamp: std::time::Instant::now(),
         }
     }
 
@@ -294,31 +292,33 @@ impl UtxoState {
     }
 }
 
-/// The manager holds an atomic pointer to current state
+/// Consensus state + wallet-local mempool overlay view.
+pub struct UtxoStateView {
+    // See `daemon/src/utxo_manager.rs` for the concrete overlay fields + merge iterator.
+    base_state: Arc<UtxoState>,
+}
+
+/// The manager holds a pointer to the current snapshot.
 ///
 /// CRITICAL: This is used via Arc<UtxoManager>, NOT Arc<Mutex<UtxoManager>>
 pub struct UtxoManager {
     address_manager: Arc<Mutex<AddressManager>>,
     coinbase_maturity: u64,
 
-    /// Current UTXO state - atomically swappable, lock-free reads
-    current_state: ArcSwap<UtxoState>,
+    /// Current consensus UTXO state snapshot.
+    ///
+    /// Readers take a brief read lock to clone the Arc. Writers take a brief write lock to swap it.
+    state: RwLock<Arc<UtxoState>>,
 
     /// Mempool transactions handled separately (see section 5)
     mempool_transactions: Mutex<Vec<WalletSignableTransaction>>,
 }
 ```
 
-**Why ArcSwap instead of RwLock or Mutex?**
-- `RwLock`: Readers still take a lock (even if shared)
-- `Mutex`: Readers block exclusively
-- `ArcSwap`: Readers are truly lock-free (atomic load)
-
-**Dependencies:**
-```toml
-[dependencies]
-arc-swap = "1.7"
-```
+**Why `RwLock<Arc<_>>` first (vs ArcSwap)?**
+- No additional dependency and familiar semantics.
+- Readers do not wait for the *rebuild+sort* phase; only for the brief swap.
+- If measurements show meaningful read-lock contention, this design can be upgraded to `ArcSwap` later (Phase 2).
 
 ### 4.2 Constructor
 
@@ -336,35 +336,39 @@ impl UtxoManager {
         Self {
             address_manager,
             coinbase_maturity,
-            current_state: ArcSwap::from_pointee(UtxoState::new_empty()),
+            state: RwLock::new(Arc::new(UtxoState::new_empty())),
             mempool_transactions: Mutex::new(Vec::new()),
         }
     }
 }
 ```
 
-### 4.3 Read Operations (Lock-Free!)
+### 4.3 Read Operations (Snapshot Reads)
 
 **CRITICAL: These do NOT require any Mutex on UtxoManager**
 
 ```rust
 impl UtxoManager {
-    /// Get current state snapshot
+    /// Get current consensus snapshot.
     ///
-    /// This is lock-free - just an atomic pointer load.
-    /// The returned Arc keeps the state alive even if sync swaps to new state.
-    pub fn state(&self) -> Arc<UtxoState> {
-        self.current_state.load_full()
+    /// This takes a brief read-lock only to clone the Arc.
+    pub async fn state(&self) -> Arc<UtxoState> {
+        let guard = self.state.read().await;
+        Arc::clone(&*guard)
     }
 
     /// Get UTXO count (convenience)
-    pub fn utxo_count(&self) -> usize {
-        self.state().utxo_count()
+    pub async fn utxo_count(&self) -> usize {
+        self.state().await.utxo_count()
     }
 
     /// Get UTXO by outpoint (convenience)
-    pub fn get_utxo_by_outpoint(&self, outpoint: &WalletOutpoint) -> Option<WalletUtxo> {
-        self.state().utxos_by_outpoint.get(outpoint).cloned()
+    pub async fn get_utxo_by_outpoint(&self, outpoint: &WalletOutpoint) -> Option<WalletUtxo> {
+        self.state()
+            .await
+            .utxos_by_outpoint
+            .get(outpoint)
+            .cloned()
     }
 
     /// Check if UTXO is pending
@@ -386,16 +390,13 @@ for utxo in utxo_manager.utxos_sorted_by_amount() {
     // ...
 }
 
-// NEW WAY (lock-free):
-let state = self.utxo_manager.state();  // Atomic load, never blocks
-for (_, outpoint) in &state.utxo_keys_sorted_by_amount {
-    if let Some(utxo) = state.utxos_by_outpoint.get(outpoint) {
-        // Use &WalletUtxo reference
-        if self.utxo_manager.is_utxo_pending(utxo, daa_score) {
-            continue;
-        }
-        // ...
+// NEW WAY (snapshot):
+let state = self.utxo_manager.state().await;
+for utxo in state.utxos_sorted_by_amount() {
+    if self.utxo_manager.is_utxo_pending(utxo, daa_score) {
+        continue;
     }
+    // ...
 }
 ```
 
@@ -527,16 +528,19 @@ impl UtxoManager {
         // SORT THE NEW DATA (takes 2.3s for 10M, but NO LOCK HELD)
         new_sorted_keys.sort_unstable();
 
-        // Create new state
-        let new_state = UtxoState {
+        // Create new snapshot and swap it under a brief write lock.
+        let new_state = Arc::new(UtxoState {
             utxos_by_outpoint: new_utxos_by_outpoint,
             utxo_keys_sorted_by_amount: new_sorted_keys,
-            last_update_timestamp: std::time::Instant::now(),
-        };
+        });
 
-        // ATOMIC SWAP - this is instant (<1μs)
-        // Old state remains valid for any readers still using it (via Arc)
-        self.current_state.store(Arc::new(new_state));
+        {
+            let mut guard = self.state.write().await;
+            *guard = new_state.clone();
+        }
+
+        // Cleanup wallet-local mempool transactions that are now covered (or invalidated) by the refreshed snapshot.
+        self.prune_mempool_transactions_after_update(&new_state).await;
 
         Ok(())
     }
@@ -545,10 +549,10 @@ impl UtxoManager {
 
 **Key properties:**
 - Takes `&self`, not `&mut self`
-- No Mutex needed (readers call `.state()` which doesn't need Mutex either)
+- No outer Mutex needed (readers call `state()` / `state_with_mempool()`)
 - Builds entirely new HashMap and Vec (doesn't mutate old)
 - Sort happens without any synchronization
-- Only the `store()` is atomic (sub-microsecond)
+- Only the swap takes a brief write lock
 
 ---
 
@@ -569,12 +573,12 @@ This is a **local overlay**, not a replacement for the node’s mempool. The nod
 **Team review identified:** My original proposal to clone entire state for mempool updates is catastrophic:
 
 ```rust
-// WRONG - clones 10M UTXOs per mempool transaction!
+// WRONG - would require cloning the full UTXO state per pending transaction.
 pub async fn add_mempool_transaction(&self, transaction: &WalletSignableTransaction) {
-    let old_state = self.current_state.load();
-    let mut new_state = (**old_state).clone();  // ← 8GB+ clone!
-    // ... apply transaction ...
-    self.current_state.store(Arc::new(new_state));
+    let base_state = self.state().await; // Arc<UtxoState>
+
+    // ... would need to clone + mutate the full UtxoState here (catastrophic at 10M UTXOs) ...
+    // ... then swap it back into `self.state` ...
 }
 ```
 
@@ -586,14 +590,12 @@ At 10M UTXOs, this could be 8GB+ of cloning per transaction. Completely unviable
 
 ```rust
 pub struct UtxoManager {
-    current_state: ArcSwap<UtxoState>,
-
-    /// Needed to map `kaspa_addresses::Address` -> `WalletAddress` efficiently.
-    /// (Used when constructing a mempool overlay view.)
     address_manager: Arc<Mutex<AddressManager>>,
+    coinbase_maturity: u64,
+    state: RwLock<Arc<UtxoState>>,
 
-    /// Mempool transactions stored separately
-    /// These are applied as an "overlay" on top of consensus state
+    /// Wallet-local (user-generated) transactions stored separately.
+    /// Applied as an overlay view (does not clone the full UTXO set).
     mempool_transactions: Mutex<Vec<WalletSignableTransaction>>,
 }
 
@@ -602,7 +604,6 @@ impl UtxoManager {
     pub async fn add_mempool_transaction(&self, transaction: &WalletSignableTransaction) {
         let mut mempool = self.mempool_transactions.lock().await;
         mempool.push(transaction.clone());
-        // No need to modify UTXO state - mempool is separate overlay
     }
 
     /// Apply mempool transactions as overlay when reading
@@ -610,12 +611,18 @@ impl UtxoManager {
     /// Returns a view that combines consensus state + mempool modifications
     ///
     /// NOTE: This takes brief locks on mempool_transactions and address_manager.
-    /// If mempool grows large (100+ pending txs), consider using Arc<Vec<...>> + versioning.
     pub async fn state_with_mempool(
         &self,
     ) -> Result<UtxoStateView, Box<dyn Error + Send + Sync>> {
-        let consensus_state = self.state();
-        let mempool = self.mempool_transactions.lock().await.clone();
+        let base_state = self.state().await;
+
+        let mempool_txs = {
+            let guard = self.mempool_transactions.lock().await;
+            if guard.is_empty() {
+                return Ok(UtxoStateView::new(base_state));
+            }
+            guard.clone()
+        };
 
         // Get address map for efficient Address→WalletAddress lookup
         let address_map = {
@@ -623,207 +630,51 @@ impl UtxoManager {
             address_manager.monitored_address_map().await?
         };
 
-        Ok(UtxoStateView::new(consensus_state, mempool, address_map))
-    }
-
-    /// During full refresh, clean up confirmed/invalid mempool txs
-    pub async fn update_utxo_set(&self, ...) -> Result<...> {
-        // ... build new state as before ...
-
-        self.current_state.store(Arc::new(new_state));
-
-        // Clean mempool: remove confirmed transactions
-        let mut mempool = self.mempool_transactions.lock().await;
-        mempool.retain(|tx| {
-            // Keep only transactions that are still pending
-            self.is_transaction_still_pending(tx, &new_state)
-        });
-
-        Ok(())
+        Ok(UtxoStateView::from_mempool_overlay(
+            base_state,
+            &mempool_txs,
+            &address_map,
+        ))
     }
 }
 
 /// View combining consensus state + mempool overlay
 ///
-/// NOTE: Mempool UTXOs are NOT included in sorted iteration by default.
-/// They appear in get_utxo() lookups but not in sorted_iter().
-/// This matches typical wallet behavior: pending/mempool UTXOs shown separately.
+/// The overlay:
+/// - removes inputs spent by wallet-local pending transactions
+/// - adds outputs paying to wallet addresses (e.g. change)
 pub struct UtxoStateView {
-    consensus_state: Arc<UtxoState>,
+    base_state: Arc<UtxoState>,
     removed_utxos: HashSet<WalletOutpoint>,
     added_utxos: HashMap<WalletOutpoint, WalletUtxo>,
+    added_keys_sorted_by_amount: Vec<(u64, WalletOutpoint)>,
 }
 
 impl UtxoStateView {
-    fn new(
-        consensus_state: Arc<UtxoState>,
-        mempool_txs: Vec<WalletSignableTransaction>,
-        address_map: Arc<HashMap<Address, WalletAddress>>,
-    ) -> Self {
-        let mut removed_utxos = HashSet::new();
-        let mut added_utxos = HashMap::new();
-
-        // Apply mempool transactions as overlay
-        for tx in &mempool_txs {
-            let transaction = &tx.transaction.unwrap_ref().tx;
-
-            // Inputs are removed from UTXO set
-            for input in &transaction.inputs {
-                removed_utxos.insert(input.previous_outpoint.into());
-            }
-
-            // Outputs are added to UTXO set
-            // Map Address -> WalletAddress using prebuilt map (no string conversion!)
-            for (i, output) in transaction.outputs.iter().enumerate() {
-                let outpoint = WalletOutpoint {
-                    transaction_id: transaction.id(),
-                    index: i as u32,
-                };
-
-                // tx.address_by_output_index[i] is Address (kaspa address)
-                // Look up WalletAddress (derivation index) from prebuilt map
-                let kaspa_address = &tx.address_by_output_index[i];
-                let Some(wallet_address) = address_map.get(kaspa_address) else {
-                    // Not our wallet's address
-                    continue;
-                };
-
-                let utxo_entry = WalletUtxoEntry {
-                    amount: output.value,
-                    script_public_key: output.script_public_key.clone(),
-                    block_daa_score: 0,
-                    is_coinbase: false,
-                };
-
-                let utxo = WalletUtxo::new(
-                    outpoint.clone(),
-                    utxo_entry,
-                    wallet_address.clone()
-                );
-                added_utxos.insert(outpoint, utxo);
-            }
-        }
-
-        Self {
-            consensus_state,
-            removed_utxos,
-            added_utxos,
-        }
-    }
-
-    /// Check if UTXO exists (considering mempool overlay)
-    pub fn contains_utxo(&self, outpoint: &WalletOutpoint) -> bool {
-        if self.removed_utxos.contains(outpoint) {
-            return false;
-        }
-        if self.added_utxos.contains_key(outpoint) {
-            return true;
-        }
-        self.consensus_state.utxos_by_outpoint.contains_key(outpoint)
-    }
-
-    /// Get UTXO (considering mempool overlay)
-    pub fn get_utxo(&self, outpoint: &WalletOutpoint) -> Option<&WalletUtxo> {
-        if self.removed_utxos.contains(outpoint) {
-            return None;
-        }
-        if let Some(utxo) = self.added_utxos.get(outpoint) {
-            return Some(utxo);
-        }
-        self.consensus_state.utxos_by_outpoint.get(outpoint)
-    }
-
-    /// Iterate consensus UTXOs in sorted order (mempool UTXOs excluded)
+    /// Iterate UTXOs in sorted order (consensus + overlay), skipping removed outpoints.
     ///
-    /// Mempool UTXOs are pending/unconfirmed and typically shown separately.
-    /// If you need to include them, use get_utxo() to check individual outpoints.
-    pub fn sorted_utxos_iter(&self) -> impl Iterator<Item = &WalletUtxo> + '_ {
-        self.consensus_state.utxo_keys_sorted_by_amount
-            .iter()
-            .filter_map(|(_, outpoint)| {
-                // Skip if removed by mempool
-                if self.removed_utxos.contains(outpoint) {
-                    return None;
-                }
-                self.consensus_state.utxos_by_outpoint.get(outpoint)
-            })
-    }
-
-    /// Get all UTXOs (consensus + mempool) - unsorted
-    ///
-    /// Returns consensus UTXOs not removed by mempool, plus mempool additions.
-    /// For sorted iteration, use sorted_utxos_iter() (consensus only).
-    pub fn all_utxos(&self) -> impl Iterator<Item = &WalletUtxo> + '_ {
-        let consensus_iter = self.consensus_state.utxos_by_outpoint
-            .iter()
-            .filter(|(outpoint, _)| !self.removed_utxos.contains(outpoint))
-            .map(|(_, utxo)| utxo);
-
-        let mempool_iter = self.added_utxos.values();
-
-        consensus_iter.chain(mempool_iter)
+    /// Implemented as a merge iterator over:
+    /// - `base_state.utxo_keys_sorted_by_amount`
+    /// - `added_keys_sorted_by_amount`
+    pub fn utxos_sorted_by_amount(&self) -> UtxosSortedByAmountIter<'_> {
+        // See `daemon/src/utxo_manager.rs` for the concrete implementation.
+        /* ... */
     }
 }
 ```
 
 ### 5.3 Sorted Iteration with Overlay
 
-**Challenge:** How do mempool UTXOs appear in sorted-by-amount iteration?
+We intentionally kept the existing “sorted-by-amount” consumption pattern (GetUtxos + transaction selection) while still reflecting wallet-local pending transactions.
 
-**Current behavior (from code):**
-- GetUtxos and transaction selection iterate `utxo_keys_sorted_by_amount`
-- This is rebuilt during sync and (today) includes:
-  - confirmed UTXOs (from `get_utxos_by_addresses`)
-  - receiving mempool outputs (from `get_mempool_entries_by_addresses(...).receiving`)
-  - wallet-generated pending txs re-applied after refresh (local `mempool_transactions`)
-- Mempool *spends* are handled by excluding spent outpoints; mempool *receives* can appear in the sorted list
+`UtxoStateView::utxos_sorted_by_amount()` is a **merge iterator**:
 
-**With overlay pattern:**
+- Base keys: `base_state.utxo_keys_sorted_by_amount` (sorted by `(amount, outpoint)`).
+- Overlay keys: `added_keys_sorted_by_amount` (sorted by `(amount, outpoint)`).
+- Skip any base outpoint present in `removed_utxos`.
+- Merge by comparing `(amount, outpoint)` so results are deterministic.
 
-**Option 1: Mempool UTXOs excluded from sorted iteration (Recommended)**
-```rust
-impl UtxoStateView {
-    /// Iterate consensus UTXOs only, in sorted order
-    /// Mempool UTXOs shown separately as "pending"
-    pub fn sorted_utxos_iter(&self) -> impl Iterator<Item = &WalletUtxo> + '_ {
-        self.consensus_state.utxo_keys_sorted_by_amount
-            .iter()
-            .filter_map(|(_, outpoint)| {
-                if self.removed_utxos.contains(outpoint) {
-                    None  // Spent by pending tx
-                } else {
-                    self.consensus_state.utxos_by_outpoint.get(outpoint)
-                }
-            })
-    }
-
-    /// Get pending (mempool) UTXOs separately - unsorted
-    pub fn pending_utxos(&self) -> impl Iterator<Item = &WalletUtxo> + '_ {
-        self.added_utxos.values()
-    }
-}
-```
-
-**Pros:**
-- ✅ Simple: consensus is sorted, mempool is separate
-- ✅ Matches UX: wallets typically show "confirmed" vs "pending" separately
-- ✅ No sorting needed on mempool updates
-- ✅ Efficient: sorted iteration doesn't need to check overlay
-
-**Cons:**
-- ⚠️ API change: callers need to handle pending separately
-- ⚠️ Transaction selection might miss pending UTXOs (may be desired behavior)
-
-**Option 2: Merge sorted (Complex, not recommended)**
-```rust
-// Would need to:
-// 1. Iterate consensus sorted list
-// 2. Insert mempool UTXOs in sorted order during iteration
-// 3. Complex merging logic, allocations
-// Not recommended due to complexity and performance cost
-```
-
-**Recommendation:** Use Option 1. Most wallet UIs show pending transactions separately anyway. Transaction selection can explicitly query pending if needed.
+This avoids cloning or resorting the full base index; only the overlay keys are sorted (bounded by the number of outputs in wallet-local pending transactions).
 
 ### 5.4 Mempool Vec Cloning Hotspot
 
@@ -831,7 +682,13 @@ impl UtxoStateView {
 
 ```rust
 // In state_with_mempool():
-let mempool = self.mempool_transactions.lock().await.clone();  // Clones Vec
+let mempool_txs = {
+    let guard = self.mempool_transactions.lock().await;
+    if guard.is_empty() {
+        return Ok(UtxoStateView::new(base_state));
+    }
+    guard.clone() // Clones Vec<WalletSignableTransaction>
+};
 ```
 
 If mempool has 100 pending transactions, each `state_with_mempool()` call clones 100 transaction objects. For high-frequency calls, this could be expensive.
@@ -844,20 +701,13 @@ If mempool has 100 pending transactions, each `state_with_mempool()` call clones
 **Mitigation Option A: Arc + Versioning (if needed)**
 
 ```rust
-pub struct UtxoManager {
-    current_state: ArcSwap<UtxoState>,
-
-    // Versioned mempool with Arc (avoids cloning)
-    mempool_state: ArcSwap<MempoolState>,
-}
-
-struct MempoolState {
-    transactions: Vec<WalletSignableTransaction>,
+// Not implemented today; only needed if mempool grows large and `state_with_mempool()` becomes hot.
+//
+// Store the mempool list behind an Arc and version it, so readers can clone an Arc (cheap)
+// instead of cloning the Vec each time.
+struct VersionedMempool {
     version: u64,
-}
-
-pub fn mempool(&self) -> Arc<MempoolState> {
-    self.mempool_state.load_full()  // No clone
+    txs: Arc<Vec<WalletSignableTransaction>>,
 }
 ```
 

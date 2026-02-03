@@ -1,5 +1,5 @@
 use crate::service::kaswallet_service::KasWalletService;
-use common::errors::{ResultExt, WalletResult};
+use common::errors::{ResultExt, WalletError::InternalServerError, WalletResult};
 use log::info;
 use proto::kaswallet_proto::{AddressBalances, GetBalanceRequest, GetBalanceResponse};
 use std::collections::HashMap;
@@ -14,29 +14,31 @@ impl KasWalletService {
         let virtual_daa_score = self.get_virtual_daa_score().await?;
         let mut balances_map = HashMap::new();
 
-        let utxos_count: usize;
-        {
-            let utxo_manager = self.utxo_manager.lock().await;
-            utxos_count = utxo_manager.utxos_by_outpoint().len();
-            if utxos_count == 0 {
-                info!("GetBalance request scanned 0 UTXOs overall over 0 addresses");
-                return Ok(GetBalanceResponse {
-                    available: 0,
-                    pending: 0,
-                    address_balances: vec![],
-                });
-            }
+        let utxo_state = self
+            .utxo_manager
+            .state_with_mempool()
+            .await
+            .map_err(|e| InternalServerError(e.to_string()))?;
 
-            for utxo in utxo_manager.utxos_by_outpoint().values() {
-                let amount = utxo.utxo_entry.amount;
-                let balances = balances_map
-                    .entry(utxo.address.clone())
-                    .or_insert_with(BalancesEntry::new);
-                if utxo_manager.is_utxo_pending(utxo, virtual_daa_score) {
-                    balances.add_pending(amount);
-                } else {
-                    balances.add_available(amount);
-                }
+        let utxos_count = utxo_state.utxo_count();
+        if utxos_count == 0 {
+            info!("GetBalance request scanned 0 UTXOs overall over 0 addresses");
+            return Ok(GetBalanceResponse {
+                available: 0,
+                pending: 0,
+                address_balances: vec![],
+            });
+        }
+
+        for utxo in utxo_state.utxos_iter() {
+            let amount = utxo.utxo_entry.amount;
+            let balances = balances_map
+                .entry(utxo.address.clone())
+                .or_insert_with(BalancesEntry::new);
+            if self.utxo_manager.is_utxo_pending(utxo, virtual_daa_score) {
+                balances.add_pending(amount);
+            } else {
+                balances.add_available(amount);
             }
         }
         let mut address_balances = vec![];

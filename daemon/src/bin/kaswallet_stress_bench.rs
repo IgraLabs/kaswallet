@@ -128,7 +128,7 @@ Example:\n  RUSTC_WRAPPER= CARGO_TARGET_DIR=target cargo run -p kaswallet-daemon
     );
 
     let address_manager = Arc::new(Mutex::new(address_manager));
-    let mut utxo_manager = UtxoManager::new_for_bench(address_manager);
+    let utxo_manager = UtxoManager::new_for_bench(address_manager);
 
     let empty_spk = ScriptPublicKey::from_vec(0, vec![]);
 
@@ -162,15 +162,16 @@ Example:\n  RUSTC_WRAPPER= CARGO_TARGET_DIR=target cargo run -p kaswallet-daemon
     let start = Instant::now();
     rt.block_on(utxo_manager.update_utxo_set(entries, vec![]))
         .expect("update_utxo_set");
+    let state = rt.block_on(utxo_manager.state());
     println!(
         "update_utxo_set: {:?} (utxos_by_outpoint={})",
         start.elapsed(),
-        utxo_manager.utxos_by_outpoint().len()
+        state.utxos_by_outpoint().len()
     );
 
     // Minimal sanity check to keep the compiler honest and confirm the sorted index exists.
     let mut sum = 0u64;
-    for utxo in utxo_manager.utxos_sorted_by_amount().take(1000) {
+    for utxo in state.utxos_sorted_by_amount().take(1000) {
         sum = sum.wrapping_add(utxo.utxo_entry.amount);
     }
     println!("sanity: sum(first 1000 amounts)={sum}");

@@ -12,6 +12,8 @@ The performance optimizations are **comprehensively implemented** and well-teste
 
 **Overall Assessment:** ✅ Strong implementation with minor issues to address
 
+**Update (2026-02-03):** A follow-up lock-contention refactor replaced the `Arc<Mutex<UtxoManager>>` design with snapshot-based UTXO reads (`UtxoManager::state*`). Some illustrative code snippets below are now historical; prefer `PERF_OPTIMIZATIONS.md` and `LOCK-CONTENTION-SOLUTION.md` as the source of truth for the current implementation.
+
 ---
 
 ## Table of Contents
@@ -122,210 +124,15 @@ async fn monitored_addresses_cache_no_race_condition() {
 **Severity:** Medium
 **Impact:** Suboptimal performance on GetBalance requests for wallets with many addresses
 
-#### Problem
+#### Status (2026-02-03): Fixed
 
-The `get_balance` method has two optimization opportunities:
+`get_balance` now:
 
-1. **No early return for empty wallet** (like `refresh_utxos` has)
-2. **Inefficient address lookups** - converts each wallet_address individually instead of pre-building a lookup map (unlike the optimized `get_utxos`)
+- Uses `UtxoManager::state_with_mempool()` to snapshot once (no outer UTXO mutex / no per-UTXO locking).
+- Early-returns when `utxo_state.utxo_count() == 0`.
+- Only derives address strings when `include_balance_per_address` is `true`.
 
-Current implementation (lines 36-41):
-```rust
-let address_manager = self.address_manager.lock().await;
-for (wallet_address, balances) in &balances_map {
-    let address = address_manager
-        .kaspa_address_from_wallet_address(wallet_address, true)
-        .await
-        .to_wallet_result_internal()?;
-    // ... use address
-}
-```
-
-This acquires the lock once but calls `kaspa_address_from_wallet_address()` N times (where N = number of unique addresses with balance). While caching helps, this pattern differs from the optimized `get_utxos`.
-
-#### Proposed Fix
-
-Apply the same optimization pattern used in `get_utxos.rs`:
-
-```rust
-// daemon/src/service/get_balance.rs
-
-use crate::address_manager::AddressSet;
-use crate::service::kaswallet_service::KasWalletService;
-use common::errors::{ResultExt, WalletResult};
-use common::model::WalletAddress;
-use log::info;
-use proto::kaswallet_proto::{AddressBalances, GetBalanceRequest, GetBalanceResponse};
-use std::collections::HashMap;
-
-impl KasWalletService {
-    pub(crate) async fn get_balance(
-        &self,
-        request: GetBalanceRequest,
-    ) -> WalletResult<GetBalanceResponse> {
-        self.check_is_synced().await?;
-
-        let virtual_daa_score = self.get_virtual_daa_score().await?;
-
-        // Early return for empty wallet (like refresh_utxos does)
-        let utxos_count: usize;
-        {
-            let utxo_manager = self.utxo_manager.lock().await;
-            utxos_count = utxo_manager.utxos_by_outpoint().len();
-            if utxos_count == 0 {
-                return Ok(GetBalanceResponse {
-                    available: 0,
-                    pending: 0,
-                    address_balances: vec![],
-                });
-            }
-        }
-
-        // Pre-build wallet_address -> string lookup (like get_utxos does)
-        let address_set: AddressSet;
-        {
-            let address_manager = self.address_manager.lock().await;
-            address_set = address_manager.address_set().await;
-        }
-        let wallet_address_to_string: HashMap<WalletAddress, String> = address_set
-            .iter()
-            .map(|(address_string, wallet_address)| {
-                (wallet_address.clone(), address_string.clone())
-            })
-            .collect();
-
-        // Calculate balances
-        let mut balances_map = HashMap::new();
-        {
-            let utxo_manager = self.utxo_manager.lock().await;
-            for utxo in utxo_manager.utxos_by_outpoint().values() {
-                let amount = utxo.utxo_entry.amount;
-                let balances = balances_map
-                    .entry(utxo.address.clone())
-                    .or_insert_with(BalancesEntry::new);
-                if utxo_manager.is_utxo_pending(utxo, virtual_daa_score) {
-                    balances.add_pending(amount);
-                } else {
-                    balances.add_available(amount);
-                }
-            }
-        }
-
-        // Build response using pre-built lookup
-        let mut address_balances = vec![];
-        let mut total_balances = BalancesEntry::new();
-
-        for (wallet_address, balances) in &balances_map {
-            // Fast lookup instead of derivation
-            let address_string = wallet_address_to_string
-                .get(wallet_address)
-                .ok_or_else(|| {
-                    common::errors::WalletError::InternalServerError(format!(
-                        "wallet address missing from address_set: {:?}",
-                        wallet_address
-                    ))
-                })?;
-
-            if request.include_balance_per_address {
-                address_balances.push(AddressBalances {
-                    address: address_string.clone(),
-                    available: balances.available,
-                    pending: balances.pending,
-                });
-            }
-            total_balances.add(balances);
-        }
-
-        info!(
-            "GetBalance request scanned {} UTXOs over {} addresses",
-            utxos_count,
-            balances_map.len()
-        );
-
-        Ok(GetBalanceResponse {
-            available: total_balances.available,
-            pending: total_balances.pending,
-            address_balances,
-        })
-    }
-}
-
-#[derive(Clone)]
-struct BalancesEntry {
-    pub available: u64,
-    pub pending: u64,
-}
-
-impl BalancesEntry {
-    fn new() -> Self {
-        Self {
-            available: 0,
-            pending: 0,
-        }
-    }
-
-    pub fn add(&mut self, other: &Self) {
-        self.add_available(other.available);
-        self.add_pending(other.pending);
-    }
-    pub fn add_available(&mut self, amount: u64) {
-        self.available += amount;
-    }
-    pub fn add_pending(&mut self, amount: u64) {
-        self.pending += amount;
-    }
-}
-```
-
-#### Why This Fix Works
-
-1. **Early return:** Avoids unnecessary work when wallet is empty (0 UTXOs → 0 balance)
-2. **Pre-built lookup:** Single O(N) map inversion instead of N lookups
-3. **Consistent pattern:** Matches the optimized `get_utxos` implementation
-4. **Cache-friendly:** The `wallet_address_to_string` map is built once per request
-
-#### Performance Impact
-
-- **Before:** For wallet with 1000 addresses, potential 1000 hash lookups + cache checks
-- **After:** Single O(N) map build, then O(1) lookups for addresses with balances
-- **Empty wallet:** Returns immediately without any UTXO iteration
-
-#### How to Test
-
-```rust
-#[tokio::test]
-async fn get_balance_empty_wallet_returns_immediately() {
-    // Setup service with empty UTXO set
-    let service = create_test_service_with_empty_utxos().await;
-
-    let request = GetBalanceRequest {
-        include_balance_per_address: true,
-    };
-
-    let response = service.get_balance(request).await.unwrap();
-
-    assert_eq!(response.available, 0);
-    assert_eq!(response.pending, 0);
-    assert_eq!(response.address_balances.len(), 0);
-}
-
-#[tokio::test]
-async fn get_balance_with_many_addresses_is_fast() {
-    use std::time::Instant;
-
-    // Setup service with 1000 addresses, 500 with UTXOs
-    let service = create_test_service_with_many_addresses(1000, 500).await;
-
-    let start = Instant::now();
-    let response = service.get_balance(GetBalanceRequest {
-        include_balance_per_address: true,
-    }).await.unwrap();
-    let elapsed = start.elapsed();
-
-    assert_eq!(response.address_balances.len(), 500);
-    assert!(elapsed.as_millis() < 100, "GetBalance should be fast even with many addresses");
-}
-```
+Optional follow-up (only if it becomes measurable): replace per-address derivation in the per-address response with an inverted `AddressManager::address_set()` lookup (similar to `get_utxos`).
 
 ---
 
@@ -803,24 +610,24 @@ async fn utxo_sorted_iteration_matches_full_sort() {
 ## 6. Summary of Action Items
 
 ### Critical (Must Fix)
-- [ ] **1.1** - Fix race condition in cache invalidation (address_manager.rs)
+- [x] **1.1** - Fix race condition in cache invalidation (address_manager.rs)
 
 ### Important (Should Fix)
-- [ ] **2.1** - Optimize GetBalance method (get_balance.rs)
+- [x] **2.1** - Optimize GetBalance method (get_balance.rs)
 
 ### Minor (Nice to Have)
-- [ ] **3.1** - Fix typo "exculde" → "exclude" (utxo_manager.rs:147)
-- [ ] **3.2** - Fix typo "addressed" → "addresses" (sync_manager.rs:316)
-- [ ] **3.3** - Remove redundant `into_proto` method (proto_convert.rs:174-176)
+- [x] **3.1** - Fix typo "exculde" → "exclude" (utxo_manager.rs)
+- [x] **3.2** - Fix typo "addressed" → "addresses" (sync_manager.rs)
+- [x] **3.3** - Keep both `to_proto` and `into_proto`, but ensure `into_proto(self, ...)` actually consumes `self` (proto_convert.rs)
 
 ### Documentation
-- [ ] **4.1** - Reconcile file list in PERF_OPTIMIZATIONS.md with git status
+- [x] **4.1** - Reconcile file list in PERF_OPTIMIZATIONS.md with git status
 - [ ] **4.1** - Document client.rs changes
 
 ### Testing
 - [ ] **5.1** - Add concurrency test for address cache
-- [ ] **5.2** - Add performance benchmarks
-- [ ] **5.3** - Add regression tests
+- [x] **5.2** - Add performance benchmarks
+- [x] **5.3** - Add regression tests
 
 ---
 

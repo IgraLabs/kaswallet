@@ -21,7 +21,7 @@ pub struct SyncManager {
     kaspa_client: Arc<GrpcClient>,
     keys_file: Arc<Keys>,
     address_manager: Arc<Mutex<AddressManager>>,
-    utxo_manager: Arc<Mutex<UtxoManager>>,
+    utxo_manager: Arc<UtxoManager>,
 
     sync_interval_millis: u64,
     first_sync_done: AtomicBool,
@@ -37,7 +37,7 @@ impl SyncManager {
         kaspa_rpc_client: Arc<GrpcClient>,
         keys_file: Arc<Keys>,
         address_manager: Arc<Mutex<AddressManager>>,
-        utxo_manager: Arc<Mutex<UtxoManager>>,
+        utxo_manager: Arc<UtxoManager>,
         sync_interval: u64,
     ) -> Self {
         Self {
@@ -104,8 +104,7 @@ impl SyncManager {
         let addresses: Vec<Address> = monitored_addresses.as_ref().clone();
 
         if addresses.is_empty() {
-            let mut utxo_manager = self.utxo_manager.lock().await;
-            utxo_manager.update_utxo_set(vec![], vec![]).await?;
+            self.utxo_manager.update_utxo_set(vec![], vec![]).await?;
             return Ok(());
         }
 
@@ -136,10 +135,9 @@ impl SyncManager {
             self.kaspa_client.get_utxos_by_addresses(addresses).await?;
         debug!("Got {} utxo entries", get_utxo_by_addresses_response.len());
 
-        // Lock utxo_manager only for the actual update, so callers are not blocked while we
-        // perform RPC calls that can take significant time for large address/UTXO sets.
-        let mut utxo_manager = self.utxo_manager.lock().await;
-        utxo_manager
+        // `update_utxo_set` builds a new snapshot without holding any read locks and
+        // swaps the Arc pointer under a brief lock.
+        self.utxo_manager
             .update_utxo_set(get_utxo_by_addresses_response, mempool_entries_by_addresses)
             .await?;
 

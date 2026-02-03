@@ -1,11 +1,9 @@
 use crate::service::kaswallet_service::KasWalletService;
-use crate::utxo_manager::UtxoManager;
 use common::errors::WalletError::UserInputError;
 use common::errors::{ResultExt, WalletResult};
 use common::model::WalletSignableTransaction;
 use kaspa_consensus_core::sign::Signed::{Fully, Partially};
 use kaspa_wallet_core::rpc::RpcApi;
-use tokio::sync::MutexGuard;
 
 impl KasWalletService {
     pub(crate) async fn get_virtual_daa_score(&self) -> WalletResult<u64> {
@@ -30,8 +28,7 @@ impl KasWalletService {
 
     pub(crate) async fn submit_transactions(
         &self,
-        utxo_manager: &mut MutexGuard<'_, UtxoManager>,
-        signed_transactions: &Vec<WalletSignableTransaction>,
+        signed_transactions: &[WalletSignableTransaction],
     ) -> WalletResult<Vec<String>> {
         let _ = self.submit_transaction_mutex.lock().await;
 
@@ -57,9 +54,7 @@ impl KasWalletService {
 
             transaction_ids.push(rpc_transaction_id.to_string());
 
-            utxo_manager
-                .add_mempool_transaction(signed_transaction)
-                .await;
+            self.utxo_manager.add_mempool_transaction(signed_transaction).await;
         }
 
         Ok(transaction_ids)

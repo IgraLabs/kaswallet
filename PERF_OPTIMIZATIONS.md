@@ -1,4 +1,4 @@
-# Performance optimizations (2026-02-02)
+# Performance optimizations (2026-02-02, updated 2026-02-03)
 
 This document describes the code changes made to address **two long-running performance issues**:
 
@@ -12,6 +12,8 @@ The implemented address optimizations correspond to the **first 4 points** from 
 3. Make address derivation cheaper (no path string parsing; avoid per-derivation multisig key sorting).
 4. Cache monitored addresses so refresh does not rebuild/parse each tick.
 
+**Update (2026-02-03):** Implemented the lock-contention fix for large UTXO sets by converting `UtxoManager` to a snapshot-based design (`RwLock<Arc<UtxoState>>` + `UtxoStateView` overlay). This removes the outer `Arc<Mutex<UtxoManager>>` and prevents long reader stalls during sync refresh.
+
 ## Files touched
 
 - Updated:
@@ -23,8 +25,14 @@ The implemented address optimizations correspond to the **first 4 points** from 
   - `daemon/Cargo.toml`
   - `daemon/src/address_manager.rs`
   - `daemon/src/args.rs`
+  - `daemon/src/daemon.rs`
+  - `daemon/src/service/broadcast.rs`
+  - `daemon/src/service/common.rs`
+  - `daemon/src/service/create_unsigned_transaction.rs`
   - `daemon/src/service/get_balance.rs`
   - `daemon/src/service/get_utxos.rs`
+  - `daemon/src/service/kaswallet_service.rs`
+  - `daemon/src/service/send.rs`
   - `daemon/src/sync_manager.rs`
   - `daemon/src/transaction_generator.rs`
   - `daemon/src/utxo_manager.rs`
@@ -39,28 +47,60 @@ The implemented address optimizations correspond to the **first 4 points** from 
 
 # A) UTXO set scaling
 
+## A0. Lock contention removal (UTXO snapshots)
+
+### Summary
+
+- Removed the outer `Arc<Mutex<UtxoManager>>` and replaced it with `Arc<UtxoManager>`.
+- Moved the actual UTXO data into an immutable snapshot:
+  - `UtxoState { utxos_by_outpoint, utxo_keys_sorted_by_amount }`
+- `UtxoManager::update_utxo_set(...)` now:
+  - builds a brand new `UtxoState` **without holding the UTXO lock**
+  - swaps the `Arc<UtxoState>` under a brief `RwLock` write-lock
+- Reader paths (`GetUtxos`, `GetBalance`, transaction creation) now snapshot once via:
+  - `UtxoManager::state()` (consensus snapshot)
+  - `UtxoManager::state_with_mempool()` (consensus + wallet-local overlay)
+  and then iterate without being blocked by the full rebuild+sort work.
+- Wallet-local pending transactions are stored separately (`mempool_transactions`) and applied as a lightweight overlay (`UtxoStateView`) instead of cloning the full state.
+
+### Key code locations
+
+- `daemon/src/daemon.rs` constructs `Arc<UtxoManager>`
+- `daemon/src/sync_manager.rs` calls `utxo_manager.update_utxo_set(...)` without locking
+- `daemon/src/utxo_manager.rs`
+  - `UtxoState`, `UtxoStateView`
+  - `UtxoManager::{state, state_with_mempool, update_utxo_set, add_mempool_transaction}`
+- Services updated to use snapshots:
+  - `daemon/src/service/get_utxos.rs`
+  - `daemon/src/service/get_balance.rs`
+  - `daemon/src/service/create_unsigned_transaction.rs`
+  - `daemon/src/service/send.rs`
+  - `daemon/src/service/broadcast.rs`
+
 ## A1. UTXO storage/indexing (`daemon/src/utxo_manager.rs`)
 
 ### Summary
 
-- Keep UTXOs in a single map:
-  - `utxos_by_outpoint: HashMap<WalletOutpoint, WalletUtxo>`
-- Maintain a *lightweight* sorted index by amount:
-  - `utxo_keys_sorted_by_amount: Vec<(u64, WalletOutpoint)>` sorted by `(amount, outpoint)`
-- Expose sorted iteration without cloning:
-  - `UtxoManager::utxos_sorted_by_amount(&self) -> impl Iterator<Item = &WalletUtxo>`
+- Keep UTXOs in an immutable snapshot:
+  - `UtxoState::utxos_by_outpoint: HashMap<WalletOutpoint, WalletUtxo>`
+- Maintain a lightweight sorted index by amount:
+  - `UtxoState::utxo_keys_sorted_by_amount: Vec<(u64, WalletOutpoint)>` sorted by `(amount, outpoint)`
+- Expose sorted iteration on snapshots (no cloning):
+  - `UtxoState::utxos_sorted_by_amount(&self) -> impl Iterator<Item = &WalletUtxo>`
+  - `UtxoStateView::utxos_sorted_by_amount(&self) -> UtxosSortedByAmountIter<'_>` (merge iterator for wallet-local overlay)
 
 ### Why it helps
 
-- Avoids storing the full `WalletUtxo` twice (once in a `HashMap`, once in a sorted `Vec`).
-- Avoids an **O(n)** scan to locate an item to remove from the sorted list.
-  - Removal now uses a `binary_search` on `(amount, outpoint)` to find the position.
+- Avoids storing the full `WalletUtxo` twice (sorted index stores only `(amount, outpoint)` keys).
+- Makes “UTXOs sorted by amount” iteration deterministic and cheap (stable tie-breaker by outpoint).
+- Works naturally with snapshot swapping + overlay view: readers iterate over a consistent snapshot without taking long locks or cloning the full set.
 
 ### Key code locations
 
-- `UtxoManager::insert_utxo` and `UtxoManager::remove_utxo`
-- `UtxoManager::utxos_sorted_by_amount`
-- `UtxoManager::update_utxo_set` (rebuilds map + sorted key index; uses cached address map)
+- `daemon/src/utxo_manager.rs`
+  - `UtxoState::utxos_sorted_by_amount`
+  - `UtxoStateView::utxos_sorted_by_amount` + `UtxosSortedByAmountIter`
+  - `UtxoManager::update_utxo_set` (rebuilds map + sorted key index; uses cached address map)
 
 ## A2. `GetUtxos` hot path (`daemon/src/service/get_utxos.rs`)
 
@@ -84,8 +124,8 @@ The implemented address optimizations correspond to the **first 4 points** from 
 
 ### Summary
 
-- `SyncManager::refresh_utxos` no longer holds the global `utxo_manager` mutex while doing RPC calls.
-- The mutex is held only for the actual `UtxoManager::update_utxo_set(...)` mutation.
+- `SyncManager::refresh_utxos` performs RPC calls without holding any UTXO lock.
+- `UtxoManager::update_utxo_set(...)` builds a new snapshot without holding the UTXO lock and swaps the `Arc` under a brief write-lock.
 
 ### Key code locations
 
@@ -95,9 +135,10 @@ The implemented address optimizations correspond to the **first 4 points** from 
 
 ### Summary
 
+- Selection now operates on a snapshot/view (`UtxoStateView`) instead of locking `UtxoManager`.
 - Avoid cloning the full UTXO set inside:
-  - `select_utxos(...)`
-  - `more_utxos_for_merge_transaction(...)`
+  - `select_utxos(...)` (iterates `utxo_state.utxos_sorted_by_amount()`)
+  - `more_utxos_for_merge_transaction(...)` (iterates `utxo_state.utxos_sorted_by_amount()`)
 - Avoid hashing full `WalletUtxo` values; use `WalletOutpoint` identity instead.
 - Fix `from_addresses` filtering cost:
   - Prebuild `from_addresses_set: Option<HashSet<WalletAddress>>` once per call.
@@ -224,7 +265,9 @@ Two derivation hot-path optimizations:
 - `common/src/addresses.rs`
   - `multisig_address_sorted_helper_matches_existing_function`
 - `daemon/src/utxo_manager.rs`
-  - `insert_remove_keeps_sorted_keys_consistent`
+  - `update_utxo_set_produces_sorted_index`
+  - `state_snapshots_remain_valid_after_update`
+  - `state_with_mempool_overlays_wallet_transactions`
 - `daemon/src/args.rs`
   - `sync_interval_default_matches_clap_default`
 
@@ -251,6 +294,7 @@ Bench targets:
 - Address/BIP32 scaling: `daemon/benches/address_scaling.rs`
 - Address-filter scaling (`from_addresses`): `daemon/benches/from_addresses_filter.rs`
 - UTXO refresh scaling: `daemon/benches/utxo_scaling.rs`
+- UTXO snapshot reads under refresh (lock contention): `daemon/benches/utxo_contention.rs`
 
 For extreme sizes (e.g. **1M addresses / 10M UTXOs**), use the dedicated stress bench binary (single-run timing, no Criterion sampling):
 
@@ -277,6 +321,7 @@ It does **not** measure:
 - RPC latency / node performance / gRPC serialization.
 - Real BIP32 derivation cost (addresses are seeded synthetically).
 - Disk/database performance (everything is in-memory).
+- Reader/writer contention during refresh (use `daemon/benches/utxo_contention.rs` for concurrent snapshot reads while `update_utxo_set` runs).
 
 # F) Post-review refinements (2026-02-02)
 

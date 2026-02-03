@@ -1,12 +1,11 @@
 use crate::service::kaswallet_service::KasWalletService;
-use crate::utxo_manager::UtxoManager;
-use common::errors::WalletError::UserInputError;
+use common::errors::WalletError::{InternalServerError, UserInputError};
 use common::errors::WalletResult;
 use common::model::WalletSignableTransaction;
 use proto::kaswallet_proto::{
     CreateUnsignedTransactionsRequest, CreateUnsignedTransactionsResponse, TransactionDescription,
 };
-use tokio::sync::MutexGuard;
+use crate::utxo_manager::UtxoStateView;
 
 impl KasWalletService {
     pub(crate) async fn create_unsigned_transactions(
@@ -21,11 +20,15 @@ impl KasWalletService {
         let transaction_description = request.transaction_description.unwrap();
         let unsinged_transactions: Vec<WalletSignableTransaction>;
         {
-            let utxo_manager = self.utxo_manager.lock().await;
+            let utxo_state = self
+                .utxo_manager
+                .state_with_mempool()
+                .await
+                .map_err(|e| InternalServerError(e.to_string()))?;
             unsinged_transactions = self
                 .create_unsigned_transactions_from_description(
                     transaction_description,
-                    &utxo_manager,
+                    &utxo_state,
                 )
                 .await?;
         }
@@ -38,13 +41,17 @@ impl KasWalletService {
     pub(crate) async fn create_unsigned_transactions_from_description(
         &self,
         transaction_description: TransactionDescription,
-        utxo_manager: &MutexGuard<'_, UtxoManager>,
+        utxo_state: &UtxoStateView,
     ) -> WalletResult<Vec<WalletSignableTransaction>> {
         self.check_is_synced().await?;
 
         let mut transaction_generator = self.transaction_generator.lock().await;
         transaction_generator
-            .create_unsigned_transactions(utxo_manager, transaction_description)
+            .create_unsigned_transactions(
+                self.utxo_manager.as_ref(),
+                utxo_state,
+                transaction_description,
+            )
             .await
     }
 }
