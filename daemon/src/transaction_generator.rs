@@ -484,6 +484,12 @@ impl TransactionGenerator {
                 .map(|utxo| utxo.outpoint.clone()),
         );
 
+        let from_addresses_set: Option<HashSet<WalletAddress>> = if from_addresses.is_empty() {
+            None
+        } else {
+            Some(from_addresses.iter().map(|wa| (*wa).clone()).collect())
+        };
+
         let mut additional_utxos = vec![];
         let mut total_value_added = 0;
         for utxo in utxo_manager.utxos_sorted_by_amount() {
@@ -492,8 +498,10 @@ impl TransactionGenerator {
             {
                 continue;
             }
-            if !from_addresses.is_empty() && !from_addresses.contains(&&utxo.address) {
-                continue;
+            if let Some(ref allowed_set) = from_addresses_set {
+                if !allowed_set.contains(&utxo.address) {
+                    continue;
+                }
             }
 
             additional_utxos.push(utxo.clone());
@@ -806,6 +814,12 @@ impl TransactionGenerator {
         let mut total_value = 0;
         let mut selected_utxos = vec![];
 
+        let from_addresses_set: Option<HashSet<WalletAddress>> = if from_addresses.is_empty() {
+            None
+        } else {
+            Some(from_addresses.iter().map(|wa| (*wa).clone()).collect())
+        };
+
         let dag_info = self
             .kaspa_client
             .get_block_dag_info()
@@ -818,8 +832,10 @@ impl TransactionGenerator {
                                    utxo_manager: &MutexGuard<UtxoManager>,
                                    utxo: &WalletUtxo|
                -> WalletResult<bool> {
-            if !from_addresses.is_empty() && !from_addresses.contains(&&utxo.address) {
-                return Ok(true);
+            if let Some(ref allowed_set) = from_addresses_set {
+                if !allowed_set.contains(&utxo.address) {
+                    return Ok(true);
+                }
             }
             if utxo_manager.is_utxo_pending(utxo, dag_info.virtual_daa_score) {
                 return Ok(true);

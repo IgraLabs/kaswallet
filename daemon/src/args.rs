@@ -3,6 +3,8 @@ use common::args::parse_network_type;
 use kaspa_consensus_core::network::NetworkId;
 use log::LevelFilter;
 
+const DEFAULT_SYNC_INTERVAL_MILLIS: u64 = 10_000;
+
 #[derive(Parser, Debug, Clone)]
 #[command(name = "kaswallet-daemon")]
 pub struct Args {
@@ -48,7 +50,7 @@ pub struct Args {
 
     #[arg(
         long,
-        default_value = "10000",
+        default_value_t = DEFAULT_SYNC_INTERVAL_MILLIS,
         help = "Sync interval in milliseconds",
         hide = true
     )]
@@ -70,7 +72,7 @@ impl Default for Args {
             listen: "".to_string(),
             #[cfg(debug_assertions)]
             enable_tokio_console: false,
-            sync_interval_millis: 10,
+            sync_interval_millis: DEFAULT_SYNC_INTERVAL_MILLIS,
         }
     }
 }
@@ -108,5 +110,23 @@ impl Args {
             self.testnet_suffix,
             self.enable_mainnet_pre_launch,
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Args;
+    use clap::Parser;
+
+    #[test]
+    fn sync_interval_default_matches_clap_default() {
+        let args_from_struct = Args::default();
+        let args_from_clap = Args::parse_from(["kaswallet-daemon"]);
+
+        assert_eq!(
+            args_from_struct.sync_interval_millis,
+            args_from_clap.sync_interval_millis
+        );
+        assert_eq!(args_from_struct.sync_interval_millis, super::DEFAULT_SYNC_INTERVAL_MILLIS);
     }
 }

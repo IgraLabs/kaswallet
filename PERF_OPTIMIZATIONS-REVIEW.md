@@ -33,26 +33,18 @@ The performance optimizations are **comprehensively implemented** and well-teste
 **Severity:** High
 **Impact:** Cache could serve stale data, missing newly added addresses
 
-#### Problem
+#### Status (2026-02-03): Fixed
 
-The current code inserts an address into the map and THEN increments the version:
+The implementation now increments `address_set_version` **inside** the `addresses` lock scope (both `new_address(...)` and `change_address(...)`), eliminating the “inserted-but-old-version” window:
 
 ```rust
-// Current implementation (new_address, lines 126-133)
+let address_string = address.to_string();
 {
-    self.addresses
-        .lock()
-        .await
-        .insert(address.to_string(), wallet_address.clone());
+    let mut addresses = self.addresses.lock().await;
+    addresses.insert(address_string.clone(), wallet_address.clone());
+    self.address_set_version.fetch_add(1, Relaxed);
 }
-self.address_set_version.fetch_add(1, Relaxed);
 ```
-
-**Race condition scenario:**
-1. Thread A: Inserts new address into `addresses` map (lock released)
-2. Thread B: Calls `monitored_addresses()`, reads old version, returns cached data
-3. Thread A: Increments version
-4. Result: Thread B has stale cache missing the new address
 
 #### Why This Matters
 
@@ -63,91 +55,14 @@ let current_version = self.address_set_version.load(Relaxed);
 {
     let cache = self.monitored_addresses_cache.lock().await;
     if cache.version == current_version {
-        return Ok(cache.addresses.clone());  // Returns stale data!
+        return Ok(cache.addresses.clone());  // Returns cached data (correct if version matches)
     }
 }
 ```
 
-#### Proposed Fix
+#### Recommendation
 
-**Option 1: Increment version while holding the lock**
-
-```rust
-// daemon/src/address_manager.rs - new_address method
-
-pub async fn new_address(&self) -> WalletResult<(String, WalletAddress)> {
-    let last_used_external_index_previous_value = self
-        .keys_file
-        .last_used_external_index
-        .fetch_add(1, Relaxed);
-    let last_used_external_index = last_used_external_index_previous_value + 1;
-    self.keys_file.save()?;
-
-    let wallet_address = WalletAddress::new(
-        last_used_external_index,
-        self.keys_file.cosigner_index,
-        Keychain::External,
-    );
-    let address = self
-        .kaspa_address_from_wallet_address(&wallet_address, true)
-        .await?;
-
-    {
-        let mut addresses_guard = self.addresses.lock().await;
-        addresses_guard.insert(address.to_string(), wallet_address.clone());
-        // Increment version BEFORE releasing the lock
-        self.address_set_version.fetch_add(1, Relaxed);
-    }
-    // Version increment happens atomically with the insert from cache reader's perspective
-
-    Ok((address.to_string(), wallet_address))
-}
-```
-
-**Apply the same fix to `change_address` method (lines 280-318):**
-
-```rust
-// daemon/src/address_manager.rs - change_address method
-
-pub async fn change_address(
-    &self,
-    use_existing_change_address: bool,
-    from_addresses: &[&WalletAddress],
-) -> WalletResult<(Address, WalletAddress)> {
-    let wallet_address = if !from_addresses.is_empty() {
-        from_addresses[0].clone()
-    } else {
-        let internal_index = if use_existing_change_address {
-            0
-        } else {
-            self.keys_file
-                .last_used_internal_index
-                .fetch_add(1, Relaxed)
-                + 1
-        };
-        self.keys_file.save()?;
-
-        WalletAddress::new(
-            internal_index,
-            self.keys_file.cosigner_index,
-            Keychain::Internal,
-        )
-    };
-
-    let address = self
-        .kaspa_address_from_wallet_address(&wallet_address, true)
-        .await?;
-
-    {
-        let mut addresses_guard = self.addresses.lock().await;
-        addresses_guard.insert(address.to_string(), wallet_address.clone());
-        // Increment version BEFORE releasing the lock
-        self.address_set_version.fetch_add(1, Relaxed);
-    }
-
-    Ok((address, wallet_address))
-}
-```
+Keep this invariant: **all mutations of `addresses` must bump `address_set_version` before releasing the lock** (or otherwise guarantee atomic visibility to cache readers).
 
 #### Why This Fix Works
 

@@ -1,4 +1,4 @@
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
 use common::keys::Keys;
 use common::model::{Keychain, WalletAddress};
 use kaspa_addresses::Prefix as AddressPrefix;
@@ -78,12 +78,16 @@ fn bench_update_utxo_set(c: &mut Criterion) {
             .collect();
 
         group.bench_with_input(BenchmarkId::from_parameter(utxo_count), &utxo_count, |b, _| {
-            b.iter(|| {
-                let entries = base_entries.clone();
-                rt.block_on(utxo_manager.update_utxo_set(entries, vec![]))
-                    .unwrap();
-                black_box(utxo_manager.utxos_by_outpoint().len());
-            })
+            // Clone inputs outside the measured section so we measure `update_utxo_set` itself.
+            b.iter_batched(
+                || base_entries.clone(),
+                |entries| {
+                    rt.block_on(utxo_manager.update_utxo_set(entries, vec![]))
+                        .unwrap();
+                    black_box(utxo_manager.utxos_by_outpoint().len());
+                },
+                BatchSize::LargeInput,
+            )
         });
     }
     group.finish();

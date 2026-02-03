@@ -12,6 +12,11 @@ repository.workspace = true
 name = "kaswallet-daemon"
 path = "src/main.rs"
 
+[[bin]]
+name = "kaswallet-stress-bench"
+path = "src/bin/kaswallet_stress_bench.rs"
+required-features = ["bench"]
+
 [dependencies]
 kaswallet-common.workspace = true
 kaswallet-proto.workspace = true
@@ -49,5 +54,10 @@ required-features = ["bench"]
 
 [[bench]]
 name = "utxo_scaling"
+harness = false
+required-features = ["bench"]
+
+[[bench]]
+name = "from_addresses_filter"
 harness = false
 required-features = ["bench"]

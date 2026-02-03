@@ -1,5 +1,5 @@
-use crate::address_manager::{AddressManager, AddressSet};
-use common::model::{WalletOutpoint, WalletSignableTransaction, WalletUtxo, WalletUtxoEntry};
+use crate::address_manager::AddressManager;
+use common::model::{WalletAddress, WalletOutpoint, WalletSignableTransaction, WalletUtxo, WalletUtxoEntry};
 use kaspa_addresses::Address;
 use kaspa_consensus_core::config::params::Params;
 use kaspa_rpc_core::{GetBlockDagInfoResponse, RpcMempoolEntryByAddress, RpcUtxosByAddressesEntry};
@@ -153,18 +153,10 @@ impl UtxoManager {
             }
         }
 
-        let address_set: AddressSet;
+        let address_map: Arc<HashMap<Address, WalletAddress>>;
         {
             let address_manager = self.address_manager.lock().await;
-            address_set = address_manager.address_set().await;
-        }
-
-        let mut address_map = HashMap::with_capacity(address_set.len());
-        for (address_string, wallet_address) in &address_set {
-            let address = Address::try_from(address_string.as_str()).map_err(|err| {
-                format!("invalid address in wallet address_set ({address_string}): {err}")
-            })?;
-            address_map.insert(address, wallet_address.clone());
+            address_map = address_manager.monitored_address_map().await?;
         }
 
         // Rebuild from scratch while reusing allocations where possible.
@@ -217,13 +209,16 @@ impl UtxoManager {
                     let address_string = output_verbose_data
                         .script_public_key_address
                         .address_to_string();
-                    let Some(address) = address_set.get(&address_string) else {
+                    let address = Address::try_from(address_string.as_str()).map_err(|err| {
+                        format!("invalid address in mempool output ({address_string}): {err}")
+                    })?;
+                    let Some(wallet_address) = address_map.get(&address) else {
                         // this means this output is not to this wallet
                         continue;
                     };
 
                     let wallet_outpoint =
-                    WalletOutpoint::new(transaction_verbose_data.transaction_id, i as u32);
+                        WalletOutpoint::new(transaction_verbose_data.transaction_id, i as u32);
 
                     if exclude.contains(&wallet_outpoint) {
                         continue;
@@ -236,7 +231,7 @@ impl UtxoManager {
                     );
 
                     let utxo =
-                        WalletUtxo::new(wallet_outpoint.clone(), utxo_entry, address.clone());
+                        WalletUtxo::new(wallet_outpoint.clone(), utxo_entry, wallet_address.clone());
 
                     self.utxos_by_outpoint
                         .insert(wallet_outpoint.clone(), utxo);

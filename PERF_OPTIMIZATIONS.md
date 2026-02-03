@@ -15,11 +15,14 @@ The implemented address optimizations correspond to the **first 4 points** from 
 ## Files touched
 
 - Updated:
+  - `Cargo.toml`
   - `client/src/client.rs`
   - `common/src/addresses.rs`
   - `common/src/model.rs`
   - `common/src/proto_convert.rs`
+  - `daemon/Cargo.toml`
   - `daemon/src/address_manager.rs`
+  - `daemon/src/args.rs`
   - `daemon/src/service/get_balance.rs`
   - `daemon/src/service/get_utxos.rs`
   - `daemon/src/sync_manager.rs`
@@ -27,6 +30,10 @@ The implemented address optimizations correspond to the **first 4 points** from 
   - `daemon/src/utxo_manager.rs`
 - Added:
   - `PERF_OPTIMIZATIONS.md`
+  - `daemon/benches/address_scaling.rs`
+  - `daemon/benches/from_addresses_filter.rs`
+  - `daemon/benches/utxo_scaling.rs`
+  - `daemon/src/bin/kaswallet_stress_bench.rs`
 
 ---
 
@@ -53,7 +60,7 @@ The implemented address optimizations correspond to the **first 4 points** from 
 
 - `UtxoManager::insert_utxo` and `UtxoManager::remove_utxo`
 - `UtxoManager::utxos_sorted_by_amount`
-- `UtxoManager::update_utxo_set` (rebuilds map + sorted key index)
+- `UtxoManager::update_utxo_set` (rebuilds map + sorted key index; uses cached address map)
 
 ## A2. `GetUtxos` hot path (`daemon/src/service/get_utxos.rs`)
 
@@ -92,6 +99,9 @@ The implemented address optimizations correspond to the **first 4 points** from 
   - `select_utxos(...)`
   - `more_utxos_for_merge_transaction(...)`
 - Avoid hashing full `WalletUtxo` values; use `WalletOutpoint` identity instead.
+- Fix `from_addresses` filtering cost:
+  - Prebuild `from_addresses_set: Option<HashSet<WalletAddress>>` once per call.
+  - Per-UTXO filtering becomes O(1) average instead of O(M) slice scan.
 
 ### Key code locations
 
@@ -176,6 +186,8 @@ Two derivation hot-path optimizations:
 - New method: `AddressManager::monitored_addresses() -> Result<Arc<Vec<Address>>, ...>`
   - Rebuilds only when the version changes.
   - Returns an `Arc<Vec<Address>>` so callers can cheaply reuse it.
+- Added: `AddressManager::monitored_address_map() -> Result<Arc<HashMap<Address, WalletAddress>>, ...>`
+  - Same cache + invalidation, but returns a fast lookup map used by `UtxoManager::update_utxo_set` (avoids cloning the full address set).
 - Cache invalidation occurs on:
   - `new_address(...)`
   - `change_address(...)`
@@ -187,9 +199,12 @@ Two derivation hot-path optimizations:
 
 - `daemon/src/address_manager.rs`
   - `AddressManager::monitored_addresses(...)`
+  - `AddressManager::monitored_address_map(...)`
   - `address_set_version` increments on address set changes
 - `daemon/src/sync_manager.rs`
   - `refresh_utxos(...)` uses `monitored_addresses()`
+- `daemon/src/utxo_manager.rs`
+  - `update_utxo_set(...)` uses `monitored_address_map()`
 
 ---
 
@@ -210,6 +225,8 @@ Two derivation hot-path optimizations:
   - `multisig_address_sorted_helper_matches_existing_function`
 - `daemon/src/utxo_manager.rs`
   - `insert_remove_keeps_sorted_keys_consistent`
+- `daemon/src/args.rs`
+  - `sync_interval_default_matches_clap_default`
 
 # D) How to validate
 
@@ -232,7 +249,34 @@ RUSTC_WRAPPER= CARGO_TARGET_DIR=target cargo bench -p kaswallet-daemon --feature
 Bench targets:
 
 - Address/BIP32 scaling: `daemon/benches/address_scaling.rs`
+- Address-filter scaling (`from_addresses`): `daemon/benches/from_addresses_filter.rs`
 - UTXO refresh scaling: `daemon/benches/utxo_scaling.rs`
+
+For extreme sizes (e.g. **1M addresses / 10M UTXOs**), use the dedicated stress bench binary (single-run timing, no Criterion sampling):
+
+```bash
+RUSTC_WRAPPER= CARGO_TARGET_DIR=target cargo run -p kaswallet-daemon --features bench --release --bin kaswallet-stress-bench -- \
+  --i-understand --addresses 1000000 --utxos 10000000
+```
+
+## D3) What `kaswallet-stress-bench` measures (and what it doesn't)
+
+This bench is meant to validate the **two reported pain points** (large address set + large UTXO set) in the hot in-memory refresh path, without involving RPC/network variability.
+
+It measures (prints wall-clock time for):
+
+1. Seeding **N synthetic wallet addresses** into `AddressManager` using bench-only insertion (no BIP32 derivation performed).
+2. Building/warming the monitored-address caches:
+   - `AddressManager::monitored_addresses()` (builds `Arc<Vec<Address>>`)
+   - `AddressManager::monitored_address_map()` (builds/returns `Arc<HashMap<Address, WalletAddress>>`)
+3. Generating **M synthetic UTXO entries** (`Vec<RpcUtxosByAddressesEntry>`).
+4. Rebuilding the wallet UTXO set via `UtxoManager::update_utxo_set(...)` using the cached `Address -> WalletAddress` map (avoids cloning the full `AddressSet` for large wallets).
+
+It does **not** measure:
+
+- RPC latency / node performance / gRPC serialization.
+- Real BIP32 derivation cost (addresses are seeded synthetically).
+- Disk/database performance (everything is in-memory).
 
 # F) Post-review refinements (2026-02-02)
 

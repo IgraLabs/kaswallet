@@ -20,6 +20,7 @@ pub type AddressQuerySet = HashMap<Address, WalletAddress>;
 struct MonitoredAddressesCache {
     version: u64,
     addresses: Arc<Vec<Address>>,
+    by_address: Arc<HashMap<Address, WalletAddress>>,
 }
 
 #[derive(Debug)]
@@ -53,6 +54,7 @@ impl AddressManager {
             monitored_addresses_cache: Mutex::new(MonitoredAddressesCache {
                 version: 0,
                 addresses: Arc::new(Vec::new()),
+                by_address: Arc::new(HashMap::new()),
             }),
         }
     }
@@ -87,23 +89,45 @@ impl AddressManager {
             }
         }
 
-        let addresses_vec: Vec<Address> = {
+        let (addresses_vec, by_address): (Vec<Address>, HashMap<Address, WalletAddress>) = {
             let addresses = self.addresses.lock().await;
             let mut parsed = Vec::with_capacity(addresses.len());
-            for address_string in addresses.keys() {
+            let mut by_address = HashMap::with_capacity(addresses.len());
+            for (address_string, wallet_address) in addresses.iter() {
                 let address = Address::try_from(address_string.as_str()).map_err(|err| {
                     format!("invalid address in wallet address_set ({address_string}): {err}")
                 })?;
-                parsed.push(address);
+                parsed.push(address.clone());
+                by_address.insert(address, wallet_address.clone());
             }
-            parsed
+            (parsed, by_address)
         };
 
         let addresses_arc = Arc::new(addresses_vec);
+        let by_address_arc = Arc::new(by_address);
         let mut cache = self.monitored_addresses_cache.lock().await;
         cache.version = current_version;
         cache.addresses = addresses_arc.clone();
+        cache.by_address = by_address_arc;
         Ok(addresses_arc)
+    }
+
+    pub async fn monitored_address_map(
+        &self,
+    ) -> Result<Arc<HashMap<Address, WalletAddress>>, Box<dyn Error + Send + Sync>> {
+        let current_version = self.address_set_version.load(Relaxed);
+        {
+            let cache = self.monitored_addresses_cache.lock().await;
+            if cache.version == current_version {
+                return Ok(cache.by_address.clone());
+            }
+        }
+
+        // Rebuild once (also refreshes the map).
+        let _ = self.monitored_addresses().await?;
+
+        let cache = self.monitored_addresses_cache.lock().await;
+        Ok(cache.by_address.clone())
     }
 
     pub async fn new_address(&self) -> WalletResult<(String, WalletAddress)> {
