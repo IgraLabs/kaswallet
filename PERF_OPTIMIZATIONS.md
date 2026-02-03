@@ -315,6 +315,10 @@ It measures (prints wall-clock time for):
    - `AddressManager::monitored_address_map()` (builds/returns `Arc<HashMap<Address, WalletAddress>>`)
 3. Generating **M synthetic UTXO entries** (`Vec<RpcUtxosByAddressesEntry>`).
 4. Rebuilding the wallet UTXO set via `UtxoManager::update_utxo_set(...)` using the cached `Address -> WalletAddress` map (avoids cloning the full `AddressSet` for large wallets).
+5. (Optional) **Contention proof**: with `--contend`, runs a second `update_utxo_set(...)` while sampling read latencies from multiple tasks:
+   - `UtxoManager::state().await`
+   - `UtxoManager::state_with_mempool().await`
+   and prints p99/p999/max read latencies while the refresh is running.
 
 It does **not** measure:
 
@@ -322,6 +326,20 @@ It does **not** measure:
 - Real BIP32 derivation cost (addresses are seeded synthetically).
 - Disk/database performance (everything is in-memory).
 - Reader/writer contention during refresh (use `daemon/benches/utxo_contention.rs` for concurrent snapshot reads while `update_utxo_set` runs).
+
+## D4) Proving “refresh doesn’t block reads” at scale
+
+Run the stress bench in contention mode:
+
+```bash
+RUSTC_WRAPPER= CARGO_TARGET_DIR=target cargo run -p kaswallet-daemon --features bench --release --bin kaswallet-stress-bench -- \
+  --i-understand --addresses 1000000 --utxos 10000000 \
+  --contend --contend-readers 8 --contend-sample-interval-micros 100
+```
+
+Interpretation:
+- With the old `Arc<Mutex<UtxoManager>>` design, reads would commonly stall for **seconds** (≈ refresh duration).
+- With the snapshot design, `state()` / `state_with_mempool()` should stay in the **µs** range; occasional small spikes are normal, but **ms→seconds** indicates lock contention or runtime starvation.
 
 # F) Post-review refinements (2026-02-02)
 
