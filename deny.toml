@@ -25,6 +25,18 @@ db-urls = ["https://github.com/rustsec/advisory-db"]
 yanked = "warn"
 ignore = [
     "RUSTSEC-2025-0134", # rustls-pemfile unmaintained (indirect dependency from tonic)
+    # All below are indirect dependencies from rusty-kaspa that we cannot directly update:
+    "RUSTSEC-2021-0139", # ansi_term unmaintained
+    "RUSTSEC-2025-0052", # async-std discontinued
+    "RUSTSEC-2021-0145", # atty - potential unaligned read (unsound)
+    "RUSTSEC-2024-0375", # atty unmaintained
+    "RUSTSEC-2025-0141", # bincode unmaintained
+    "RUSTSEC-2024-0388", # derivative unmaintained
+    "RUSTSEC-2024-0384", # instant unmaintained
+    "RUSTSEC-2024-0407", # unsound - fails to ensure slice elements match
+    "RUSTSEC-2020-0168", # mach unmaintained
+    "RUSTSEC-2024-0436", # paste unmaintained
+    "RUSTSEC-2024-0370", # proc-macro-error unmaintained
 ]
 
 [licenses]
@@ -46,6 +58,9 @@ allow = [
     "Unlicense",
     "MPL-2.0",
     "CC0-1.0",
+    "LGPL-3.0-only",       # kaspa-mining-errors (from rusty-kaspa)
+    "CDLA-Permissive-2.0", # indirect dep from rusty-kaspa
+    "BSL-1.0",             # indirect dep from rusty-kaspa (Boost Software License)
 ]
 confidence-threshold = 0.8
 unused-allowed-license = "allow"

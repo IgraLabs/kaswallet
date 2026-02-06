@@ -124,11 +124,11 @@ impl UtxoManager {
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         let mut wallet_utxos: Vec<WalletUtxo> = vec![];
 
-        let mut exculde: HashSet<WalletOutpoint> = HashSet::new();
+        let mut exclude: HashSet<WalletOutpoint> = HashSet::new();
         for rpc_mempool_entries_by_address in &rpc_mempool_utxo_entries {
             for sending_rpc_mempool_entry in &rpc_mempool_entries_by_address.sending {
                 for input in &sending_rpc_mempool_entry.transaction.inputs {
-                    exculde.insert(input.previous_outpoint.into());
+                    exclude.insert(input.previous_outpoint.into());
                 }
             }
         }
@@ -141,7 +141,7 @@ impl UtxoManager {
 
         for rpc_utxo_entry in &rpc_utxo_entries {
             let wallet_outpoint: WalletOutpoint = rpc_utxo_entry.outpoint.into();
-            if exculde.contains(&wallet_outpoint) {
+            if exclude.contains(&wallet_outpoint) {
                 continue;
             }
 
@@ -182,7 +182,7 @@ impl UtxoManager {
                     let wallet_outpoint =
                         WalletOutpoint::new(transaction_verbose_data.transaction_id, i as u32);
 
-                    if exculde.contains(&wallet_outpoint) {
+                    if exclude.contains(&wallet_outpoint) {
                         continue;
                     }
                     let utxo_entry = WalletUtxoEntry::new(
