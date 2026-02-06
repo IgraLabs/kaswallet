@@ -19,10 +19,10 @@ impl KasWalletService {
             ));
         }
         let transaction_description = request.transaction_description.unwrap();
-        let unsinged_transactions: Vec<WalletSignableTransaction>;
+        let unsigned_transactions: Vec<WalletSignableTransaction>;
         {
             let utxo_manager = self.utxo_manager.lock().await;
-            unsinged_transactions = self
+            unsigned_transactions = self
                 .create_unsigned_transactions_from_description(
                     transaction_description,
                     &utxo_manager,
@@ -31,7 +31,7 @@ impl KasWalletService {
         }
 
         Ok(CreateUnsignedTransactionsResponse {
-            unsigned_transactions: unsinged_transactions.into_iter().map(Into::into).collect(),
+            unsigned_transactions: unsigned_transactions.into_iter().map(Into::into).collect(),
         })
     }
 

@@ -32,7 +32,7 @@ const MIN_FEE_RATE: f64 = 1.0;
 // The minimal change amount to target in order to avoid large storage mass (see KIP9 for more details).
 // By having at least 10KAS in the change output we make sure that the storage mass charged for change is
 // at most 1000 gram. Generally, if the payment is above 10KAS as well, the resulting storage mass will be
-// in the order of magnitude of compute mass and wil not incur additional charges.
+// in the order of magnitude of compute mass and will not incur additional charges.
 // Additionally, every transaction with send value > ~0.1 KAS should succeed (at most ~99K storage mass for payment
 // output, thus overall lower than standard mass upper bound which is 100K gram)
 const MIN_CHANGE_TARGET: u64 = SOMPI_PER_KASPA * 10;
@@ -391,7 +391,7 @@ impl TransactionGenerator {
             let required_amount = sent_value - available_value;
             if is_send_all {
                 debug!(
-                    "Reducing sent value by {} to accomodate for merge transaction fee",
+                    "Reducing sent value by {} to accommodate for merge transaction fee",
                     required_amount
                 );
                 available_value -= required_amount;
@@ -522,12 +522,12 @@ impl TransactionGenerator {
     ) -> WalletResult<(usize, usize)> {
         // Create a dummy transaction which is a clone of the original transaction, but without inputs,
         // to calculate how much mass do all the inputs have
-        let mut trasnaction_without_inputs = original_consensus_transaction.tx.clone();
-        trasnaction_without_inputs.inputs = vec![];
+        let mut transaction_without_inputs = original_consensus_transaction.tx.clone();
+        transaction_without_inputs.inputs = vec![];
         let mass_without_inputs = self
             .mass_calculator
             .calc_compute_mass_for_unsigned_consensus_transaction(
-                &trasnaction_without_inputs,
+                &transaction_without_inputs,
                 self.keys.minimum_signatures,
             );
         let mass_of_all_inputs = transaction_mass - mass_without_inputs;

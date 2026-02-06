@@ -20,10 +20,10 @@ pub async fn test_p2pk_send() {
         &LogsLevel::Info,
     )
     .expect("Failed to initialize logger");
-    let mnemnonic = create_known_test_mnemonic();
+    let mnemonic = create_known_test_mnemonic();
 
     let (_keys, keys_file_path) =
-        kaswallet_test_helpers::create::create_keys_file(mnemnonic).unwrap();
+        kaswallet_test_helpers::create::create_keys_file(mnemonic).unwrap();
     let (mut kaspad_daemon, kaspad_client) = start_kaspad().await;
     sleep(Duration::from_millis(500)).await; // Give kaspad some time to start properly
 
@@ -121,10 +121,10 @@ pub async fn test_p2pk_create_sign_broadcast() {
         &LogsLevel::Info,
     )
     .expect("Failed to initialize logger");
-    let mnemnonic = create_known_test_mnemonic();
+    let mnemonic = create_known_test_mnemonic();
 
     let (_keys, keys_file_path) =
-        kaswallet_test_helpers::create::create_keys_file(mnemnonic).unwrap();
+        kaswallet_test_helpers::create::create_keys_file(mnemonic).unwrap();
     let (mut kaspad_daemon, kaspad_client) = start_kaspad().await;
     sleep(Duration::from_millis(500)).await; // Give kaspad some time to start properly
 

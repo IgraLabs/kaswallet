@@ -6,7 +6,7 @@ use kaswallet_create::generate_keys_file::generate_keys_file;
 use std::sync::Arc;
 use tempfile::NamedTempFile;
 
-pub fn create_keys_file(mnemnonic: Mnemonic) -> WalletResult<(Keys, String)> {
+pub fn create_keys_file(mnemonic: Mnemonic) -> WalletResult<(Keys, String)> {
     let keys_file_path = NamedTempFile::with_suffix(".json")
         .unwrap()
         .path()
@@ -20,7 +20,7 @@ pub fn create_keys_file(mnemnonic: Mnemonic) -> WalletResult<(Keys, String)> {
     let keys_file = generate_keys_file(
         create_args,
         keys_file_path.clone(),
-        Arc::new(vec![mnemnonic.clone()]),
+        Arc::new(vec![mnemonic.clone()]),
         "".to_string(),
         vec![],
     )?;
