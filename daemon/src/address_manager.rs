@@ -410,6 +410,37 @@ mod tests {
         ))
     }
 
+    fn keys_with_two_pubkeys() -> Arc<Keys> {
+        let phrases = [
+            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+            "zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo wrong",
+        ];
+        let pubkeys: Vec<_> = phrases
+            .iter()
+            .map(|phrase| {
+                let mnemonic = Mnemonic::new(phrase, Language::English).unwrap();
+                let seed = mnemonic.to_seed("");
+                let xprv = ExtendedPrivateKey::<SecretKey>::new(seed).unwrap();
+                let xprv = xprv
+                    .derive_path(&common::keys::master_key_path(true))
+                    .unwrap();
+                xprv.public_key()
+            })
+            .collect();
+
+        Arc::new(Keys::new(
+            unique_keys_path(),
+            1,
+            vec![],
+            XPubPrefix::XPUB,
+            pubkeys,
+            0,
+            0,
+            2, // minimum_signatures
+            0,
+        ))
+    }
+
     #[test]
     fn calculate_address_path_singlesig_matches_expected_format() {
         let manager = AddressManager::new(keys_with_no_pubkeys(), Prefix::Mainnet);
@@ -468,5 +499,54 @@ mod tests {
         let third = manager.monitored_addresses().await.unwrap();
         assert!(!Arc::ptr_eq(&second, &third));
         assert_eq!(third.len(), 2);
+    }
+
+    #[test]
+    fn calculate_address_path_multisig_has_three_components() {
+        let manager = AddressManager::new(keys_with_two_pubkeys(), Prefix::Mainnet);
+
+        let wallet_address = WalletAddress::new(5, 1, Keychain::External);
+        let path = manager.calculate_address_path(&wallet_address).unwrap();
+        // Multisig path: m/<cosigner_index>/<keychain>/<address_index>
+        assert_eq!(path.to_string(), "m/1/0/5");
+
+        let wallet_address_internal = WalletAddress::new(3, 0, Keychain::Internal);
+        let path_internal = manager
+            .calculate_address_path(&wallet_address_internal)
+            .unwrap();
+        assert_eq!(path_internal.to_string(), "m/0/1/3");
+    }
+
+    #[tokio::test]
+    async fn monitored_address_map_returns_same_arc_as_cache() {
+        let keys = keys_with_no_pubkeys();
+        let manager = AddressManager::new(keys, Prefix::Mainnet);
+
+        let address = Address::new(Prefix::Mainnet, Version::PubKey, &[1u8; 32]);
+        let wallet_address = WalletAddress::new(1, 0, Keychain::External);
+
+        let mut query_set: AddressQuerySet = HashMap::new();
+        query_set.insert(address.clone(), wallet_address);
+
+        manager
+            .update_addresses_and_last_used_indexes(
+                query_set,
+                vec![kaspa_rpc_core::RpcBalancesByAddressesEntry {
+                    address: address.clone(),
+                    balance: Some(1),
+                }],
+            )
+            .await
+            .unwrap();
+
+        // Build the cache via monitored_addresses first.
+        let _ = manager.monitored_addresses().await.unwrap();
+
+        // monitored_address_map should return the same Arc from the cache.
+        let map1 = manager.monitored_address_map().await.unwrap();
+        let map2 = manager.monitored_address_map().await.unwrap();
+        assert!(Arc::ptr_eq(&map1, &map2));
+        assert_eq!(map1.len(), 1);
+        assert!(map1.contains_key(&address));
     }
 }
