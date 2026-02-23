@@ -66,3 +66,8 @@ required-features = ["bench"]
 name = "utxo_contention"
 harness = false
 required-features = ["bench"]
+
+[[bench]]
+name = "old_vs_new"
+harness = false
+required-features = ["bench"]
