@@ -22,7 +22,7 @@ pub struct KasWalletService {
     pub(crate) kaspa_client: Arc<GrpcClient>,
     pub(crate) keys: Arc<Keys>,
     pub(crate) address_manager: Arc<Mutex<AddressManager>>,
-    pub(crate) utxo_manager: Arc<Mutex<UtxoManager>>,
+    pub(crate) utxo_manager: Arc<UtxoManager>,
     pub(crate) transaction_generator: Arc<Mutex<TransactionGenerator>>,
     pub(crate) sync_manager: Arc<SyncManager>,
     pub(crate) submit_transaction_mutex: Mutex<()>,
@@ -33,7 +33,7 @@ impl KasWalletService {
         kaspa_client: Arc<GrpcClient>,
         keys: Arc<Keys>,
         address_manager: Arc<Mutex<AddressManager>>,
-        utxo_manager: Arc<Mutex<UtxoManager>>,
+        utxo_manager: Arc<UtxoManager>,
         transaction_generator: Arc<Mutex<TransactionGenerator>>,
         sync_manager: Arc<SyncManager>,
     ) -> Self {

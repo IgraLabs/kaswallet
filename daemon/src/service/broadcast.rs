@@ -10,10 +10,7 @@ impl KasWalletService {
         let signed_transactions: Vec<_> =
             request.transactions.into_iter().map(Into::into).collect();
 
-        let mut utxo_manager = self.utxo_manager.lock().await;
-        let transaction_ids = self
-            .submit_transactions(&mut utxo_manager, &signed_transactions)
-            .await?;
+        let transaction_ids = self.submit_transactions(&signed_transactions).await?;
 
         Ok(BroadcastResponse { transaction_ids })
     }
