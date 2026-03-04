@@ -2,8 +2,6 @@ name: Build and Publish Docker Images
 
 on:
   push:
-    branches:
-      - main
     tags:
       - 'v*'
   workflow_dispatch:
@@ -35,9 +33,8 @@ jobs:
         with:
           images: igranetwork/kaswallet
           tags: |
-            # latest and nightly only for main branch
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=raw,value=nightly,enable={{is_default_branch}}
+            # latest tag for every version release
+            type=raw,value=latest
             # Semantic versioning from tags (v1.2.3 → 1.2.3)
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
@@ -54,5 +51,10 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=local,src=/tmp/.buildx-cache
+          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
+
+      - name: Move cache
+        run: |
+          rm -rf /tmp/.buildx-cache
+          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
