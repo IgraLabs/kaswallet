@@ -82,3 +82,4 @@ rust_decimal = "1.36"
 # Pin wasm-bindgen/js-sys to avoid version mismatch with rusty-kaspa transitive deps (ENG-746)
 wasm-bindgen = "=0.2.100"
 js-sys = "=0.3.70"
+criterion = "0.5.1"

@@ -81,11 +81,11 @@ impl Daemon {
             keys.clone(),
             address_prefix,
         )));
-        let utxo_manager = Arc::new(Mutex::new(utxo_manager::UtxoManager::new(
+        let utxo_manager = Arc::new(utxo_manager::UtxoManager::new(
             address_manager.clone(),
             consensus_params,
             block_dag_info,
-        )));
+        ));
         let transaction_generator = Arc::new(Mutex::new(TransactionGenerator::new(
             kaspa_rpc_client.clone(),
             keys.clone(),

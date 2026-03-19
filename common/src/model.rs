@@ -37,7 +37,7 @@ impl WalletAddress {
     }
 }
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct WalletOutpoint {
     pub transaction_id: Hash,
     pub index: u32,
