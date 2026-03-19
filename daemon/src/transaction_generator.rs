@@ -728,7 +728,7 @@ impl TransactionGenerator {
             .get_fee_estimate()
             .await
             .to_wallet_result_internal()?;
-        Ok((fee_estimate.normal_buckets[0].feerate, SOMPI_PER_KASPA)) // Default to a bound of max 1 KAS as fee
+        Ok((fee_estimate.priority_bucket.feerate, SOMPI_PER_KASPA)) // Default to a bound of max 1 KAS as fee
     }
 
     async fn calculate_fee_limits(
@@ -751,10 +751,8 @@ impl TransactionGenerator {
                         .get_fee_estimate()
                         .await
                         .to_wallet_result_internal()?;
-                    let fee_rate = f64::min(
-                        fee_estimate.normal_buckets[0].feerate,
-                        requested_max_fee_rate,
-                    );
+                    let fee_rate =
+                        f64::min(fee_estimate.priority_bucket.feerate, requested_max_fee_rate);
                     Ok((fee_rate, u64::MAX))
                 }
                 Some(fee_policy::FeePolicy::ExactFeeRate(requested_exact_fee_rate)) => {
@@ -773,7 +771,7 @@ impl TransactionGenerator {
                         .get_fee_estimate()
                         .await
                         .to_wallet_result_internal()?;
-                    Ok((fee_estimate.normal_buckets[0].feerate, requested_max_fee))
+                    Ok((fee_estimate.priority_bucket.feerate, requested_max_fee))
                 }
                 None => self.default_fee_rate().await,
             },
