@@ -1,7 +1,7 @@
 use crate::address_manager::AddressSet;
 use crate::service::kaswallet_service::KasWalletService;
-use common::errors::WalletError::UserInputError;
-use common::errors::{ResultExt, WalletResult};
+use common::error_location::ErrorLocation;
+use common::errors::{RpcError, UserInputError, WalletError, WalletResult};
 use common::model::WalletUtxo;
 use kaspa_addresses::Address;
 use kaspa_wallet_core::rpc::RpcApi;
@@ -16,7 +16,11 @@ impl KasWalletService {
         request: GetUtxosRequest,
     ) -> WalletResult<GetUtxosResponse> {
         for address in &request.addresses {
-            Address::try_from(address.as_str()).to_wallet_result_user_input()?;
+            Address::try_from(address.as_str()).map_err(|e| UserInputError::InvalidAddress {
+                input: address.clone(),
+                reason: e.to_string(),
+                loc: ErrorLocation::capture(),
+            })?;
         }
 
         let address_set: AddressSet;
@@ -29,20 +33,24 @@ impl KasWalletService {
         } else {
             for address in &request.addresses {
                 if !address_set.contains_key(address) {
-                    return Err(UserInputError(format!(
-                        "Address {} not found in wallet",
-                        address
-                    )));
+                    return Err(WalletError::from(UserInputError::InvalidAddress {
+                        input: address.clone(),
+                        reason: "Address not found in wallet".into(),
+                        loc: ErrorLocation::capture(),
+                    }));
                 }
             }
             request.addresses
         };
 
-        let fee_estimate = self
-            .kaspa_client
-            .get_fee_estimate()
-            .await
-            .to_wallet_result_internal()?;
+        let fee_estimate =
+            self.kaspa_client
+                .get_fee_estimate()
+                .await
+                .map_err(|e| RpcError::Transport {
+                    reason: e.to_string(),
+                    loc: ErrorLocation::capture(),
+                })?;
 
         let fee_rate = fee_estimate.normal_buckets[0].feerate;
 

@@ -15,6 +15,7 @@ path = "src/main.rs"
 [dependencies]
 kaswallet-common.workspace = true
 kaswallet-proto.workspace = true
+kaswallet-client.workspace = true
 
 kaspa-consensus-core.workspace = true
 kaspa-bip32.workspace = true

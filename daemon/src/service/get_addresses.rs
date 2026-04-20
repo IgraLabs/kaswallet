@@ -1,5 +1,4 @@
 use crate::service::kaswallet_service::KasWalletService;
-use common::errors::WalletError::InternalServerError;
 use common::errors::WalletResult;
 use common::model::{Keychain, WalletAddress};
 use proto::kaswallet_proto::GetAddressesRequest;
@@ -20,20 +19,10 @@ impl KasWalletService {
                 cosigner_index: self.keys.cosigner_index,
                 keychain: Keychain::External,
             };
-            match address_manager
+            let address = address_manager
                 .kaspa_address_from_wallet_address(&wallet_address, true)
-                .await
-            {
-                Ok(address) => {
-                    addresses.push(address.to_string());
-                }
-                Err(e) => {
-                    return Err(InternalServerError(format!(
-                        "Failed to calculate address: {}",
-                        e
-                    )));
-                }
-            }
+                .await?;
+            addresses.push(address.to_string());
         }
 
         Ok(addresses)

@@ -1,11 +1,10 @@
-﻿use crate::encrypted_mnemonic::EncryptedMnemonic;
-use crate::errors::WalletError::InternalServerError;
-use crate::errors::{ResultExt, WalletResult};
+use crate::encrypted_mnemonic::EncryptedMnemonic;
+use crate::error_location::ErrorLocation;
+use crate::errors::{CryptoError, StorageError, WalletResult};
 use kaspa_bip32::secp256k1::PublicKey;
 use kaspa_bip32::{DerivationPath, ExtendedPublicKey, Mnemonic, Prefix};
 use log::debug;
 use serde::{Deserialize, Serialize};
-use std::error::Error;
 use std::fs;
 use std::fs::File;
 use std::io::Write;
@@ -130,25 +129,56 @@ impl Keys {
         }
     }
 
-    pub fn load(file_path: &str, prefix: Prefix) -> Result<Keys, Box<dyn Error + Send + Sync>> {
-        let serialized = fs::read_to_string(file_path)?;
-        let keys_json: KeysJson = serde_json::from_str(&serialized)?;
+    pub fn load(file_path: &str, prefix: Prefix) -> Result<Keys, CryptoError> {
+        let serialized = fs::read_to_string(file_path).map_err(|e| match e.kind() {
+            std::io::ErrorKind::NotFound => CryptoError::KeyFileNotFound {
+                path: file_path.to_string(),
+                loc: ErrorLocation::capture(),
+            },
+            _ => CryptoError::KeyFileMalformed {
+                path: file_path.to_string(),
+                reason: e.to_string(),
+                loc: ErrorLocation::capture(),
+            },
+        })?;
+        let keys_json: KeysJson =
+            serde_json::from_str(&serialized).map_err(|e| CryptoError::KeyFileMalformed {
+                path: file_path.to_string(),
+                reason: e.to_string(),
+                loc: ErrorLocation::capture(),
+            })?;
         Ok(keys_json.to_keys(file_path, prefix))
     }
 
     pub fn save(&self) -> WalletResult<()> {
         let keys_json: KeysJson = self.into();
-        let serialized = serde_json::to_string_pretty(&keys_json)
-            .map_err(|e| InternalServerError(e.to_string()))?;
+        let serialized =
+            serde_json::to_string_pretty(&keys_json).map_err(|e| StorageError::Serialize {
+                kind: "keys.json",
+                reason: e.to_string(),
+                loc: ErrorLocation::capture(),
+            })?;
 
         let path = Path::new(&self.file_path);
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).map_err(|e| InternalServerError(e.to_string()))?;
+            fs::create_dir_all(parent).map_err(|e| StorageError::Io {
+                path: parent.display().to_string(),
+                reason: e.to_string(),
+                loc: ErrorLocation::capture(),
+            })?;
         }
-        let mut file = File::create(path).map_err(|e| InternalServerError(e.to_string()))?;
+        let mut file = File::create(path).map_err(|e| StorageError::Io {
+            path: self.file_path.clone(),
+            reason: e.to_string(),
+            loc: ErrorLocation::capture(),
+        })?;
 
         file.write_all(serialized.as_bytes())
-            .map_err(|e| InternalServerError(e.to_string()))?;
+            .map_err(|e| StorageError::Io {
+                path: self.file_path.clone(),
+                reason: e.to_string(),
+                loc: ErrorLocation::capture(),
+            })?;
 
         Ok(())
     }
@@ -156,11 +186,22 @@ impl Keys {
     pub fn decrypt_mnemonics(&self, password: &String) -> WalletResult<Vec<Mnemonic>> {
         let mut mnemonics = Vec::new();
         for encrypted_mnemonic in &self.encrypted_mnemonics {
-            let mnemonic = encrypted_mnemonic
-                .decrypt(password)
-                .to_wallet_result_user_input()?;
+            let mnemonic = encrypted_mnemonic.decrypt(password)?;
             mnemonics.push(mnemonic);
         }
         Ok(mnemonics)
+    }
+}
+
+#[cfg(test)]
+mod keys_error_tests {
+    use super::*;
+    use kaspa_bip32::Prefix;
+
+    #[test]
+    fn load_returns_typed_error_when_file_missing() {
+        let res = Keys::load("/nonexistent/path/keys.json", Prefix::KPUB);
+        let err = res.unwrap_err();
+        assert_eq!(err.kind_name(), "KeyFileNotFound", "got: {err}");
     }
 }

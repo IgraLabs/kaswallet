@@ -66,7 +66,7 @@ impl Daemon {
         debug!("Keys file path: {}", keys_file_path);
         let keys = Arc::new(
             Keys::load(&keys_file_path, extended_keys_prefix)
-                .map_err(|e| FailedToLoadKeys(keys_file_path.clone(), e))?,
+                .map_err(|e| FailedToLoadKeys(keys_file_path.clone(), Box::new(e)))?,
         );
         info!("Loaded keys from file {}", keys_file_path);
         let mass_calculator = Arc::new(MassCalculator::new(&network_id.network_type.into()));

@@ -1,7 +1,7 @@
 use crate::service::kaswallet_service::KasWalletService;
 use crate::utxo_manager::UtxoManager;
-use common::errors::WalletError::UserInputError;
-use common::errors::WalletResult;
+use common::error_location::ErrorLocation;
+use common::errors::{UserInputError, WalletError, WalletResult};
 use common::model::WalletSignableTransaction;
 use proto::kaswallet_proto::{
     CreateUnsignedTransactionsRequest, CreateUnsignedTransactionsResponse, TransactionDescription,
@@ -14,9 +14,10 @@ impl KasWalletService {
         request: CreateUnsignedTransactionsRequest,
     ) -> WalletResult<CreateUnsignedTransactionsResponse> {
         if request.transaction_description.is_none() {
-            return Err(UserInputError(
-                "Transaction description is required".to_string(),
-            ));
+            return Err(WalletError::from(UserInputError::MissingField {
+                field: "transaction_description",
+                loc: ErrorLocation::capture(),
+            }));
         }
         let transaction_description = request.transaction_description.unwrap();
         let unsigned_transactions: Vec<WalletSignableTransaction>;

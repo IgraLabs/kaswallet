@@ -1,3 +1,5 @@
+use common::error_location::ErrorLocation;
+use common::errors::{TransactionError, UserInputError, WalletError, WalletResult};
 use common::model::WalletSignableTransaction;
 use futures::StreamExt;
 use futures::stream::FuturesUnordered;
@@ -5,11 +7,24 @@ use kaspa_consensus_core::sign::Signed;
 use kaspa_consensus_core::tx::SignableTransaction;
 use kaswallet_client::client::KaswalletClient;
 use kaswallet_client::model::{AddressBalance, BalanceInfo, TransactionBuilder};
-use std::error::Error;
 use tokio::time::Instant;
 
+fn ui_err(reason: &str) -> WalletError {
+    WalletError::from(UserInputError::InvalidAmount {
+        input: reason.to_string(),
+        loc: ErrorLocation::capture(),
+    })
+}
+
+fn build_err(reason: &str) -> WalletError {
+    WalletError::from(TransactionError::BuildFailed {
+        reason: reason.to_string(),
+        loc: ErrorLocation::capture(),
+    })
+}
+
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
+async fn main() -> WalletResult<()> {
     let mut client = KaswalletClient::connect("http://localhost:8082").await?;
 
     let scenario = std::env::args()
@@ -37,20 +52,18 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
             mine_tx_id_test(&mut client).await?;
         }
         _ => {
-            return Err(format!("Unknown scenario {}", scenario).into());
+            return Err(ui_err(&format!("Unknown scenario {}", scenario)));
         }
     }
 
     Ok(())
 }
 
-async fn preselected_utxos_test(
-    client: &mut KaswalletClient,
-) -> Result<(), Box<dyn Error + Send + Sync>> {
+async fn preselected_utxos_test(client: &mut KaswalletClient) -> WalletResult<()> {
     let utxos = client.get_utxos(vec![], true, true).await?;
 
     if utxos.is_empty() {
-        return Err("No UTXOs found in the wallet".into());
+        return Err(build_err("No UTXOs found in the wallet"));
     }
     let to_address = utxos[0].address.clone();
     let flattened_spendable_utxos: Vec<_> = utxos // select the smallest spendable utxo
@@ -107,7 +120,7 @@ async fn preselected_utxos_test(
 
     for utxo in flattened_utxos_after_send.iter() {
         if utxo.outpoint == selected_utxo.outpoint {
-            return Err("Selected UTXO was not spent".into());
+            return Err(build_err("Selected UTXO was not spent"));
         }
     }
 
@@ -120,11 +133,10 @@ async fn preselected_utxos_test(
                 .iter()
                 .any(|utxo_after_send| utxo_after_send.outpoint == utxo_before_send.outpoint);
             if !found {
-                return Err(format!(
+                return Err(build_err(&format!(
                     "An unselected UTXO was spent: {:?}",
                     utxo_before_send.outpoint
-                )
-                .into());
+                )));
             }
         }
     } else {
@@ -135,7 +147,7 @@ async fn preselected_utxos_test(
 }
 
 const STRESS_TESTS_NUM_ITERATIONS: usize = 100;
-async fn stress_test(client: &mut KaswalletClient) -> Result<(), Box<dyn Error + Send + Sync>> {
+async fn stress_test(client: &mut KaswalletClient) -> WalletResult<()> {
     let address = get_address_with_balance(client).await?;
     for _ in 0..STRESS_TESTS_NUM_ITERATIONS {
         test_send(client, &address, &address).await?
@@ -144,9 +156,7 @@ async fn stress_test(client: &mut KaswalletClient) -> Result<(), Box<dyn Error +
     Ok(())
 }
 
-async fn stress_test_parallel(
-    client: &mut KaswalletClient,
-) -> Result<(), Box<dyn Error + Send + Sync>> {
+async fn stress_test_parallel(client: &mut KaswalletClient) -> WalletResult<()> {
     let address = get_address_with_balance(client).await?;
     let mut futures = FuturesUnordered::new();
     for _ in 0..STRESS_TESTS_NUM_ITERATIONS {
@@ -172,7 +182,7 @@ async fn stress_test_parallel(
     Ok(())
 }
 
-async fn mine_tx_id_test(client: &mut KaswalletClient) -> Result<(), Box<dyn Error + Send + Sync>> {
+async fn mine_tx_id_test(client: &mut KaswalletClient) -> WalletResult<()> {
     let address = get_address_with_balance(client).await?;
     let actual_payload = b"hello igra!";
     let expected_bitmask: [u8; 2] = [0x97, 0xb1];
@@ -261,16 +271,14 @@ fn mine_loop(transaction_to_mine: &mut SignableTransaction, expected_bitmask: [u
 }
 
 // returns address
-async fn get_address_with_balance(
-    client: &mut KaswalletClient,
-) -> Result<String, Box<dyn Error + Send + Sync>> {
+async fn get_address_with_balance(client: &mut KaswalletClient) -> WalletResult<String> {
     let balance_println = test_get_balance(client).await?;
     let address_balance = balance_println
         .address_balances
         .iter()
         .find(|ab| ab.available > 0);
     if address_balance.is_none() {
-        return Err("No available balance to transfer".into());
+        return Err(build_err("No available balance to transfer"));
     }
     let address_balance = address_balance.unwrap();
 
@@ -281,7 +289,7 @@ async fn get_address_with_balance(
     Ok(address_balance.address.clone())
 }
 
-async fn sanity_test(client: &mut KaswalletClient) -> Result<(), Box<dyn Error + Send + Sync>> {
+async fn sanity_test(client: &mut KaswalletClient) -> WalletResult<()> {
     test_version(client).await?;
 
     let addresses = test_get_addresses(client).await?;
@@ -346,7 +354,7 @@ async fn test_send(
     client: &mut KaswalletClient,
     from_address: &str,
     to_address: &str,
-) -> Result<(), Box<dyn Error + Send + Sync>> {
+) -> WalletResult<()> {
     let send_result = TransactionBuilder::new(to_address.to_string())
         .send_all()
         .from_addresses(vec![from_address.to_string()])
@@ -360,9 +368,7 @@ async fn test_send(
     Ok(())
 }
 
-async fn test_get_balance(
-    client: &mut KaswalletClient,
-) -> Result<BalanceInfo, Box<dyn Error + Send + Sync>> {
+async fn test_get_balance(client: &mut KaswalletClient) -> WalletResult<BalanceInfo> {
     let balance_println = client.get_balance(true).await?;
     println!(
         "Balance: Available={}, Pending={}",
@@ -377,9 +383,7 @@ async fn test_get_balance(
     Ok(balance_println)
 }
 
-async fn test_get_addresses(
-    client: &mut KaswalletClient,
-) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
+async fn test_get_addresses(client: &mut KaswalletClient) -> WalletResult<Vec<String>> {
     let addresses = client.get_addresses().await?;
     for address in &addresses {
         println!("Address={:?}", address);
@@ -387,13 +391,13 @@ async fn test_get_addresses(
     Ok(addresses)
 }
 
-async fn test_version(client: &mut KaswalletClient) -> Result<(), Box<dyn Error + Send + Sync>> {
+async fn test_version(client: &mut KaswalletClient) -> WalletResult<()> {
     let version = client.get_version().await?;
     println!("Version={:?}", version);
     Ok(())
 }
 
-async fn new_address(client: &mut KaswalletClient) -> Result<String, Box<dyn Error + Send + Sync>> {
+async fn new_address(client: &mut KaswalletClient) -> WalletResult<String> {
     let address = client.new_address().await?;
     println!("New Address={:?}", address);
     Ok(address)

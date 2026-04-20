@@ -1,6 +1,6 @@
 use crate::service::kaswallet_service::KasWalletService;
-use common::errors::WalletError::SanityCheckFailed;
-use common::errors::{ResultExt, WalletResult};
+use common::error_location::ErrorLocation;
+use common::errors::{CryptoError, TransactionError, WalletError, WalletResult};
 use common::keys::master_key_path;
 use common::model::WalletSignableTransaction;
 use itertools::Itertools;
@@ -39,10 +39,7 @@ impl KasWalletService {
         unsigned_transactions: Vec<WalletSignableTransaction>,
         password: &String,
     ) -> WalletResult<Vec<WalletSignableTransaction>> {
-        let mnemonics = self
-            .keys
-            .decrypt_mnemonics(password)
-            .to_wallet_result_user_input()?;
+        let mnemonics = self.keys.decrypt_mnemonics(password)?;
         let extended_private_keys = Self::mnemonics_to_private_keys(&mnemonics)?;
 
         let mut signed_transactions = vec![];
@@ -51,9 +48,8 @@ impl KasWalletService {
             let address_by_input_index = unsigned_transaction.address_by_input_index.clone();
             let address_by_output_index = unsigned_transaction.address_by_output_index.clone();
 
-            let signed_transaction = self
-                .sign_transaction(unsigned_transaction, &extended_private_keys)
-                .to_wallet_result_user_input()?;
+            let signed_transaction =
+                self.sign_transaction(unsigned_transaction, &extended_private_keys)?;
             let wallet_signed_transaction = WalletSignableTransaction::new(
                 signed_transaction,
                 derivation_paths,
@@ -78,7 +74,10 @@ impl KasWalletService {
                 let private_key = extended_private_key
                     .clone()
                     .derive_path(derivation_path)
-                    .to_wallet_result_internal()?;
+                    .map_err(|e| CryptoError::Bip32Derivation {
+                        reason: e.to_string(),
+                        loc: ErrorLocation::capture(),
+                    })?;
                 private_keys.push(private_key.private_key().secret_bytes());
             }
         }
@@ -100,10 +99,11 @@ impl KasWalletService {
         }
         let verifiable_transaction = &signed_transaction.unwrap_ref().as_verifiable();
         kaspa_consensus_core::sign::verify(verifiable_transaction).map_err(|e| {
-            SanityCheckFailed(format!(
-                "Signed transaction does not verify correctly: {}",
-                e
-            ))
+            WalletError::from(TransactionError::SignFailed {
+                input_index: 0,
+                reason: format!("Signed transaction does not verify correctly: {}", e),
+                loc: ErrorLocation::capture(),
+            })
         })?;
 
         Ok(())
@@ -126,11 +126,18 @@ pub fn mnemonic_to_private_key(
     is_multisig: bool,
 ) -> WalletResult<ExtendedPrivateKey<SecretKey>> {
     let seed = mnemonic.to_seed("");
-    let x_private_key = ExtendedPrivateKey::new(seed).to_wallet_result_internal()?;
+    let x_private_key =
+        ExtendedPrivateKey::new(seed).map_err(|e| CryptoError::Bip32Derivation {
+            reason: e.to_string(),
+            loc: ErrorLocation::capture(),
+        })?;
     let master_key_derivation_path = master_key_path(is_multisig);
     let private_key = x_private_key
         .derive_path(&master_key_derivation_path)
-        .to_wallet_result_internal()?;
+        .map_err(|e| CryptoError::Bip32Derivation {
+            reason: e.to_string(),
+            loc: ErrorLocation::capture(),
+        })?;
     Ok(private_key)
 }
 
@@ -143,7 +150,7 @@ pub fn sign_with_multiple(mut mutable_tx: SignableTransaction, privkeys: &[[u8; 
             secp256k1::Keypair::from_seckey_slice(secp256k1::SECP256K1, privkey).unwrap();
         let schnorr_public_key = schnorr_key.public_key().x_only_public_key().0;
         let script_pub_key_script = once(0x20)
-            .chain(schnorr_public_key.serialize().into_iter())
+            .chain(schnorr_public_key.serialize())
             .chain(once(0xac))
             .collect_vec();
         map.insert(script_pub_key_script, schnorr_key);

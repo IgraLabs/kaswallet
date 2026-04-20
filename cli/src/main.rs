@@ -1,10 +1,20 @@
 use args::{Args, Commands};
 use clap::Parser;
+use common::errors::WalletError;
 use std::process;
 
 mod args;
 mod commands;
 mod utils;
+
+fn exit_code_for(err: &WalletError) -> i32 {
+    match err.category_name() {
+        "UserInput" => 1,
+        "Config" => 2,
+        "Rpc" => 3,
+        _ => 4,
+    }
+}
 
 #[tokio::main]
 async fn main() {
@@ -110,7 +120,13 @@ async fn main() {
     };
 
     if let Err(e) = result {
-        eprintln!("Error: {}", e);
-        process::exit(1);
+        eprintln!(
+            "Error [{}/{}] at {}: {}",
+            e.category_name(),
+            e.kind_name(),
+            e.location(),
+            e
+        );
+        process::exit(exit_code_for(&e));
     }
 }

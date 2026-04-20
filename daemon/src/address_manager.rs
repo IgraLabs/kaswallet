@@ -1,5 +1,6 @@
 use common::addresses::{multisig_address, p2pk_address};
-use common::errors::{ResultExt, WalletResult};
+use common::error_location::ErrorLocation;
+use common::errors::{CryptoError, WalletResult};
 use common::keys::Keys;
 use common::model::{KEYCHAINS, Keychain, WalletAddress};
 use kaspa_addresses::{Address, Prefix as AddressPrefix};
@@ -7,7 +8,6 @@ use kaspa_bip32::secp256k1::PublicKey;
 use kaspa_bip32::{DerivationPath, ExtendedPublicKey};
 use kaspa_rpc_core::RpcBalancesByAddressesEntry;
 use std::collections::HashMap;
-use std::error::Error;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::atomic::Ordering::Relaxed;
@@ -50,7 +50,7 @@ impl AddressManager {
         addresses.clone()
     }
 
-    pub async fn address_strings(&self) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
+    pub async fn address_strings(&self) -> WalletResult<Vec<String>> {
         let addresses = self.addresses.lock().await;
         let strings = addresses
             .keys()
@@ -87,11 +87,7 @@ impl AddressManager {
         Ok((address.to_string(), wallet_address))
     }
 
-    pub async fn addresses_to_query(
-        &self,
-        start: u32,
-        end: u32,
-    ) -> Result<AddressSet, Box<dyn Error + Send + Sync>> {
+    pub async fn addresses_to_query(&self, start: u32, end: u32) -> WalletResult<AddressSet> {
         let mut addresses = HashMap::new();
 
         for index in start..end {
@@ -113,7 +109,7 @@ impl AddressManager {
         &self,
         mut address_set: AddressSet,
         get_balances_by_addresses_response: Vec<RpcBalancesByAddressesEntry>,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    ) -> WalletResult<()> {
         // create scope to release last_used_internal/external_index before keys_file.save() is called
         {
             for entry in get_balances_by_addresses_response {
@@ -204,7 +200,11 @@ impl AddressManager {
             format!("m/{}/{}", keychain_number, wallet_address.index)
         };
 
-        let path = DerivationPath::from_str(&path_string).to_wallet_result_internal()?;
+        let path =
+            DerivationPath::from_str(&path_string).map_err(|e| CryptoError::Bip32Derivation {
+                reason: e.to_string(),
+                loc: ErrorLocation::capture(),
+            })?;
         Ok(path)
     }
 

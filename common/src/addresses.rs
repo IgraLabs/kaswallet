@@ -1,4 +1,5 @@
-use crate::errors::{ResultExt, WalletResult};
+use crate::error_location::ErrorLocation;
+use crate::errors::{CryptoError, WalletResult};
 use kaspa_addresses::{Address, Prefix, Version};
 use kaspa_bip32::secp256k1::PublicKey;
 use kaspa_bip32::{DerivationPath, ExtendedPublicKey};
@@ -13,7 +14,10 @@ pub fn p2pk_address(
     let derived_key = extended_public_key
         .clone()
         .derive_path(derivation_path)
-        .to_wallet_result_internal()?;
+        .map_err(|e| CryptoError::Bip32Derivation {
+            reason: e.to_string(),
+            loc: ErrorLocation::capture(),
+        })?;
     let pk = derived_key.public_key();
     let payload = pk.x_only_public_key().0.serialize();
     let address = Address::new(prefix, Version::PubKey, &payload);
@@ -34,15 +38,26 @@ pub fn multisig_address(
         let derived_key = x_public_key
             .clone()
             .derive_path(derivation_path)
-            .to_wallet_result_internal()?;
+            .map_err(|e| CryptoError::Bip32Derivation {
+                reason: e.to_string(),
+                loc: ErrorLocation::capture(),
+            })?;
         let public_key = derived_key.public_key();
         signing_public_keys.push(public_key.x_only_public_key().0.serialize());
     }
 
     let redeem_script = multisig_redeem_script(signing_public_keys.iter(), minimum_signatures)
-        .to_wallet_result_internal()?;
+        .map_err(|e| CryptoError::Bip32Derivation {
+            reason: e.to_string(),
+            loc: ErrorLocation::capture(),
+        })?;
     let script_pub_key = kaspa_txscript::pay_to_script_hash_script(redeem_script.as_slice());
-    let address = kaspa_txscript::extract_script_pub_key_address(&script_pub_key, prefix)
-        .to_wallet_result_internal()?;
+    let address =
+        kaspa_txscript::extract_script_pub_key_address(&script_pub_key, prefix).map_err(|e| {
+            CryptoError::Bip32Derivation {
+                reason: e.to_string(),
+                loc: ErrorLocation::capture(),
+            }
+        })?;
     Ok(address)
 }
