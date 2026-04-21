@@ -30,10 +30,10 @@ hex.workspace = true
 rand_core.workspace = true
 regex.workspace = true
 shellexpand.workspace = true
-log.workspace = true
 thiserror.workspace = true
 tonic.workspace = true
 borsh.workspace = true
+tracing.workspace = true
 secrecy.workspace = true
 zeroize.workspace = true
 

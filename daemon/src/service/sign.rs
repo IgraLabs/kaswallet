@@ -12,11 +12,11 @@ use kaspa_consensus_core::hashing::sighash_type::SIG_HASH_ALL;
 use kaspa_consensus_core::sign::Signed;
 use kaspa_consensus_core::sign::Signed::{Fully, Partially};
 use kaspa_consensus_core::tx::SignableTransaction;
-use log::debug;
 use proto::kaswallet_proto::{SignRequest, SignResponse};
 use secrecy::SecretString;
 use std::collections::BTreeMap;
 use std::iter::once;
+use tracing::debug;
 
 impl KasWalletService {
     pub(crate) async fn sign(&self, request: SignRequest) -> WalletResult<SignResponse> {

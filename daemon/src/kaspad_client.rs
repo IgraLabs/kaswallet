@@ -2,7 +2,7 @@ use common::error_location::ErrorLocation;
 use common::errors::{RpcError, WalletError, WalletResult};
 use kaspa_consensus_core::network::NetworkId;
 use kaspa_grpc_client::GrpcClient;
-use log::info;
+use tracing::info;
 
 pub async fn connect(server: &Option<String>, network_id: &NetworkId) -> WalletResult<GrpcClient> {
     let url = match server {

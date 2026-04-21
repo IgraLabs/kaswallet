@@ -6,7 +6,6 @@ use common::keys::Keys;
 use kaspa_addresses::Address;
 use kaspa_grpc_client::GrpcClient;
 use kaspa_wallet_core::rpc::RpcApi;
-use log::{debug, info};
 use std::cmp::max;
 use std::sync::Arc;
 use std::sync::atomic::Ordering::Relaxed;
@@ -14,6 +13,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32};
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tokio::time::interval;
+use tracing::{debug, info};
 
 const NUM_INDEXES_TO_QUERY_FOR_FAR_ADDRESSES: u32 = 100;
 const NUM_INDEXES_TO_QUERY_FOR_RECENT_ADDRESSES: u32 = 1000;

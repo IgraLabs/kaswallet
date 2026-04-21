@@ -1,69 +1,73 @@
 use crate::args::LogsLevel;
-use log::LevelFilter;
-use log4rs::Config;
-use log4rs::append::console::ConsoleAppender;
-use log4rs::append::rolling_file::RollingFileAppender;
-use log4rs::append::rolling_file::policy::compound::CompoundPolicy;
-use log4rs::append::rolling_file::policy::compound::roll::fixed_window::FixedWindowRoller;
-use log4rs::append::rolling_file::policy::compound::trigger::size::SizeTrigger;
-use log4rs::config::{Appender, Root};
-use log4rs::encode::pattern::PatternEncoder;
-use log4rs::filter::threshold::ThresholdFilter;
-use std::error::Error;
+use common::error_location::ErrorLocation;
+use common::errors::ConfigError;
 use std::path::Path;
+use tracing_appender::non_blocking::WorkerGuard;
+use tracing_appender::rolling;
+use tracing_subscriber::filter::LevelFilter;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::{EnvFilter, Layer, fmt};
 
-pub fn init_log(
-    logs_path: &str,
-    logs_level: &LogsLevel,
-) -> Result<(), Box<dyn Error + Send + Sync>> {
-    let general_log_path = Path::new(&logs_path).join("kaswallet.log");
-    let err_log_path = Path::new(&logs_path).join("kaswallet.err.log");
+pub struct LogGuards {
+    pub _general: WorkerGuard,
+    pub _err: WorkerGuard,
+}
 
-    let encoder = Box::new(PatternEncoder::new(
-        "{d(%Y-%m-%dT%H:%M:%S)(utc)} [{h({l})}] {m}{n}",
-    ));
+pub fn init_log(logs_path: &str, logs_level: &LogsLevel) -> Result<LogGuards, ConfigError> {
+    let dir = Path::new(logs_path);
+    if !dir.exists() {
+        std::fs::create_dir_all(dir).map_err(|e| ConfigError::InvalidPath {
+            path: logs_path.to_string(),
+            reason: e.to_string(),
+            location: ErrorLocation::capture(),
+        })?;
+    }
 
-    let stdout = ConsoleAppender::builder().encoder(encoder.clone()).build();
+    let general_appender = rolling::daily(dir, "kaswallet.log");
+    let err_appender = rolling::daily(dir, "kaswallet.err.log");
+    let (general_writer, general_guard) = tracing_appender::non_blocking(general_appender);
+    let (err_writer, err_guard) = tracing_appender::non_blocking(err_appender);
 
-    let fixed_window_roller_general = Box::new(FixedWindowRoller::builder().build(
-        &format!("{}{}.gz", general_log_path.clone().display(), "{}"),
-        10,
-    )?);
-    let fixed_window_roller_err = Box::new(FixedWindowRoller::builder().build(
-        &format!("{}{}.gz", err_log_path.clone().display(), "{}"),
-        10,
-    )?);
-    let trigger = Box::new(SizeTrigger::new(10_000));
-    let rolling_policy_general = Box::new(CompoundPolicy::new(
-        trigger.clone(),
-        fixed_window_roller_general,
-    ));
-    let rolling_policy_err = Box::new(CompoundPolicy::new(trigger, fixed_window_roller_err));
+    let level: LevelFilter = logs_level.into();
 
-    let file = RollingFileAppender::builder()
-        .encoder(encoder.clone())
-        .build(general_log_path, rolling_policy_general)?;
-    let file_err = RollingFileAppender::builder()
-        .encoder(encoder)
-        .build(err_log_path, rolling_policy_err)?;
+    let stdout_layer = fmt::layer().with_writer(std::io::stdout).with_filter(level);
+    let file_layer = fmt::layer()
+        .with_writer(general_writer)
+        .with_ansi(false)
+        .with_filter(level);
+    let err_layer = fmt::layer()
+        .json()
+        .with_writer(err_writer)
+        .with_ansi(false)
+        .with_filter(LevelFilter::WARN);
 
-    let config = Config::builder()
-        .appender(Appender::builder().build("stdout", Box::new(stdout)))
-        .appender(Appender::builder().build("file", Box::new(file)))
-        .appender(
-            Appender::builder()
-                .filter(Box::new(ThresholdFilter::new(LevelFilter::Warn)))
-                .build("file_err", Box::new(file_err)),
-        )
-        .build(
-            Root::builder()
-                .appender("stdout")
-                .appender("file")
-                .appender("file_err")
-                .build(logs_level.clone().into()),
-        )?;
+    tracing_subscriber::registry()
+        .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
+        .with(stdout_layer)
+        .with(file_layer)
+        .with(err_layer)
+        .try_init()
+        .map_err(|e| ConfigError::InvalidLogLevel {
+            value: e.to_string(),
+            location: ErrorLocation::capture(),
+        })?;
 
-    log4rs::init_config(config)?;
+    Ok(LogGuards {
+        _general: general_guard,
+        _err: err_guard,
+    })
+}
 
-    Ok(())
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::args::LogsLevel;
+
+    #[test]
+    fn init_log_on_valid_path_returns_guard() {
+        let tmp = tempfile::tempdir().unwrap();
+        let guard = init_log(tmp.path().to_str().unwrap(), &LogsLevel::Info);
+        assert!(guard.is_ok());
+    }
 }

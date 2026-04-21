@@ -1,10 +1,10 @@
 use crate::service::kaswallet_service::KasWalletService;
 use common::error_location::ErrorLocation;
 use common::errors::{UserInputError, WalletError, WalletResult};
-use log::{debug, error, info};
 use proto::kaswallet_proto::{SendRequest, SendResponse};
 use secrecy::SecretString;
 use std::time::Instant;
+use tracing::{debug, error, info};
 
 impl KasWalletService {
     pub(crate) async fn send(&self, request: SendRequest) -> WalletResult<SendResponse> {

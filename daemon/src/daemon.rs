@@ -13,12 +13,12 @@ use kaspa_consensus_core::config::params::Params;
 use kaspa_grpc_client::GrpcClient;
 use kaspa_rpc_core::api::rpc::RpcApi;
 use kaspa_wallet_core::tx::MassCalculator;
-use log::{debug, info};
 use proto::kaswallet_proto::wallet_server::WalletServer;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tonic::transport::Server;
+use tracing::{debug, info};
 
 pub struct Daemon {
     args: Arc<Args>,

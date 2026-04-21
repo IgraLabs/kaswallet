@@ -3,7 +3,6 @@ use crate::error_location::ErrorLocation;
 use crate::errors::{CryptoError, StorageError, WalletResult};
 use kaspa_bip32::secp256k1::PublicKey;
 use kaspa_bip32::{DerivationPath, ExtendedPublicKey, Mnemonic, Prefix};
-use log::debug;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -13,6 +12,7 @@ use std::path::Path;
 use std::str::FromStr;
 use std::sync::atomic::AtomicU32;
 use std::sync::atomic::Ordering::Relaxed;
+use tracing::debug;
 
 pub const KEY_FILE_VERSION: i32 = 1;
 

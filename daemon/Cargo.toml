@@ -26,12 +26,13 @@ kaspa-wallet-core.workspace = true
 
 clap = { workspace = true, features = ["derive"] }
 itertools.workspace = true
-log.workspace = true
-log4rs.workspace = true
 tonic.workspace = true
 tokio.workspace = true
 console-subscriber.workspace = true
 thiserror.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+tracing-appender.workspace = true
 secrecy.workspace = true
 # Not used directly; pinned to fix transitive dep version conflict in Docker builds (ENG-746)
 wasm-bindgen.workspace = true
@@ -41,3 +42,4 @@ js-sys.workspace = true
 kaspa-consensus.workspace = true
 kaspa-hashes.workspace = true
 rstest.workspace = true
+tempfile.workspace = true

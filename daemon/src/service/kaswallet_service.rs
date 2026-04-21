@@ -4,7 +4,6 @@ use crate::transaction_generator::TransactionGenerator;
 use crate::utxo_manager::UtxoManager;
 use common::keys::Keys;
 use kaspa_grpc_client::GrpcClient;
-use log::trace;
 use proto::kaswallet_proto::wallet_server::Wallet;
 use proto::kaswallet_proto::{
     BroadcastRequest, BroadcastResponse, CreateUnsignedTransactionsRequest,
@@ -14,8 +13,17 @@ use proto::kaswallet_proto::{
     SignRequest, SignResponse,
 };
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::sync::Mutex;
 use tonic::{Request, Response, Status};
+use tracing::instrument;
+use tracing::trace;
+
+static REQUEST_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+fn next_request_id() -> u64 {
+    REQUEST_COUNTER.fetch_add(1, Ordering::Relaxed)
+}
 
 pub struct KasWalletService {
     pub(crate) kaspa_client: Arc<GrpcClient>,
@@ -50,6 +58,7 @@ impl KasWalletService {
 
 #[tonic::async_trait]
 impl Wallet for KasWalletService {
+    #[instrument(skip(self, request), fields(request_id = next_request_id()), err(Display))]
     async fn get_addresses(
         &self,
         request: Request<GetAddressesRequest>,
@@ -64,6 +73,7 @@ impl Wallet for KasWalletService {
         Ok(Response::new(GetAddressesResponse { address: addresses }))
     }
 
+    #[instrument(skip(self, request), fields(request_id = next_request_id()), err(Display))]
     async fn new_address(
         &self,
         request: Request<NewAddressRequest>,
@@ -78,6 +88,7 @@ impl Wallet for KasWalletService {
         Ok(Response::new(response))
     }
 
+    #[instrument(skip(self, request), fields(request_id = next_request_id()), err(Display))]
     async fn get_balance(
         &self,
         request: Request<GetBalanceRequest>,
@@ -92,6 +103,7 @@ impl Wallet for KasWalletService {
         Ok(Response::new(response))
     }
 
+    #[instrument(skip(self, request), fields(request_id = next_request_id()), err(Display))]
     async fn get_utxos(
         &self,
         request: Request<GetUtxosRequest>,
@@ -106,6 +118,7 @@ impl Wallet for KasWalletService {
         Ok(Response::new(response))
     }
 
+    #[instrument(skip(self, request), fields(request_id = next_request_id()), err(Display))]
     async fn create_unsigned_transactions(
         &self,
         request: Request<CreateUnsignedTransactionsRequest>,
@@ -120,6 +133,7 @@ impl Wallet for KasWalletService {
         Ok(Response::new(response))
     }
 
+    #[instrument(skip(self, request), fields(request_id = next_request_id()), err(Display))]
     async fn sign(&self, request: Request<SignRequest>) -> Result<Response<SignResponse>, Status> {
         trace!("Received request: {:?}", request.get_ref());
 
@@ -131,6 +145,7 @@ impl Wallet for KasWalletService {
         Ok(Response::new(response))
     }
 
+    #[instrument(skip(self, request), fields(request_id = next_request_id()), err(Display))]
     async fn broadcast(
         &self,
         request: Request<BroadcastRequest>,
@@ -145,6 +160,14 @@ impl Wallet for KasWalletService {
         Ok(Response::new(response))
     }
 
+    #[instrument(
+        skip(self, request),
+        fields(
+            request_id = next_request_id(),
+            amount_sompi = request.get_ref().transaction_description.as_ref().map(|d| d.amount).unwrap_or(0),
+        ),
+        err(Display)
+    )]
     async fn send(&self, request: Request<SendRequest>) -> Result<Response<SendResponse>, Status> {
         trace!("Received request: {:?}", request.get_ref());
 
@@ -156,6 +179,7 @@ impl Wallet for KasWalletService {
         Ok(Response::new(response))
     }
 
+    #[instrument(skip(self, request), fields(request_id = next_request_id()), err(Display))]
     async fn get_version(
         &self,
         request: Request<GetVersionRequest>,

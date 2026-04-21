@@ -1,4 +1,4 @@
-use ::log::{error, info};
+use ::tracing::{error, info};
 use clap::Parser;
 use common::args::calculate_path;
 use kaswallet_daemon::{args, daemon::Daemon};
@@ -17,9 +17,10 @@ async fn main() {
     }
 
     let logs_path = calculate_path(&args.logs_path, &args.network_id(), "logs");
-    if let Err(e) = kaswallet_daemon::log::init_log(&logs_path, &args.logs_level) {
-        panic!("Failed to initialize logger: {}", e);
-    }
+    let _log_guards = match kaswallet_daemon::log::init_log(&logs_path, &args.logs_level) {
+        Ok(guards) => guards,
+        Err(e) => panic!("Failed to initialize logger: {}", e),
+    };
 
     let daemon = Daemon::new(args.clone());
 
