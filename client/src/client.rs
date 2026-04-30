@@ -1,8 +1,8 @@
 use crate::model::{AddressUtxos, BalanceInfo, SendResult};
-use crate::status_classify::{classify_rpc_status, classify_submit_status, classify_transport};
 use common::error_location::ErrorLocation;
 use common::errors::{UserInputError, WalletError, WalletResult};
 use common::model::WalletSignableTransaction;
+use common::status_classify::{classify_rpc_status, classify_submit_status, classify_transport};
 use kaspa_hashes::Hash;
 use proto::kaswallet_proto::wallet_client::WalletClient as GrpcWalletClient;
 use proto::kaswallet_proto::{
@@ -15,29 +15,43 @@ use tonic::Request;
 use tonic::transport::{Channel, Endpoint};
 
 /// A convenient wrapper around the kaswallet gRPC client.
+///
+/// This client abstracts away the gRPC boilerplate and provides a clean,
+/// ergonomic API for interacting with the kaswallet daemon.
 #[derive(Clone)]
 pub struct KaswalletClient {
     grpc_client: GrpcWalletClient<Channel>,
 }
 
 impl KaswalletClient {
-    pub async fn connect<D>(dst: D) -> WalletResult<Self>
-    where
-        D: TryInto<Endpoint>,
-        D::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
-    {
-        let endpoint: Endpoint = dst.try_into().map_err(Into::into).map_err(
-            |e: Box<dyn std::error::Error + Send + Sync>| {
-                WalletError::from(common::errors::RpcError::Connect {
-                    endpoint: String::new(),
-                    reason: e.to_string(),
-                    loc: ErrorLocation::capture(),
-                })
-            },
-        )?;
+    /// Connect to a kaswallet daemon at the specified address.
+    ///
+    /// # Arguments
+    /// * `dst` — the address of the kaswallet daemon (e.g. `"http://localhost:8082"`).
+    ///
+    /// On failure the destination string is preserved in the typed error so
+    /// operators can see *which* endpoint was unreachable. Earlier code threw
+    /// it away when `try_into` consumed `dst`.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use kaswallet_client::client::KaswalletClient;
+    /// # async fn example() -> common::errors::WalletResult<()> {
+    /// let client = KaswalletClient::connect("http://localhost:8082").await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn connect(dst: &str) -> WalletResult<Self> {
+        let endpoint = Endpoint::from_shared(dst.to_string()).map_err(|e| {
+            WalletError::from(common::errors::RpcError::Connect {
+                endpoint: dst.to_string(),
+                reason: e.to_string(),
+                location: ErrorLocation::capture(),
+            })
+        })?;
         let inner = GrpcWalletClient::connect(endpoint)
             .await
-            .map_err(|e| WalletError::from(classify_transport(e)))?;
+            .map_err(|e| WalletError::from(classify_transport(dst, e)))?;
         Ok(Self { grpc_client: inner })
     }
 
@@ -203,7 +217,7 @@ impl KaswalletClient {
             .await
             .map_err(|s| {
                 // For send, use submit classification keyed by a placeholder tx_id — the
-                // server has the real tx_id but if the status conveys a mempool rejection
+                // server has the real tx_id, but if the status conveys a mempool rejection
                 // we want to surface that as TransactionError::Rejected.
                 WalletError::from(classify_submit_status(Hash::default(), s))
             })?
@@ -228,7 +242,7 @@ impl KaswalletClient {
                 Hash::from_str(&id).map_err(|_| {
                     WalletError::from(UserInputError::InvalidTransactionId {
                         input: id,
-                        loc: ErrorLocation::capture(),
+                        location: ErrorLocation::capture(),
                     })
                 })
             })

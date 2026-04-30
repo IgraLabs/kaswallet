@@ -2,7 +2,6 @@ use crate::address_manager::AddressManager;
 use crate::sync_manager::SyncManager;
 use crate::transaction_generator::TransactionGenerator;
 use crate::utxo_manager::UtxoManager;
-use common::errors::WalletError;
 use common::keys::Keys;
 use kaspa_grpc_client::GrpcClient;
 use log::trace;
@@ -60,7 +59,7 @@ impl Wallet for KasWalletService {
         let addresses = self
             .get_addresses(request.into_inner())
             .await
-            .map_err(WalletError::to_status)?;
+            .map_err(Status::from)?;
 
         Ok(Response::new(GetAddressesResponse { address: addresses }))
     }
@@ -74,7 +73,7 @@ impl Wallet for KasWalletService {
         let response = self
             .new_address(request.into_inner())
             .await
-            .map_err(WalletError::to_status)?;
+            .map_err(Status::from)?;
 
         Ok(Response::new(response))
     }
@@ -88,7 +87,7 @@ impl Wallet for KasWalletService {
         let response = self
             .get_balance(request.into_inner())
             .await
-            .map_err(WalletError::to_status)?;
+            .map_err(Status::from)?;
 
         Ok(Response::new(response))
     }
@@ -102,7 +101,7 @@ impl Wallet for KasWalletService {
         let response = self
             .get_utxos(request.into_inner())
             .await
-            .map_err(WalletError::to_status)?;
+            .map_err(Status::from)?;
 
         Ok(Response::new(response))
     }
@@ -116,7 +115,7 @@ impl Wallet for KasWalletService {
         let response = self
             .create_unsigned_transactions(request.into_inner())
             .await
-            .map_err(WalletError::to_status)?;
+            .map_err(Status::from)?;
 
         Ok(Response::new(response))
     }
@@ -127,7 +126,7 @@ impl Wallet for KasWalletService {
         let response = self
             .sign(request.into_inner())
             .await
-            .map_err(WalletError::to_status)?;
+            .map_err(Status::from)?;
 
         Ok(Response::new(response))
     }
@@ -141,7 +140,7 @@ impl Wallet for KasWalletService {
         let response = self
             .broadcast(request.into_inner())
             .await
-            .map_err(WalletError::to_status)?;
+            .map_err(Status::from)?;
 
         Ok(Response::new(response))
     }
@@ -152,7 +151,7 @@ impl Wallet for KasWalletService {
         let response = self
             .send(request.into_inner())
             .await
-            .map_err(WalletError::to_status)?;
+            .map_err(Status::from)?;
 
         Ok(Response::new(response))
     }

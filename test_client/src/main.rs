@@ -12,14 +12,14 @@ use tokio::time::Instant;
 fn ui_err(reason: &str) -> WalletError {
     WalletError::from(UserInputError::InvalidAmount {
         input: reason.to_string(),
-        loc: ErrorLocation::capture(),
+        location: ErrorLocation::capture(),
     })
 }
 
 fn build_err(reason: &str) -> WalletError {
     WalletError::from(TransactionError::BuildFailed {
         reason: reason.to_string(),
-        loc: ErrorLocation::capture(),
+        location: ErrorLocation::capture(),
     })
 }
 

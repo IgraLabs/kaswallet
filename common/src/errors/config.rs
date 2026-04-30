@@ -1,22 +1,25 @@
 use crate::error_location::ErrorLocation;
 use thiserror::Error;
 
-#[derive(Debug, Clone, Error)]
+#[derive(Debug, Error)]
 pub enum ConfigError {
-    #[error("{loc} InvalidPath: path={path}, reason={reason}")]
+    #[error("{location} InvalidPath: path={path}, reason={reason}")]
     InvalidPath {
         path: String,
         reason: String,
-        loc: ErrorLocation,
+        location: ErrorLocation,
     },
 
-    #[error("{loc} InvalidLogLevel: value={value}")]
-    InvalidLogLevel { value: String, loc: ErrorLocation },
+    #[error("{location} InvalidLogLevel: value={value}")]
+    InvalidLogLevel {
+        value: String,
+        location: ErrorLocation,
+    },
 
-    #[error("{loc} MissingArgument: {name}")]
+    #[error("{location} MissingArgument: {name}")]
     MissingArgument {
         name: &'static str,
-        loc: ErrorLocation,
+        location: ErrorLocation,
     },
 }
 
@@ -29,11 +32,21 @@ impl ConfigError {
         }
     }
 
-    pub fn location(&self) -> &ErrorLocation {
+    pub fn location(&self) -> ErrorLocation {
         match self {
-            Self::InvalidPath { loc, .. }
-            | Self::InvalidLogLevel { loc, .. }
-            | Self::MissingArgument { loc, .. } => loc,
+            Self::InvalidPath { location, .. }
+            | Self::InvalidLogLevel { location, .. }
+            | Self::MissingArgument { location, .. } => *location,
+        }
+    }
+
+    pub fn user_message(&self) -> String {
+        match self {
+            Self::InvalidPath { path, reason, .. } => {
+                format!("invalid config path {path:?}: {reason}")
+            }
+            Self::InvalidLogLevel { value, .. } => format!("invalid log level {value:?}"),
+            Self::MissingArgument { name, .. } => format!("missing argument {name}"),
         }
     }
 }
@@ -47,7 +60,7 @@ mod tests {
         let err = ConfigError::InvalidPath {
             path: "/bad".into(),
             reason: "nope".into(),
-            loc: ErrorLocation::capture(),
+            location: ErrorLocation::capture(),
         };
         assert!(err.to_string().contains("InvalidPath"));
         assert_eq!(err.kind_name(), "InvalidPath");

@@ -1,28 +1,55 @@
 use crate::error_location::ErrorLocation;
 use thiserror::Error;
 
-#[derive(Debug, Clone, Error)]
+#[derive(Debug, Error)]
 pub enum UserInputError {
-    #[error("{loc} InvalidAddress: input={input}, reason={reason}")]
+    #[error("{location} InvalidAddress: input={input}, reason={reason}")]
     InvalidAddress {
         input: String,
         reason: String,
-        loc: ErrorLocation,
+        location: ErrorLocation,
     },
 
-    #[error("{loc} InvalidAmount: input={input}")]
-    InvalidAmount { input: String, loc: ErrorLocation },
+    #[error("{location} InvalidAmount: input={input}")]
+    InvalidAmount {
+        input: String,
+        location: ErrorLocation,
+    },
 
-    #[error("{loc} InvalidTransactionId: input={input}")]
-    InvalidTransactionId { input: String, loc: ErrorLocation },
+    #[error("{location} InvalidTransactionId: input={input}")]
+    InvalidTransactionId {
+        input: String,
+        location: ErrorLocation,
+    },
 
-    #[error("{loc} InvalidPrefix: input={input}")]
-    InvalidPrefix { input: String, loc: ErrorLocation },
+    #[error("{location} InvalidPrefix: input={input}")]
+    InvalidPrefix {
+        input: String,
+        location: ErrorLocation,
+    },
 
-    #[error("{loc} MissingField: {field}")]
+    #[error("{location} MissingField: {field}")]
     MissingField {
         field: &'static str,
-        loc: ErrorLocation,
+        location: ErrorLocation,
+    },
+
+    #[error("{location} InvalidArgument: {reason}")]
+    InvalidArgument {
+        reason: String,
+        location: ErrorLocation,
+    },
+
+    #[error("{location} MissingArgument: {name}")]
+    MissingArgument {
+        name: &'static str,
+        location: ErrorLocation,
+    },
+
+    #[error("{location} InvalidHex: {reason}")]
+    InvalidHex {
+        reason: String,
+        location: ErrorLocation,
     },
 }
 
@@ -34,16 +61,39 @@ impl UserInputError {
             Self::InvalidTransactionId { .. } => "InvalidTransactionId",
             Self::InvalidPrefix { .. } => "InvalidPrefix",
             Self::MissingField { .. } => "MissingField",
+            Self::InvalidArgument { .. } => "InvalidArgument",
+            Self::MissingArgument { .. } => "MissingArgument",
+            Self::InvalidHex { .. } => "InvalidHex",
         }
     }
 
-    pub fn location(&self) -> &ErrorLocation {
+    pub fn location(&self) -> ErrorLocation {
         match self {
-            Self::InvalidAddress { loc, .. }
-            | Self::InvalidAmount { loc, .. }
-            | Self::InvalidTransactionId { loc, .. }
-            | Self::InvalidPrefix { loc, .. }
-            | Self::MissingField { loc, .. } => loc,
+            Self::InvalidAddress { location, .. }
+            | Self::InvalidAmount { location, .. }
+            | Self::InvalidTransactionId { location, .. }
+            | Self::InvalidPrefix { location, .. }
+            | Self::MissingField { location, .. }
+            | Self::InvalidArgument { location, .. }
+            | Self::MissingArgument { location, .. }
+            | Self::InvalidHex { location, .. } => *location,
+        }
+    }
+
+    pub fn user_message(&self) -> String {
+        match self {
+            Self::InvalidAddress { input, reason, .. } => {
+                format!("invalid address {input:?}: {reason}")
+            }
+            Self::InvalidAmount { input, .. } => format!("invalid amount {input:?}"),
+            Self::InvalidTransactionId { input, .. } => {
+                format!("invalid transaction id {input:?}")
+            }
+            Self::InvalidPrefix { input, .. } => format!("invalid prefix {input:?}"),
+            Self::MissingField { field, .. } => format!("missing field {field}"),
+            Self::InvalidArgument { reason, .. } => reason.clone(),
+            Self::MissingArgument { name, .. } => format!("missing argument {name}"),
+            Self::InvalidHex { reason, .. } => format!("invalid hex: {reason}"),
         }
     }
 }
@@ -56,7 +106,7 @@ mod tests {
     fn display_includes_location_and_kind() {
         let err = UserInputError::InvalidAmount {
             input: "abc".into(),
-            loc: ErrorLocation::capture(),
+            location: ErrorLocation::capture(),
         };
         let s = err.to_string();
         assert!(s.contains("InvalidAmount"), "got: {s}");
@@ -69,8 +119,19 @@ mod tests {
         let err = UserInputError::InvalidAddress {
             input: "bad".into(),
             reason: "malformed".into(),
-            loc: ErrorLocation::capture(),
+            location: ErrorLocation::capture(),
         };
         assert_eq!(err.kind_name(), "InvalidAddress");
+    }
+
+    #[test]
+    fn user_message_omits_location() {
+        let err = UserInputError::InvalidAmount {
+            input: "abc".into(),
+            location: ErrorLocation::capture(),
+        };
+        let m = err.user_message();
+        assert!(!m.contains("user_input.rs"), "got: {m}");
+        assert!(m.contains("abc"), "got: {m}");
     }
 }

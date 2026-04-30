@@ -4,13 +4,14 @@ use common::errors::WalletResult;
 use common::keys::{KEY_FILE_VERSION, Keys, master_key_path};
 use kaspa_bip32::secp256k1::PublicKey;
 use kaspa_bip32::{ExtendedPrivateKey, ExtendedPublicKey, Mnemonic, Prefix, SecretKey};
+use secrecy::SecretString;
 use std::sync::Arc;
 
 pub fn generate_keys_file(
     args: Arc<Args>,
     keys_file_path: String,
     mnemonics: Arc<Vec<Mnemonic>>,
-    password: String,
+    password: SecretString,
     extra_public_keys: Vec<ExtendedPublicKey<PublicKey>>,
 ) -> WalletResult<Keys> {
     let prefix = Prefix::from(args.network_id());
@@ -74,7 +75,7 @@ fn extract_x_public_keys(
 }
 
 fn encrypt_mnemonics(
-    password: &String,
+    password: &SecretString,
     mnemonics: &[Mnemonic],
 ) -> WalletResult<Vec<EncryptedMnemonic>> {
     let mut encrypted_mnemonics = vec![];

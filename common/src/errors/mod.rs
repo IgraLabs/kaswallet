@@ -1,6 +1,7 @@
 //! Typed error tree for kaswallet. See
 //! `docs/superpowers/specs/2026-04-14-wallet-error-handling-design.md`.
 
+mod category;
 mod config;
 mod crypto;
 mod root;
@@ -13,6 +14,7 @@ mod user_input;
 #[cfg(test)]
 mod status_mapping_tests;
 
+pub use self::category::ErrorCategory;
 pub use self::config::ConfigError;
 pub use self::crypto::CryptoError;
 pub use self::root::{WalletError, WalletResult};

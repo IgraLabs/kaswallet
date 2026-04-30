@@ -11,10 +11,30 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Write};
 
-fn user_input_err(reason: &str) -> WalletError {
+// Generic CLI argument validation failure. Reserve `InvalidAmount` for actual
+// amount-string parsing — using it for every kind of CLI error makes
+// telemetry (`kind_name()`) useless.
+#[track_caller]
+fn invalid_argument(reason: impl Into<String>) -> WalletError {
+    WalletError::from(UserInputError::InvalidArgument {
+        reason: reason.into(),
+        location: ErrorLocation::capture(),
+    })
+}
+
+#[track_caller]
+fn invalid_amount(input: impl Into<String>) -> WalletError {
     WalletError::from(UserInputError::InvalidAmount {
-        input: reason.to_string(),
-        loc: ErrorLocation::capture(),
+        input: input.into(),
+        location: ErrorLocation::capture(),
+    })
+}
+
+#[track_caller]
+fn invalid_hex(reason: impl Into<String>) -> WalletError {
+    WalletError::from(UserInputError::InvalidHex {
+        reason: reason.into(),
+        location: ErrorLocation::capture(),
     })
 }
 
@@ -48,7 +68,7 @@ struct UtxoDetailOutput {
 }
 
 async fn connect(daemon_address: &str) -> Result<KaswalletClient> {
-    KaswalletClient::connect(daemon_address.to_string()).await
+    KaswalletClient::connect(daemon_address).await
 }
 
 /// Get and display the wallet balance
@@ -222,14 +242,14 @@ fn get_password(prompt: &str, password: Option<String>) -> Result<String> {
             WalletError::from(StorageError::Io {
                 path: "stdout".into(),
                 reason: e.to_string(),
-                loc: ErrorLocation::capture(),
+                location: ErrorLocation::capture(),
             })
         })?;
         rpassword::read_password().map_err(|e| {
             WalletError::from(StorageError::Io {
                 path: "stdin".into(),
                 reason: e.to_string(),
-                loc: ErrorLocation::capture(),
+                location: ErrorLocation::capture(),
             })
         })
     }
@@ -253,7 +273,7 @@ pub async fn send(
 ) -> Result<()> {
     // Validate that either send_amount or send_all is specified
     if send_amount.is_none() && !is_send_all {
-        return Err(user_input_err(
+        return Err(invalid_argument(
             "Exactly one of '--send-amount' or '--send-all' must be specified",
         ));
     }
@@ -261,7 +281,7 @@ pub async fn send(
     let mut client = connect(daemon_address).await?;
 
     let amount_sompi = if let Some(amount_str) = send_amount {
-        kas_to_sompi(amount_str).map_err(|e| user_input_err(&e))?
+        kas_to_sompi(amount_str).map_err(invalid_amount)?
     } else {
         0
     };
@@ -269,8 +289,7 @@ pub async fn send(
     let fee_policy = build_fee_policy(max_fee_rate, fee_rate, max_fee);
 
     let payload_bytes = if let Some(payload_hex) = payload {
-        hex::decode(payload_hex)
-            .map_err(|e| user_input_err(&format!("Invalid payload hex: {}", e)))?
+        hex::decode(payload_hex).map_err(|e| invalid_hex(format!("payload: {e}")))?
     } else {
         Vec::new()
     };
@@ -331,7 +350,7 @@ pub async fn create_unsigned_transaction(
 ) -> Result<()> {
     // Validate that either send_amount or send_all is specified
     if send_amount.is_none() && !is_send_all {
-        return Err(user_input_err(
+        return Err(invalid_argument(
             "Exactly one of '--send-amount' or '--send-all' must be specified",
         ));
     }
@@ -339,7 +358,7 @@ pub async fn create_unsigned_transaction(
     let mut client = connect(daemon_address).await?;
 
     let amount_sompi = if let Some(amount_str) = send_amount {
-        kas_to_sompi(amount_str).map_err(|e| user_input_err(&e))?
+        kas_to_sompi(amount_str).map_err(invalid_amount)?
     } else {
         0
     };
@@ -347,8 +366,7 @@ pub async fn create_unsigned_transaction(
     let fee_policy = build_fee_policy(max_fee_rate, fee_rate, max_fee);
 
     let payload_bytes = if let Some(payload_hex) = payload {
-        hex::decode(payload_hex)
-            .map_err(|e| user_input_err(&format!("Invalid payload hex: {}", e)))?
+        hex::decode(payload_hex).map_err(|e| invalid_hex(format!("payload: {e}")))?
     } else {
         Vec::new()
     };
@@ -442,11 +460,11 @@ fn get_transactions_hex(
                 WalletError::from(StorageError::Io {
                     path: file_path,
                     reason: e.to_string(),
-                    loc: ErrorLocation::capture(),
+                    location: ErrorLocation::capture(),
                 })
             })
     } else {
-        Err(user_input_err(
+        Err(invalid_argument(
             "Either --transaction or --transaction-file must be specified",
         ))
     }
@@ -467,22 +485,21 @@ fn parse_transactions_hex(hex_str: &str) -> Result<Vec<WalletSignableTransaction
     }
 
     if transactions.is_empty() {
-        return Err(user_input_err("No transactions found"));
+        return Err(invalid_argument("No transactions found"));
     }
 
     Ok(transactions)
 }
 
 fn deserialize_transaction(hex: &str) -> Result<WalletSignableTransaction> {
-    let bytes = hex::decode(hex)
-        .map_err(|e| user_input_err(&format!("Invalid hex in transaction: {}", e)))?;
+    let bytes = hex::decode(hex).map_err(|e| invalid_hex(format!("transaction body: {e}")))?;
 
     let proto_transaction =
         ProtoWalletSignableTransaction::decode(bytes.as_slice()).map_err(|e| {
             WalletError::from(StorageError::Deserialize {
                 kind: "WalletSignableTransaction",
                 reason: e.to_string(),
-                loc: ErrorLocation::capture(),
+                location: ErrorLocation::capture(),
             })
         })?;
     Ok(proto_transaction.into())
@@ -563,7 +580,7 @@ pub async fn address_balances(daemon_address: &str) -> Result<()> {
         WalletError::from(StorageError::Serialize {
             kind: "AddressBalancesOutput",
             reason: e.to_string(),
-            loc: ErrorLocation::capture(),
+            location: ErrorLocation::capture(),
         })
     })?;
     println!("{}", pretty);

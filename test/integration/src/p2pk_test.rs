@@ -29,7 +29,7 @@ pub async fn test_p2pk_send() {
 
     let (_wallet_daemon, listen) = start_wallet_daemon(kaspad_client.clone(), keys_file_path).await;
     sleep(Duration::from_millis(1000)).await; // Give wallet some time to start and sync
-    let mut wallet_client = KaswalletClient::connect(format!("grpc://{}", listen))
+    let mut wallet_client = KaswalletClient::connect(&format!("grpc://{}", listen))
         .await
         .unwrap();
 
@@ -130,7 +130,7 @@ pub async fn test_p2pk_create_sign_broadcast() {
 
     let (_wallet_daemon, listen) = start_wallet_daemon(kaspad_client.clone(), keys_file_path).await;
     sleep(Duration::from_millis(1000)).await; // Give wallet some time to start and sync
-    let mut wallet_client = KaswalletClient::connect(format!("grpc://{}", listen))
+    let mut wallet_client = KaswalletClient::connect(&format!("grpc://{}", listen))
         .await
         .unwrap();
 

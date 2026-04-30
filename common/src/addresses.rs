@@ -16,7 +16,7 @@ pub fn p2pk_address(
         .derive_path(derivation_path)
         .map_err(|e| CryptoError::Bip32Derivation {
             reason: e.to_string(),
-            loc: ErrorLocation::capture(),
+            location: ErrorLocation::capture(),
         })?;
     let pk = derived_key.public_key();
     let payload = pk.x_only_public_key().0.serialize();
@@ -40,23 +40,25 @@ pub fn multisig_address(
             .derive_path(derivation_path)
             .map_err(|e| CryptoError::Bip32Derivation {
                 reason: e.to_string(),
-                loc: ErrorLocation::capture(),
+                location: ErrorLocation::capture(),
             })?;
         let public_key = derived_key.public_key();
         signing_public_keys.push(public_key.x_only_public_key().0.serialize());
     }
 
     let redeem_script = multisig_redeem_script(signing_public_keys.iter(), minimum_signatures)
-        .map_err(|e| CryptoError::Bip32Derivation {
+        .map_err(|e| CryptoError::ScriptError {
+            stage: "multisig_redeem_script",
             reason: e.to_string(),
-            loc: ErrorLocation::capture(),
+            location: ErrorLocation::capture(),
         })?;
     let script_pub_key = kaspa_txscript::pay_to_script_hash_script(redeem_script.as_slice());
     let address =
         kaspa_txscript::extract_script_pub_key_address(&script_pub_key, prefix).map_err(|e| {
-            CryptoError::Bip32Derivation {
+            CryptoError::ScriptError {
+                stage: "extract_script_pub_key_address",
                 reason: e.to_string(),
-                loc: ErrorLocation::capture(),
+                location: ErrorLocation::capture(),
             }
         })?;
     Ok(address)

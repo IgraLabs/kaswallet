@@ -78,7 +78,7 @@ impl TransactionGenerator {
                 Err(e) => Err(WalletError::from(UserInputErr::InvalidAddress {
                     input: address_string,
                     reason: e.to_string(),
-                    loc: ErrorLocation::capture(),
+                    location: ErrorLocation::capture(),
                 })),
             }
         };
@@ -95,7 +95,7 @@ impl TransactionGenerator {
         {
             return Err(WalletError::from(TransactionError::BuildFailed {
                 reason: "Cannot specify both from_addresses and utxos".to_string(),
-                loc: ErrorLocation::capture(),
+                location: ErrorLocation::capture(),
             }));
         }
 
@@ -108,7 +108,7 @@ impl TransactionGenerator {
                     WalletError::from(UserInputErr::InvalidAddress {
                         input: address_string.clone(),
                         reason: "From address is not in address set".to_string(),
-                        loc: ErrorLocation::capture(),
+                        location: ErrorLocation::capture(),
                     })
                 })?;
                 from_addresses.push(wallet_address);
@@ -128,7 +128,7 @@ impl TransactionGenerator {
                     let op = TransactionOutpoint::new(wo.transaction_id, wo.index);
                     return Err(WalletError::from(TransactionError::UtxoNotFound {
                         outpoint: op,
-                        loc: ErrorLocation::capture(),
+                        location: ErrorLocation::capture(),
                     }));
                 }
             }
@@ -341,7 +341,7 @@ impl TransactionGenerator {
                     "Original transaction has {} outputs, while 1 or 2 are expected",
                     num_outputs
                 ),
-                loc: ErrorLocation::capture(),
+                location: ErrorLocation::capture(),
             }));
         }
 
@@ -412,7 +412,7 @@ impl TransactionGenerator {
                 return Err(WalletError::from(TransactionError::InsufficientFunds {
                     required_sompi: sent_value,
                     available_sompi: available_value,
-                    loc: ErrorLocation::capture(),
+                    location: ErrorLocation::capture(),
                 }));
             } else {
                 debug!(
@@ -482,7 +482,7 @@ impl TransactionGenerator {
         let dag_info = self.kaspa_client.get_block_dag_info().await.map_err(|e| {
             common::errors::RpcError::Transport {
                 reason: e.to_string(),
-                loc: ErrorLocation::capture(),
+                location: ErrorLocation::capture(),
             }
         })?;
 
@@ -518,7 +518,7 @@ impl TransactionGenerator {
             Err(WalletError::from(TransactionError::InsufficientFunds {
                 required_sompi: required_amount,
                 available_sompi: total_value_added,
-                loc: ErrorLocation::capture(),
+                location: ErrorLocation::capture(),
             }))
         } else {
             Ok((additional_utxos, total_value_added))
@@ -659,7 +659,7 @@ impl TransactionGenerator {
             return Err(WalletError::from(TransactionError::InsufficientFunds {
                 required_sompi: total_outs,
                 available_sompi: total_ins,
-                loc: ErrorLocation::capture(),
+                location: ErrorLocation::capture(),
             }));
         };
         let fee = total_ins - total_outs;
@@ -676,7 +676,7 @@ impl TransactionGenerator {
             Err(WalletError::from(TransactionError::FeeTooLow {
                 provided_sompi: fee,
                 required_sompi: mass,
-                loc: ErrorLocation::capture(),
+                location: ErrorLocation::capture(),
             }))
         } else {
             let _ = max_fee;
@@ -745,7 +745,7 @@ impl TransactionGenerator {
         let fee_estimate = self.kaspa_client.get_fee_estimate().await.map_err(|e| {
             common::errors::RpcError::Transport {
                 reason: e.to_string(),
-                loc: ErrorLocation::capture(),
+                location: ErrorLocation::capture(),
             }
         })?;
         Ok((fee_estimate.priority_bucket.feerate, SOMPI_PER_KASPA)) // Default to a bound of max 1 KAS as fee
@@ -763,14 +763,14 @@ impl TransactionGenerator {
                         return Err(WalletError::from(TransactionError::FeeTooLow {
                             provided_sompi: requested_max_fee_rate as u64,
                             required_sompi: MIN_FEE_RATE as u64,
-                            loc: ErrorLocation::capture(),
+                            location: ErrorLocation::capture(),
                         }));
                     }
 
                     let fee_estimate = self.kaspa_client.get_fee_estimate().await.map_err(|e| {
                         common::errors::RpcError::Transport {
                             reason: e.to_string(),
-                            loc: ErrorLocation::capture(),
+                            location: ErrorLocation::capture(),
                         }
                     })?;
                     let fee_rate =
@@ -782,7 +782,7 @@ impl TransactionGenerator {
                         return Err(WalletError::from(TransactionError::FeeTooLow {
                             provided_sompi: requested_exact_fee_rate as u64,
                             required_sompi: MIN_FEE_RATE as u64,
-                            loc: ErrorLocation::capture(),
+                            location: ErrorLocation::capture(),
                         }));
                     }
 
@@ -792,7 +792,7 @@ impl TransactionGenerator {
                     let fee_estimate = self.kaspa_client.get_fee_estimate().await.map_err(|e| {
                         common::errors::RpcError::Transport {
                             reason: e.to_string(),
-                            loc: ErrorLocation::capture(),
+                            location: ErrorLocation::capture(),
                         }
                     })?;
                     Ok((fee_estimate.priority_bucket.feerate, requested_max_fee))
@@ -829,7 +829,7 @@ impl TransactionGenerator {
         let dag_info = self.kaspa_client.get_block_dag_info().await.map_err(|e| {
             common::errors::RpcError::Transport {
                 reason: e.to_string(),
-                loc: ErrorLocation::capture(),
+                location: ErrorLocation::capture(),
             }
         })?;
 
@@ -908,14 +908,14 @@ impl TransactionGenerator {
             return Err(WalletError::from(TransactionError::InsufficientFunds {
                 required_sompi: total_spend,
                 available_sompi: total_value,
-                loc: ErrorLocation::capture(),
+                location: ErrorLocation::capture(),
             }));
         }
         if is_send_all && total_value == 0 {
             return Err(WalletError::from(TransactionError::InsufficientFunds {
                 required_sompi: 0,
                 available_sompi: 0,
-                loc: ErrorLocation::capture(),
+                location: ErrorLocation::capture(),
             }));
         }
 

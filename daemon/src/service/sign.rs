@@ -14,6 +14,7 @@ use kaspa_consensus_core::sign::Signed::{Fully, Partially};
 use kaspa_consensus_core::tx::SignableTransaction;
 use log::debug;
 use proto::kaswallet_proto::{SignRequest, SignResponse};
+use secrecy::SecretString;
 use std::collections::BTreeMap;
 use std::iter::once;
 
@@ -25,8 +26,11 @@ impl KasWalletService {
             .map(Into::into)
             .collect();
 
+        // Wrap the password as soon as it crosses the protobuf boundary so it
+        // is zeroized on Drop and `Debug`-redacted from any log line.
+        let password = SecretString::from(request.password);
         let signed_transactions = self
-            .sign_transactions(unsigned_transactions, &request.password)
+            .sign_transactions(unsigned_transactions, &password)
             .await?;
 
         Ok(SignResponse {
@@ -37,7 +41,7 @@ impl KasWalletService {
     pub(crate) async fn sign_transactions(
         &self,
         unsigned_transactions: Vec<WalletSignableTransaction>,
-        password: &String,
+        password: &SecretString,
     ) -> WalletResult<Vec<WalletSignableTransaction>> {
         let mnemonics = self.keys.decrypt_mnemonics(password)?;
         let extended_private_keys = Self::mnemonics_to_private_keys(&mnemonics)?;
@@ -76,7 +80,7 @@ impl KasWalletService {
                     .derive_path(derivation_path)
                     .map_err(|e| CryptoError::Bip32Derivation {
                         reason: e.to_string(),
-                        loc: ErrorLocation::capture(),
+                        location: ErrorLocation::capture(),
                     })?;
                 private_keys.push(private_key.private_key().secret_bytes());
             }
@@ -98,11 +102,13 @@ impl KasWalletService {
             return Ok(());
         }
         let verifiable_transaction = &signed_transaction.unwrap_ref().as_verifiable();
+        // Whole-transaction verify failure has no per-input attribution; use
+        // the dedicated `VerifyFailed` variant rather than fabricating
+        // `input_index: 0` (which the reviewer flagged as misleading).
         kaspa_consensus_core::sign::verify(verifiable_transaction).map_err(|e| {
-            WalletError::from(TransactionError::SignFailed {
-                input_index: 0,
-                reason: format!("Signed transaction does not verify correctly: {}", e),
-                loc: ErrorLocation::capture(),
+            WalletError::from(TransactionError::VerifyFailed {
+                reason: e.to_string(),
+                location: ErrorLocation::capture(),
             })
         })?;
 
@@ -129,14 +135,14 @@ pub fn mnemonic_to_private_key(
     let x_private_key =
         ExtendedPrivateKey::new(seed).map_err(|e| CryptoError::Bip32Derivation {
             reason: e.to_string(),
-            loc: ErrorLocation::capture(),
+            location: ErrorLocation::capture(),
         })?;
     let master_key_derivation_path = master_key_path(is_multisig);
     let private_key = x_private_key
         .derive_path(&master_key_derivation_path)
         .map_err(|e| CryptoError::Bip32Derivation {
             reason: e.to_string(),
-            loc: ErrorLocation::capture(),
+            location: ErrorLocation::capture(),
         })?;
     Ok(private_key)
 }

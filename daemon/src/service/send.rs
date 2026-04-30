@@ -3,6 +3,7 @@ use common::error_location::ErrorLocation;
 use common::errors::{UserInputError, WalletError, WalletResult};
 use log::{debug, error, info};
 use proto::kaswallet_proto::{SendRequest, SendResponse};
+use secrecy::SecretString;
 use std::time::Instant;
 
 impl KasWalletService {
@@ -17,7 +18,7 @@ impl KasWalletService {
             None => {
                 return Err(WalletError::from(UserInputError::MissingField {
                     field: "transaction_description",
-                    loc: ErrorLocation::capture(),
+                    location: ErrorLocation::capture(),
                 }));
             }
         };
@@ -34,8 +35,9 @@ impl KasWalletService {
         debug!("Created {} transactions", unsigned_transactions.len());
 
         debug!("Signing transactions...");
+        let password = SecretString::from(request.password);
         let signed_transactions = self
-            .sign_transactions(unsigned_transactions, &request.password)
+            .sign_transactions(unsigned_transactions, &password)
             .await?;
         debug!("Transactions got signed!");
 

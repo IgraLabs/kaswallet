@@ -5,5 +5,6 @@ pub mod errors;
 pub mod keys;
 pub mod model;
 pub mod proto_convert;
+pub mod status_classify;
 
 pub mod addresses;

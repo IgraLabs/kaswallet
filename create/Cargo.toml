@@ -21,3 +21,4 @@ kaspa-bip32.workspace = true
 clap.workspace = true
 rpassword.workspace = true
 constant_time_eq.workspace = true
+secrecy.workspace = true

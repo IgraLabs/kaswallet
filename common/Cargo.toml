@@ -34,6 +34,8 @@ log.workspace = true
 thiserror.workspace = true
 tonic.workspace = true
 borsh.workspace = true
+secrecy.workspace = true
+zeroize.workspace = true
 
 [dev-dependencies]
 rstest.workspace = true

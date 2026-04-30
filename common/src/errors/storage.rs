@@ -1,27 +1,27 @@
 use crate::error_location::ErrorLocation;
 use thiserror::Error;
 
-#[derive(Debug, Clone, Error)]
+#[derive(Debug, Error)]
 pub enum StorageError {
-    #[error("{loc} Io: path={path}, reason={reason}")]
+    #[error("{location} Io: path={path}, reason={reason}")]
     Io {
         path: String,
         reason: String,
-        loc: ErrorLocation,
+        location: ErrorLocation,
     },
 
-    #[error("{loc} Serialize: kind={kind}, reason={reason}")]
+    #[error("{location} Serialize: kind={kind}, reason={reason}")]
     Serialize {
         kind: &'static str,
         reason: String,
-        loc: ErrorLocation,
+        location: ErrorLocation,
     },
 
-    #[error("{loc} Deserialize: kind={kind}, reason={reason}")]
+    #[error("{location} Deserialize: kind={kind}, reason={reason}")]
     Deserialize {
         kind: &'static str,
         reason: String,
-        loc: ErrorLocation,
+        location: ErrorLocation,
     },
 }
 
@@ -34,10 +34,22 @@ impl StorageError {
         }
     }
 
-    pub fn location(&self) -> &ErrorLocation {
+    pub fn location(&self) -> ErrorLocation {
         match self {
-            Self::Io { loc, .. } | Self::Serialize { loc, .. } | Self::Deserialize { loc, .. } => {
-                loc
+            Self::Io { location, .. }
+            | Self::Serialize { location, .. }
+            | Self::Deserialize { location, .. } => *location,
+        }
+    }
+
+    pub fn user_message(&self) -> String {
+        match self {
+            Self::Io { path, reason, .. } => format!("i/o error at {path}: {reason}"),
+            Self::Serialize { kind, reason, .. } => {
+                format!("failed to serialize {kind}: {reason}")
+            }
+            Self::Deserialize { kind, reason, .. } => {
+                format!("failed to deserialize {kind}: {reason}")
             }
         }
     }
@@ -52,7 +64,7 @@ mod tests {
         let err = StorageError::Io {
             path: "/foo".into(),
             reason: "permission denied".into(),
-            loc: ErrorLocation::capture(),
+            location: ErrorLocation::capture(),
         };
         assert!(err.to_string().contains("Io"));
         assert!(err.to_string().contains("permission denied"));

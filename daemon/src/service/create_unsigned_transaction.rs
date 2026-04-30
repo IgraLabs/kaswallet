@@ -16,7 +16,7 @@ impl KasWalletService {
         if request.transaction_description.is_none() {
             return Err(WalletError::from(UserInputError::MissingField {
                 field: "transaction_description",
-                loc: ErrorLocation::capture(),
+                location: ErrorLocation::capture(),
             }));
         }
         let transaction_description = request.transaction_description.unwrap();

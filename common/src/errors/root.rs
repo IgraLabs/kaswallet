@@ -1,64 +1,47 @@
 use super::{
-    ConfigError, CryptoError, RpcError, StorageError, SyncError, TransactionError, UserInputError,
+    ConfigError, CryptoError, ErrorCategory, RpcError, StorageError, SyncError, TransactionError,
+    UserInputError,
 };
 use crate::error_location::ErrorLocation;
 use thiserror::Error;
 use tonic::{Code, Status};
 
-#[derive(Debug, Clone, Error)]
+#[derive(Debug, Error)]
 pub enum WalletError {
     #[error("User input error: {0}")]
-    UserInput(Box<UserInputError>),
+    UserInput(#[from] UserInputError),
 
     #[error("Config error: {0}")]
-    Config(Box<ConfigError>),
+    Config(#[from] ConfigError),
 
     #[error("Crypto error: {0}")]
-    Crypto(Box<CryptoError>),
+    Crypto(#[from] CryptoError),
 
     #[error("RPC error: {0}")]
-    Rpc(Box<RpcError>),
+    Rpc(#[from] RpcError),
 
     #[error("Storage error: {0}")]
-    Storage(Box<StorageError>),
+    Storage(#[from] StorageError),
 
     #[error("Transaction error: {0}")]
-    Transaction(Box<TransactionError>),
+    Transaction(#[from] TransactionError),
 
     #[error("Sync error: {0}")]
-    Sync(Box<SyncError>),
+    Sync(#[from] SyncError),
 }
 
 pub type WalletResult<T> = Result<T, WalletError>;
 
-macro_rules! impl_from_sub {
-    ($variant:ident, $ty:ty) => {
-        impl From<$ty> for WalletError {
-            fn from(e: $ty) -> Self {
-                WalletError::$variant(Box::new(e))
-            }
-        }
-    };
-}
-
-impl_from_sub!(UserInput, UserInputError);
-impl_from_sub!(Config, ConfigError);
-impl_from_sub!(Crypto, CryptoError);
-impl_from_sub!(Rpc, RpcError);
-impl_from_sub!(Storage, StorageError);
-impl_from_sub!(Transaction, TransactionError);
-impl_from_sub!(Sync, SyncError);
-
 impl WalletError {
-    pub fn category_name(&self) -> &'static str {
+    pub fn category(&self) -> ErrorCategory {
         match self {
-            Self::UserInput(_) => "UserInput",
-            Self::Config(_) => "Config",
-            Self::Crypto(_) => "Crypto",
-            Self::Rpc(_) => "Rpc",
-            Self::Storage(_) => "Storage",
-            Self::Transaction(_) => "Transaction",
-            Self::Sync(_) => "Sync",
+            Self::UserInput(_) => ErrorCategory::UserInput,
+            Self::Config(_) => ErrorCategory::Config,
+            Self::Crypto(_) => ErrorCategory::Crypto,
+            Self::Rpc(_) => ErrorCategory::Rpc,
+            Self::Storage(_) => ErrorCategory::Storage,
+            Self::Transaction(_) => ErrorCategory::Transaction,
+            Self::Sync(_) => ErrorCategory::Sync,
         }
     }
 
@@ -74,7 +57,7 @@ impl WalletError {
         }
     }
 
-    pub fn location(&self) -> &ErrorLocation {
+    pub fn location(&self) -> ErrorLocation {
         match self {
             Self::UserInput(e) => e.location(),
             Self::Config(e) => e.location(),
@@ -86,20 +69,38 @@ impl WalletError {
         }
     }
 
-    pub fn to_status(self) -> Status {
-        let msg = self.to_string();
-        let code = match &self {
+    // Human-readable message safe to ship to remote callers. Excludes
+    // `ErrorLocation` (which would leak build-machine paths) and avoids
+    // distinguishing variants whose differences are sensitive (see
+    // `CryptoError::WrongPassword` / `KeyFileCorrupt`).
+    pub fn user_message(&self) -> String {
+        match self {
+            Self::UserInput(e) => e.user_message(),
+            Self::Config(e) => e.user_message(),
+            Self::Crypto(e) => e.user_message(),
+            Self::Rpc(e) => e.user_message(),
+            Self::Storage(e) => e.user_message(),
+            Self::Transaction(e) => e.user_message(),
+            Self::Sync(e) => e.user_message(),
+        }
+    }
+
+    pub fn to_status(&self) -> Status {
+        let code = match self {
             Self::UserInput(_) => Code::InvalidArgument,
             Self::Config(_) => Code::FailedPrecondition,
+            Self::Crypto(CryptoError::WrongPassword { .. }) => Code::InvalidArgument,
             Self::Crypto(_) => Code::Internal,
             Self::Rpc(_) => Code::Unavailable,
             Self::Storage(_) => Code::Internal,
+            Self::Sync(SyncError::NotYetSynced { .. }) => Code::FailedPrecondition,
             Self::Sync(_) => Code::Internal,
-            Self::Transaction(e) => match **e {
+            Self::Transaction(e) => match e {
                 TransactionError::InsufficientFunds { .. }
                 | TransactionError::FeeTooLow { .. }
                 | TransactionError::InvalidSignature { .. }
-                | TransactionError::DoubleSpend { .. } => Code::InvalidArgument,
+                | TransactionError::DoubleSpend { .. }
+                | TransactionError::NotFullySigned { .. } => Code::InvalidArgument,
                 TransactionError::Rejected { .. } | TransactionError::Orphan { .. } => {
                     Code::Aborted
                 }
@@ -108,10 +109,11 @@ impl WalletError {
                 | TransactionError::MassExceeded { .. }
                 | TransactionError::SerializationFailed { .. }
                 | TransactionError::SignFailed { .. }
+                | TransactionError::VerifyFailed { .. }
                 | TransactionError::SubmitRpc { .. } => Code::Internal,
             },
         };
-        Status::new(code, msg)
+        Status::new(code, self.user_message())
     }
 }
 
@@ -131,30 +133,31 @@ mod tests {
     fn from_subenum_auto_wraps() {
         let e: WalletError = UserInputError::MissingField {
             field: "address",
-            loc: ErrorLocation::capture(),
+            location: ErrorLocation::capture(),
         }
         .into();
-        matches!(e, WalletError::UserInput(_));
+        assert!(matches!(e, WalletError::UserInput(_)));
     }
 
     #[test]
     fn kind_name_delegates_to_subenum() {
         let e: WalletError = ConfigError::MissingArgument {
             name: "--rpc-url",
-            loc: ErrorLocation::capture(),
+            location: ErrorLocation::capture(),
         }
         .into();
         assert_eq!(e.kind_name(), "MissingArgument");
     }
 
     #[test]
-    fn category_name_returns_root_label() {
+    fn category_returns_root_label() {
         let e: WalletError = CryptoError::KeyFileNotFound {
             path: "/k".into(),
-            loc: ErrorLocation::capture(),
+            location: ErrorLocation::capture(),
         }
         .into();
-        assert_eq!(e.category_name(), "Crypto");
+        assert_eq!(e.category(), ErrorCategory::Crypto);
+        assert_eq!(e.category().as_str(), "Crypto");
     }
 
     #[test]
@@ -162,11 +165,45 @@ mod tests {
         let e: WalletError = TransactionError::InsufficientFunds {
             required_sompi: 100,
             available_sompi: 50,
-            loc: ErrorLocation::capture(),
+            location: ErrorLocation::capture(),
         }
         .into();
         let s = e.to_string();
         assert!(s.starts_with("Transaction error"));
         assert!(s.contains("InsufficientFunds"));
+    }
+
+    #[test]
+    fn to_status_does_not_leak_location() {
+        let e: WalletError = UserInputError::InvalidAmount {
+            input: "abc".into(),
+            location: ErrorLocation::capture(),
+        }
+        .into();
+        let status = e.to_status();
+        assert!(
+            !status.message().contains("user_input.rs"),
+            "got: {}",
+            status.message()
+        );
+        assert!(status.message().contains("abc"));
+    }
+
+    #[test]
+    fn wrong_password_maps_to_invalid_argument() {
+        let e: WalletError = CryptoError::WrongPassword {
+            location: ErrorLocation::capture(),
+        }
+        .into();
+        assert_eq!(e.to_status().code(), Code::InvalidArgument);
+    }
+
+    #[test]
+    fn not_yet_synced_maps_to_failed_precondition() {
+        let e: WalletError = SyncError::NotYetSynced {
+            location: ErrorLocation::capture(),
+        }
+        .into();
+        assert_eq!(e.to_status().code(), Code::FailedPrecondition);
     }
 }

@@ -8,6 +8,7 @@ use kaspa_bip32::{ExtendedPublicKey, Language, WordCount};
 use kaswallet_create::args;
 use kaswallet_create::generate_keys_file::generate_keys_file;
 use kaswallet_create::helpers::read_line;
+use secrecy::{ExposeSecret, SecretString};
 use std::path::Path;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -84,14 +85,17 @@ pub fn prompt_for_mnemonic() -> Mnemonic {
     }
 }
 
-fn prompt_for_password() -> String {
+fn prompt_for_password() -> SecretString {
     loop {
         println!("Please enter encryption password:");
-        let password = rpassword::read_password().unwrap();
+        let password = SecretString::from(rpassword::read_password().unwrap());
         println!("Please confirm your password");
-        let confirm_password = rpassword::read_password().unwrap();
+        let confirm_password = SecretString::from(rpassword::read_password().unwrap());
 
-        if !constant_time_eq(password.as_bytes(), confirm_password.as_bytes()) {
+        if !constant_time_eq(
+            password.expose_secret().as_bytes(),
+            confirm_password.expose_secret().as_bytes(),
+        ) {
             println!("Passwords do not match!");
             continue;
         }

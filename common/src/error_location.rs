@@ -1,11 +1,15 @@
-//! Error location tracking (copied from rusty-kaspa/core/src/error_location.rs).
+//! Source-location capture for typed errors.
+//!
+//! Stores `&'static str` and `u32` directly from `std::panic::Location::caller()`
+//! — no allocations, `Copy`, can live inside error variants without forcing
+//! `Clone` requirements on the enum tree.
 
 use std::fmt::{self, Display, Formatter};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct ErrorLocation {
-    file: String,
-    line: String,
+    file: &'static str,
+    line: u32,
 }
 
 impl ErrorLocation {
@@ -13,8 +17,8 @@ impl ErrorLocation {
     pub fn capture() -> Self {
         let l = std::panic::Location::caller();
         Self {
-            file: l.file().to_string(),
-            line: l.line().to_string(),
+            file: l.file(),
+            line: l.line(),
         }
     }
 }
@@ -37,9 +41,10 @@ mod tests {
     }
 
     #[test]
-    fn is_clone_and_debug() {
+    fn is_copy_and_debug() {
         let loc = ErrorLocation::capture();
-        let _clone = loc.clone();
+        let _copy = loc;
+        let _again = loc;
         let _dbg = format!("{loc:?}");
     }
 }

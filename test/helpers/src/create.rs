@@ -3,6 +3,7 @@ use common::keys::Keys;
 use kaspa_bip32::Mnemonic;
 use kaswallet_create::args::Args;
 use kaswallet_create::generate_keys_file::generate_keys_file;
+use secrecy::SecretString;
 use std::sync::Arc;
 use tempfile::NamedTempFile;
 
@@ -21,7 +22,7 @@ pub fn create_keys_file(mnemonic: Mnemonic) -> WalletResult<(Keys, String)> {
         create_args,
         keys_file_path.clone(),
         Arc::new(vec![mnemonic.clone()]),
-        "".to_string(),
+        SecretString::from(String::new()),
         vec![],
     )?;
 

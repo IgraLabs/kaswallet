@@ -2,6 +2,7 @@ use clap::Parser;
 use common::args::calculate_path;
 use common::keys::Keys;
 use kaspa_bip32::Prefix;
+use secrecy::SecretString;
 
 mod args;
 
@@ -13,7 +14,8 @@ fn main() {
     let keys = Keys::load(&keys_file_path, extended_keys_prefix).expect("Failed to load keys");
 
     println!("Please enter password:");
-    let password = rpassword::read_password().unwrap();
+    // Wrap the password the moment it leaves stdin so it is zeroized on Drop.
+    let password = SecretString::from(rpassword::read_password().unwrap());
 
     let mnemonics = keys.decrypt_mnemonics(&password);
     if let Err(e) = mnemonics {

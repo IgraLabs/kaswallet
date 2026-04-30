@@ -119,9 +119,9 @@ impl SyncManager {
                 addresses_count,
                 source: Box::new(RpcError::Transport {
                     reason: e.to_string(),
-                    loc: ErrorLocation::capture(),
+                    location: ErrorLocation::capture(),
                 }),
-                loc: ErrorLocation::capture(),
+                location: ErrorLocation::capture(),
             })?;
         debug!(
             "Got {} mempool sending entries and {} receiving entries",
@@ -144,9 +144,9 @@ impl SyncManager {
                 addresses_count,
                 source: Box::new(RpcError::Transport {
                     reason: e.to_string(),
-                    loc: ErrorLocation::capture(),
+                    location: ErrorLocation::capture(),
                 }),
-                loc: ErrorLocation::capture(),
+                location: ErrorLocation::capture(),
             })?;
         debug!("Got {} utxo entries", get_utxo_by_addresses_response.len());
 
@@ -234,9 +234,9 @@ impl SyncManager {
                 addresses_count,
                 source: Box::new(RpcError::Transport {
                     reason: e.to_string(),
-                    loc: ErrorLocation::capture(),
+                    location: ErrorLocation::capture(),
                 }),
-                loc: ErrorLocation::capture(),
+                location: ErrorLocation::capture(),
             })?;
 
         let address_manager = self.address_manager.lock().await;

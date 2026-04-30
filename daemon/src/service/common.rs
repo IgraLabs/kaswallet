@@ -3,9 +3,9 @@ use crate::utxo_manager::UtxoManager;
 use common::error_location::ErrorLocation;
 use common::errors::{RpcError, SyncError, TransactionError, WalletError, WalletResult};
 use common::model::WalletSignableTransaction;
+use common::status_classify::classify_submit_rpc_error;
 use kaspa_consensus_core::sign::Signed::{Fully, Partially};
 use kaspa_wallet_core::rpc::RpcApi;
-use kaswallet_client::status_classify::classify_submit_status;
 use log::{error, info};
 use tokio::sync::MutexGuard;
 
@@ -17,7 +17,7 @@ impl KasWalletService {
                 .await
                 .map_err(|e| RpcError::Transport {
                     reason: e.to_string(),
-                    loc: ErrorLocation::capture(),
+                    location: ErrorLocation::capture(),
                 })?;
 
         Ok(block_dag_info.virtual_daa_score)
@@ -25,10 +25,12 @@ impl KasWalletService {
 
     pub(crate) async fn check_is_synced(&self) -> WalletResult<()> {
         if !self.sync_manager.is_synced().await {
-            Err(WalletError::from(SyncError::UtxoIndexInconsistent {
-                reason: "Wallet is not synced yet. Please wait for the sync to complete."
-                    .to_string(),
-                loc: ErrorLocation::capture(),
+            // Wallet has not yet completed initial UTXO sync — a transient
+            // pre-condition, not a data-integrity issue. Maps to
+            // `Code::FailedPrecondition` so clients retry rather than alerting
+            // oncall as if it were a server bug.
+            Err(WalletError::from(SyncError::NotYetSynced {
+                location: ErrorLocation::capture(),
             }))
         } else {
             Ok(())
@@ -45,10 +47,11 @@ impl KasWalletService {
         let mut transaction_ids = vec![];
         for signed_transaction in signed_transactions {
             if let Partially(_) = signed_transaction.transaction {
-                return Err(WalletError::from(TransactionError::SignFailed {
-                    input_index: 0,
-                    reason: "Transaction is not fully signed".to_string(),
-                    loc: ErrorLocation::capture(),
+                // Whole-transaction precondition (no per-input index to attribute).
+                // Maps to `Code::InvalidArgument` — the caller sent us something
+                // they had not finished signing.
+                return Err(WalletError::from(TransactionError::NotFullySigned {
+                    location: ErrorLocation::capture(),
                 }));
             }
 
@@ -87,8 +90,12 @@ impl KasWalletService {
                         .await;
                 }
                 Err(rpc_err) => {
-                    let status = tonic::Status::new(tonic::Code::Internal, rpc_err.to_string());
-                    let classified = classify_submit_status(tx_id, status);
+                    // The kaspa-rpc-core client gives us a typed `RpcError`,
+                    // not a `tonic::Status`. Classifying it directly avoids
+                    // round-tripping through a fabricated `Status::Internal`
+                    // (which would also make the classifier's `InvalidArgument`
+                    // branch unreachable) — see PR #27 review on this file.
+                    let classified = classify_submit_rpc_error(tx_id, rpc_err);
                     error!(
                         "tx submit failed: tx_id={}, error_kind={}, error_loc={}, input_count={}, output_count={}, mass={}, fee_sompi={}",
                         tx_id,

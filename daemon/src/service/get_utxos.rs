@@ -19,7 +19,7 @@ impl KasWalletService {
             Address::try_from(address.as_str()).map_err(|e| UserInputError::InvalidAddress {
                 input: address.clone(),
                 reason: e.to_string(),
-                loc: ErrorLocation::capture(),
+                location: ErrorLocation::capture(),
             })?;
         }
 
@@ -36,7 +36,7 @@ impl KasWalletService {
                     return Err(WalletError::from(UserInputError::InvalidAddress {
                         input: address.clone(),
                         reason: "Address not found in wallet".into(),
-                        loc: ErrorLocation::capture(),
+                        location: ErrorLocation::capture(),
                     }));
                 }
             }
@@ -49,7 +49,7 @@ impl KasWalletService {
                 .await
                 .map_err(|e| RpcError::Transport {
                     reason: e.to_string(),
-                    loc: ErrorLocation::capture(),
+                    location: ErrorLocation::capture(),
                 })?;
 
         let fee_rate = fee_estimate.normal_buckets[0].feerate;

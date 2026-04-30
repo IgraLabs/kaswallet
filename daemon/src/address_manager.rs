@@ -203,7 +203,7 @@ impl AddressManager {
         let path =
             DerivationPath::from_str(&path_string).map_err(|e| CryptoError::Bip32Derivation {
                 reason: e.to_string(),
-                loc: ErrorLocation::capture(),
+                location: ErrorLocation::capture(),
             })?;
         Ok(path)
     }

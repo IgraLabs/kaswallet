@@ -13,7 +13,6 @@ kaswallet-common.workspace = true
 kaswallet-proto.workspace = true
 
 kaspa-hashes.workspace = true
-kaspa-consensus-core.workspace = true
 
 tokio.workspace = true
 tonic.workspace = true
