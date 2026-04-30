@@ -1,4 +1,6 @@
 use crate::utils::{format_kas, kas_to_sompi};
+use common::error_location::ErrorLocation;
+use common::errors::{StorageError, UserInputError, WalletError, WalletResult as Result};
 use common::model::WalletSignableTransaction;
 use kaswallet_client::client::KaswalletClient;
 use prost::Message;
@@ -9,7 +11,32 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Write};
 
-type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+// Generic CLI argument validation failure. Reserve `InvalidAmount` for actual
+// amount-string parsing — using it for every kind of CLI error makes
+// telemetry (`kind_name()`) useless.
+#[track_caller]
+fn invalid_argument(reason: impl Into<String>) -> WalletError {
+    WalletError::from(UserInputError::InvalidArgument {
+        reason: reason.into(),
+        location: ErrorLocation::capture(),
+    })
+}
+
+#[track_caller]
+fn invalid_amount(input: impl Into<String>) -> WalletError {
+    WalletError::from(UserInputError::InvalidAmount {
+        input: input.into(),
+        location: ErrorLocation::capture(),
+    })
+}
+
+#[track_caller]
+fn invalid_hex(reason: impl Into<String>) -> WalletError {
+    WalletError::from(UserInputError::InvalidHex {
+        reason: reason.into(),
+        location: ErrorLocation::capture(),
+    })
+}
 
 /// JSON output structure for the address-balances command
 #[derive(Serialize)]
@@ -41,9 +68,7 @@ struct UtxoDetailOutput {
 }
 
 async fn connect(daemon_address: &str) -> Result<KaswalletClient> {
-    KaswalletClient::connect(daemon_address.to_string())
-        .await
-        .map_err(|e| format!("Failed to connect to daemon at {}: {}", daemon_address, e).into())
+    KaswalletClient::connect(daemon_address).await
 }
 
 /// Get and display the wallet balance
@@ -213,8 +238,20 @@ fn get_password(prompt: &str, password: Option<String>) -> Result<String> {
         Ok(p)
     } else {
         print!("{}", prompt);
-        io::stdout().flush()?;
-        rpassword::read_password().map_err(|e| e.into())
+        io::stdout().flush().map_err(|e| {
+            WalletError::from(StorageError::Io {
+                path: "stdout".into(),
+                reason: e.to_string(),
+                location: ErrorLocation::capture(),
+            })
+        })?;
+        rpassword::read_password().map_err(|e| {
+            WalletError::from(StorageError::Io {
+                path: "stdin".into(),
+                reason: e.to_string(),
+                location: ErrorLocation::capture(),
+            })
+        })
     }
 }
 
@@ -236,13 +273,15 @@ pub async fn send(
 ) -> Result<()> {
     // Validate that either send_amount or send_all is specified
     if send_amount.is_none() && !is_send_all {
-        return Err("Exactly one of '--send-amount' or '--send-all' must be specified".into());
+        return Err(invalid_argument(
+            "Exactly one of '--send-amount' or '--send-all' must be specified",
+        ));
     }
 
     let mut client = connect(daemon_address).await?;
 
     let amount_sompi = if let Some(amount_str) = send_amount {
-        kas_to_sompi(amount_str)?
+        kas_to_sompi(amount_str).map_err(invalid_amount)?
     } else {
         0
     };
@@ -250,7 +289,7 @@ pub async fn send(
     let fee_policy = build_fee_policy(max_fee_rate, fee_rate, max_fee);
 
     let payload_bytes = if let Some(payload_hex) = payload {
-        hex::decode(payload_hex).map_err(|e| format!("Invalid payload hex: {}", e))?
+        hex::decode(payload_hex).map_err(|e| invalid_hex(format!("payload: {e}")))?
     } else {
         Vec::new()
     };
@@ -311,13 +350,15 @@ pub async fn create_unsigned_transaction(
 ) -> Result<()> {
     // Validate that either send_amount or send_all is specified
     if send_amount.is_none() && !is_send_all {
-        return Err("Exactly one of '--send-amount' or '--send-all' must be specified".into());
+        return Err(invalid_argument(
+            "Exactly one of '--send-amount' or '--send-all' must be specified",
+        ));
     }
 
     let mut client = connect(daemon_address).await?;
 
     let amount_sompi = if let Some(amount_str) = send_amount {
-        kas_to_sompi(amount_str)?
+        kas_to_sompi(amount_str).map_err(invalid_amount)?
     } else {
         0
     };
@@ -325,7 +366,7 @@ pub async fn create_unsigned_transaction(
     let fee_policy = build_fee_policy(max_fee_rate, fee_rate, max_fee);
 
     let payload_bytes = if let Some(payload_hex) = payload {
-        hex::decode(payload_hex).map_err(|e| format!("Invalid payload hex: {}", e))?
+        hex::decode(payload_hex).map_err(|e| invalid_hex(format!("payload: {e}")))?
     } else {
         Vec::new()
     };
@@ -415,9 +456,17 @@ fn get_transactions_hex(
     } else if let Some(file_path) = transaction_file {
         fs::read_to_string(&file_path)
             .map(|s| s.trim().to_string())
-            .map_err(|e| format!("Failed to read transaction file '{}': {}", file_path, e).into())
+            .map_err(|e| {
+                WalletError::from(StorageError::Io {
+                    path: file_path,
+                    reason: e.to_string(),
+                    location: ErrorLocation::capture(),
+                })
+            })
     } else {
-        Err("Either --transaction or --transaction-file must be specified".into())
+        Err(invalid_argument(
+            "Either --transaction or --transaction-file must be specified",
+        ))
     }
 }
 
@@ -436,16 +485,23 @@ fn parse_transactions_hex(hex_str: &str) -> Result<Vec<WalletSignableTransaction
     }
 
     if transactions.is_empty() {
-        return Err("No transactions found".into());
+        return Err(invalid_argument("No transactions found"));
     }
 
     Ok(transactions)
 }
 
 fn deserialize_transaction(hex: &str) -> Result<WalletSignableTransaction> {
-    let bytes = hex::decode(hex).map_err(|e| format!("Invalid hex in transaction: {}", e))?;
+    let bytes = hex::decode(hex).map_err(|e| invalid_hex(format!("transaction body: {e}")))?;
 
-    let proto_transaction = ProtoWalletSignableTransaction::decode(bytes.as_slice())?;
+    let proto_transaction =
+        ProtoWalletSignableTransaction::decode(bytes.as_slice()).map_err(|e| {
+            WalletError::from(StorageError::Deserialize {
+                kind: "WalletSignableTransaction",
+                reason: e.to_string(),
+                location: ErrorLocation::capture(),
+            })
+        })?;
     Ok(proto_transaction.into())
 }
 fn serialize_transaction(tx: WalletSignableTransaction) -> String {
@@ -520,6 +576,13 @@ pub async fn address_balances(daemon_address: &str) -> Result<()> {
         addresses: address_details,
     };
 
-    println!("{}", serde_json::to_string_pretty(&output)?);
+    let pretty = serde_json::to_string_pretty(&output).map_err(|e| {
+        WalletError::from(StorageError::Serialize {
+            kind: "AddressBalancesOutput",
+            reason: e.to_string(),
+            location: ErrorLocation::capture(),
+        })
+    })?;
+    println!("{}", pretty);
     Ok(())
 }

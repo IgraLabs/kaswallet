@@ -1,22 +1,11 @@
 use crate::client::KaswalletClient;
+use common::errors::WalletResult;
 use common::model::WalletSignableTransaction;
 use kaspa_hashes::Hash;
 use proto::kaswallet_proto::{
     AddressBalances as ProtoAddressBalances, AddressToUtxos as ProtoAddressToUtxos, FeePolicy,
     Outpoint, TransactionDescription, Utxo as ProtoUtxo,
 };
-
-#[derive(Debug, thiserror::Error)]
-pub enum ClientError {
-    #[error("Transport error: {0}")]
-    Transport(#[from] tonic::transport::Error),
-    #[error("gRPC status error: {0}")]
-    Status(#[from] tonic::Status),
-    #[error("Invalid transaction ID: {0}")]
-    InvalidTransactionId(String),
-}
-
-pub type Result<T> = std::result::Result<T, ClientError>;
 
 /// Balance information for a specific address.
 #[derive(Debug, Clone)]
@@ -190,7 +179,7 @@ impl TransactionBuilder {
     pub async fn create_unsigned_transactions(
         &self,
         client: &mut KaswalletClient,
-    ) -> Result<Vec<WalletSignableTransaction>> {
+    ) -> WalletResult<Vec<WalletSignableTransaction>> {
         client
             .create_unsigned_transactions(self.transaction_description())
             .await
@@ -200,7 +189,11 @@ impl TransactionBuilder {
     ///
     /// # Security Note
     /// This command sends the password over the network. Only use on trusted or secure connections.
-    pub async fn send(self, client: &mut KaswalletClient, password: String) -> Result<SendResult> {
+    pub async fn send(
+        self,
+        client: &mut KaswalletClient,
+        password: String,
+    ) -> WalletResult<SendResult> {
         client.send(self.transaction_description(), password).await
     }
 }

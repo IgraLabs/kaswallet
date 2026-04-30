@@ -37,6 +37,10 @@ ignore = [
     "RUSTSEC-2020-0168", # mach unmaintained
     "RUSTSEC-2024-0436", # paste unmaintained
     "RUSTSEC-2024-0370", # proc-macro-error unmaintained
+    # rustls-webpki 0.103.9 pulled via rusty-kaspa's wrpc-client → reqwest → hyper-rustls
+    "RUSTSEC-2026-0049", # rustls-webpki: CRL distributionPoint matching logic
+    "RUSTSEC-2026-0098", # rustls-webpki: URI name constraints incorrectly accepted
+    "RUSTSEC-2026-0099", # rustls-webpki: wildcard name constraints incorrectly accepted
 ]
 
 [licenses]
@@ -64,6 +68,14 @@ allow = [
 ]
 confidence-threshold = 0.8
 unused-allowed-license = "allow"
+
+# Transitive deps that ship a LICENSE file but don't declare the SPDX
+# `license` field in their Cargo.toml manifest.
+[[licenses.clarify]]
+name = "duration-string"
+version = "=0.4.0"
+expression = "MIT"
+license-files = [{ path = "LICENSE", hash = 0x4bdb72 }]
 
 [licenses.private]
 ignore = false

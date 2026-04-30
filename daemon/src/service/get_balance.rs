@@ -1,5 +1,5 @@
 use crate::service::kaswallet_service::KasWalletService;
-use common::errors::{ResultExt, WalletResult};
+use common::errors::WalletResult;
 use common::model::WalletUtxo;
 use log::info;
 use proto::kaswallet_proto::{AddressBalances, GetBalanceRequest, GetBalanceResponse};
@@ -41,8 +41,7 @@ impl KasWalletService {
         for (wallet_address, balances) in &balances_map {
             let address = address_manager
                 .kaspa_address_from_wallet_address(wallet_address, true)
-                .await
-                .to_wallet_result_internal()?;
+                .await?;
 
             if request.include_balance_per_address {
                 address_balances.push(AddressBalances {

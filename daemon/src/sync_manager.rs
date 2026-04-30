@@ -1,12 +1,13 @@
 use crate::address_manager::{AddressManager, AddressSet};
 use crate::utxo_manager::UtxoManager;
+use common::error_location::ErrorLocation;
+use common::errors::{RpcError, SyncError, WalletResult};
 use common::keys::Keys;
 use kaspa_addresses::Address;
 use kaspa_grpc_client::GrpcClient;
 use kaspa_wallet_core::rpc::RpcApi;
 use log::{debug, info};
 use std::cmp::max;
-use std::error::Error;
 use std::sync::Arc;
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::atomic::{AtomicBool, AtomicU32};
@@ -73,7 +74,7 @@ impl SyncManager {
         })
     }
 
-    async fn sync_loop(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn sync_loop(&self) -> WalletResult<()> {
         {
             info!("Starting sync loop");
             self.collect_recent_addresses().await?;
@@ -92,7 +93,7 @@ impl SyncManager {
         }
     }
 
-    async fn refresh_utxos(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn refresh_utxos(&self) -> WalletResult<()> {
         debug!("Refreshing UTXOs...");
         let address_strings: Vec<String>;
         {
@@ -109,15 +110,19 @@ impl SyncManager {
         let mut utxo_manager = self.utxo_manager.lock().await;
 
         debug!("Getting mempool entries for addresses: {:?}...", addresses);
-        // It's important to check the mempool before calling `GetUTXOsByAddresses`:
-        // If we would do it the other way around an output can be spent in the mempool
-        // and not in consensus, and between the calls its spending transaction will be
-        // added to consensus and removed from the mempool, so `getUTXOsByAddressesResponse`
-        // will include an obsolete output.
+        let addresses_count = addresses.len();
         let mempool_entries_by_addresses = self
             .kaspa_client
             .get_mempool_entries_by_addresses(addresses.clone(), true, true)
-            .await?;
+            .await
+            .map_err(|e| SyncError::UtxoFetchFailed {
+                addresses_count,
+                source: Box::new(RpcError::Transport {
+                    reason: e.to_string(),
+                    location: ErrorLocation::capture(),
+                }),
+                location: ErrorLocation::capture(),
+            })?;
         debug!(
             "Got {} mempool sending entries and {} receiving entries",
             mempool_entries_by_addresses
@@ -131,8 +136,18 @@ impl SyncManager {
         );
 
         debug!("Getting UTXOs by addresses...");
-        let get_utxo_by_addresses_response =
-            self.kaspa_client.get_utxos_by_addresses(addresses).await?;
+        let get_utxo_by_addresses_response = self
+            .kaspa_client
+            .get_utxos_by_addresses(addresses)
+            .await
+            .map_err(|e| SyncError::UtxoFetchFailed {
+                addresses_count,
+                source: Box::new(RpcError::Transport {
+                    reason: e.to_string(),
+                    location: ErrorLocation::capture(),
+                }),
+                location: ErrorLocation::capture(),
+            })?;
         debug!("Got {} utxo entries", get_utxo_by_addresses_response.len());
 
         utxo_manager
@@ -142,7 +157,7 @@ impl SyncManager {
         Ok(())
     }
 
-    async fn sync(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn sync(&self) -> WalletResult<()> {
         debug!("Starting sync cycle");
         {
             self.collect_far_addresses().await?;
@@ -155,7 +170,7 @@ impl SyncManager {
         Ok(())
     }
 
-    pub async fn collect_recent_addresses(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
+    pub async fn collect_recent_addresses(&self) -> WalletResult<()> {
         debug!("Collecting recent addresses");
 
         let mut index: u32 = 0;
@@ -178,7 +193,7 @@ impl SyncManager {
         Ok(())
     }
 
-    pub async fn collect_far_addresses(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
+    pub async fn collect_far_addresses(&self) -> WalletResult<()> {
         debug!("Collecting far addresses");
 
         let next_sync_start_index = self.next_sync_start_index.load(Relaxed);
@@ -195,11 +210,7 @@ impl SyncManager {
         Ok(())
     }
 
-    async fn collect_addresses(
-        &self,
-        start: u32,
-        end: u32,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn collect_addresses(&self, start: u32, end: u32) -> WalletResult<()> {
         debug!("Collecting addresses from {} to {}", start, end);
 
         let addresses: AddressSet;
@@ -209,6 +220,7 @@ impl SyncManager {
         }
         debug!("Querying {} addresses", addresses.len());
 
+        let addresses_count = addresses.len();
         let get_balances_by_addresses_response = self
             .kaspa_client
             .get_balances_by_addresses(
@@ -217,7 +229,15 @@ impl SyncManager {
                     .map(|address_string| Address::constructor(address_string))
                     .collect(),
             )
-            .await?;
+            .await
+            .map_err(|e| SyncError::UtxoFetchFailed {
+                addresses_count,
+                source: Box::new(RpcError::Transport {
+                    reason: e.to_string(),
+                    location: ErrorLocation::capture(),
+                }),
+                location: ErrorLocation::capture(),
+            })?;
 
         let address_manager = self.address_manager.lock().await;
         address_manager

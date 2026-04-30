@@ -1,10 +1,10 @@
 use crate::address_manager::{AddressManager, AddressSet};
+use common::errors::WalletResult;
 use common::model::{WalletOutpoint, WalletSignableTransaction, WalletUtxo, WalletUtxoEntry};
 use itertools::Itertools;
 use kaspa_consensus_core::config::params::Params;
 use kaspa_rpc_core::{GetBlockDagInfoResponse, RpcMempoolEntryByAddress, RpcUtxosByAddressesEntry};
 use std::collections::{HashMap, HashSet};
-use std::error::Error;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -121,7 +121,7 @@ impl UtxoManager {
         &mut self,
         rpc_utxo_entries: Vec<RpcUtxosByAddressesEntry>,
         rpc_mempool_utxo_entries: Vec<RpcMempoolEntryByAddress>,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    ) -> WalletResult<()> {
         let mut wallet_utxos: Vec<WalletUtxo> = vec![];
 
         let mut exclude: HashSet<WalletOutpoint> = HashSet::new();
@@ -222,7 +222,7 @@ impl UtxoManager {
     }
 
     fn update_utxos_sorted_by_amount(&mut self, mut wallet_utxos: Vec<WalletUtxo>) {
-        wallet_utxos.sort_by(|a, b| a.utxo_entry.amount.cmp(&b.utxo_entry.amount));
+        wallet_utxos.sort_by_key(|a| a.utxo_entry.amount);
         self.utxos_sorted_by_amount = wallet_utxos;
     }
 

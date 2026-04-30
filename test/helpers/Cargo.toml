@@ -27,3 +27,4 @@ tokio.workspace = true
 log.workspace = true
 thiserror.workspace = true
 tempfile.workspace = true
+secrecy.workspace = true

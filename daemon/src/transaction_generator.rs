@@ -1,7 +1,7 @@
 use crate::address_manager::AddressManager;
 use crate::utxo_manager::UtxoManager;
-use common::errors::WalletError::{SanityCheckFailed, UserInputError};
-use common::errors::{ResultExt, WalletError, WalletResult};
+use common::error_location::ErrorLocation;
+use common::errors::{TransactionError, UserInputError as UserInputErr, WalletError, WalletResult};
 use common::keys::Keys;
 use common::model::{
     WalletAddress, WalletOutpoint, WalletPayment, WalletSignableTransaction, WalletUtxo,
@@ -72,10 +72,14 @@ impl TransactionGenerator {
         utxo_manager: &MutexGuard<'_, UtxoManager>,
         transaction_description: TransactionDescription,
     ) -> WalletResult<Vec<WalletSignableTransaction>> {
-        let validate_address = |address_string, name| -> WalletResult<Address> {
-            match Address::try_from(address_string) {
+        let validate_address = |address_string: String, _name: &str| -> WalletResult<Address> {
+            match Address::try_from(address_string.clone()) {
                 Ok(address) => Ok(address),
-                Err(e) => Err(UserInputError(format!("Invalid {} address: {}", name, e))),
+                Err(e) => Err(WalletError::from(UserInputErr::InvalidAddress {
+                    input: address_string,
+                    reason: e.to_string(),
+                    location: ErrorLocation::capture(),
+                })),
             }
         };
 
@@ -89,9 +93,10 @@ impl TransactionGenerator {
         if !transaction_description.from_addresses.is_empty()
             && !transaction_description.utxos.is_empty()
         {
-            return Err(UserInputError(
-                "Cannot specify both from_addresses and utxos".to_string(),
-            ));
+            return Err(WalletError::from(TransactionError::BuildFailed {
+                reason: "Cannot specify both from_addresses and utxos".to_string(),
+                location: ErrorLocation::capture(),
+            }));
         }
 
         let from_addresses = if transaction_description.from_addresses.is_empty() {
@@ -100,10 +105,11 @@ impl TransactionGenerator {
             let mut from_addresses = vec![];
             for address_string in transaction_description.from_addresses {
                 let wallet_address = address_set.get(&address_string).ok_or_else(|| {
-                    UserInputError(format!(
-                        "From address is not in address set: {}",
-                        address_string
-                    ))
+                    WalletError::from(UserInputErr::InvalidAddress {
+                        input: address_string.clone(),
+                        reason: "From address is not in address set".to_string(),
+                        location: ErrorLocation::capture(),
+                    })
                 })?;
                 from_addresses.push(wallet_address);
             }
@@ -118,10 +124,12 @@ impl TransactionGenerator {
                 if let Some(utxo) = utxos_by_outpoint.get(&preselected_outpoint.clone().into()) {
                     preselected_utxos.insert(utxo.outpoint.clone(), utxo.clone());
                 } else {
-                    return Err(UserInputError(format!(
-                        "Preselected UTXO {:?} is not in UTXO set",
-                        preselected_outpoint
-                    )));
+                    let wo: WalletOutpoint = preselected_outpoint.clone().into();
+                    let op = TransactionOutpoint::new(wo.transaction_id, wo.index);
+                    return Err(WalletError::from(TransactionError::UtxoNotFound {
+                        outpoint: op,
+                        location: ErrorLocation::capture(),
+                    }));
                 }
             }
             preselected_utxos
@@ -328,10 +336,13 @@ impl TransactionGenerator {
             // This is a sanity check to make sure originalTransaction has either 1 or 2 outputs:
             // 1. For the payment itself
             // 2. (optional) for change
-            return Err(WalletError::SanityCheckFailed(format!(
-                "Original transaction has {} outputs, while 1 or 2 are expected",
-                num_outputs
-            )));
+            return Err(WalletError::from(TransactionError::BuildFailed {
+                reason: format!(
+                    "Original transaction has {} outputs, while 1 or 2 are expected",
+                    num_outputs
+                ),
+                location: ErrorLocation::capture(),
+            }));
         }
 
         let mut total_value = 0u64;
@@ -398,10 +409,11 @@ impl TransactionGenerator {
                 sent_value -= required_amount;
                 vec![]
             } else if !preselected_utxo_outpoints.is_empty() {
-                return Err(UserInputError(
-                    "Insufficient funds in pre-selected utxos for merge transaction fees"
-                        .to_string(),
-                ));
+                return Err(WalletError::from(TransactionError::InsufficientFunds {
+                    required_sompi: sent_value,
+                    available_sompi: available_value,
+                    location: ErrorLocation::capture(),
+                }));
             } else {
                 debug!(
                     "Adding more UTXOs to the merge transaction to cover fee; required amount: {}",
@@ -467,11 +479,12 @@ impl TransactionGenerator {
         required_amount: u64,
         fee_rate: f64,
     ) -> WalletResult<(Vec<WalletUtxo>, u64)> {
-        let dag_info = self
-            .kaspa_client
-            .get_block_dag_info()
-            .await
-            .to_wallet_result_internal()?;
+        let dag_info = self.kaspa_client.get_block_dag_info().await.map_err(|e| {
+            common::errors::RpcError::Transport {
+                reason: e.to_string(),
+                location: ErrorLocation::capture(),
+            }
+        })?;
 
         let mass_per_input = self
             .estimate_mass_per_input(&original_consensus_transaction.inputs[0])
@@ -502,9 +515,11 @@ impl TransactionGenerator {
         }
 
         if total_value_added < required_amount {
-            Err(UserInputError(
-                "Insufficient funds for merge transaction fees".to_string(),
-            ))
+            Err(WalletError::from(TransactionError::InsufficientFunds {
+                required_sompi: required_amount,
+                available_sompi: total_value_added,
+                location: ErrorLocation::capture(),
+            }))
         } else {
             Ok((additional_utxos, total_value_added))
         }
@@ -641,9 +656,11 @@ impl TransactionGenerator {
             .sum();
 
         if total_ins < total_outs {
-            return Err(SanityCheckFailed(
-                "transaction doesn't have enough funds to pay for the outputs".to_string(),
-            ));
+            return Err(WalletError::from(TransactionError::InsufficientFunds {
+                required_sompi: total_outs,
+                available_sompi: total_ins,
+                location: ErrorLocation::capture(),
+            }));
         };
         let fee = total_ins - total_outs;
         let mass = self
@@ -656,11 +673,13 @@ impl TransactionGenerator {
         let fee_rate = fee as f64 / mass as f64;
 
         if fee_rate < 1.0 {
-            Err(UserInputError(format!(
-                "setting max-fee to {} results in a fee rate of {}, which is below the minimum allowed fee rate of 1 sompi/gram",
-                max_fee, fee_rate
-            )))
+            Err(WalletError::from(TransactionError::FeeTooLow {
+                provided_sompi: fee,
+                required_sompi: mass,
+                location: ErrorLocation::capture(),
+            }))
         } else {
+            let _ = max_fee;
             Ok(())
         }
     }
@@ -723,11 +742,12 @@ impl TransactionGenerator {
 
     // Returns: (fee_rate, max_fee)
     async fn default_fee_rate(&self) -> WalletResult<(f64, u64)> {
-        let fee_estimate = self
-            .kaspa_client
-            .get_fee_estimate()
-            .await
-            .to_wallet_result_internal()?;
+        let fee_estimate = self.kaspa_client.get_fee_estimate().await.map_err(|e| {
+            common::errors::RpcError::Transport {
+                reason: e.to_string(),
+                location: ErrorLocation::capture(),
+            }
+        })?;
         Ok((fee_estimate.priority_bucket.feerate, SOMPI_PER_KASPA)) // Default to a bound of max 1 KAS as fee
     }
 
@@ -740,37 +760,41 @@ impl TransactionGenerator {
             Some(fee_policy) => match fee_policy.fee_policy {
                 Some(fee_policy::FeePolicy::MaxFeeRate(requested_max_fee_rate)) => {
                     if requested_max_fee_rate < MIN_FEE_RATE {
-                        return Err(UserInputError(format!(
-                            "requested max fee rate {} is too low, minimum fee rate is {}",
-                            requested_max_fee_rate, MIN_FEE_RATE
-                        )));
+                        return Err(WalletError::from(TransactionError::FeeTooLow {
+                            provided_sompi: requested_max_fee_rate as u64,
+                            required_sompi: MIN_FEE_RATE as u64,
+                            location: ErrorLocation::capture(),
+                        }));
                     }
 
-                    let fee_estimate = self
-                        .kaspa_client
-                        .get_fee_estimate()
-                        .await
-                        .to_wallet_result_internal()?;
+                    let fee_estimate = self.kaspa_client.get_fee_estimate().await.map_err(|e| {
+                        common::errors::RpcError::Transport {
+                            reason: e.to_string(),
+                            location: ErrorLocation::capture(),
+                        }
+                    })?;
                     let fee_rate =
                         f64::min(fee_estimate.priority_bucket.feerate, requested_max_fee_rate);
                     Ok((fee_rate, u64::MAX))
                 }
                 Some(fee_policy::FeePolicy::ExactFeeRate(requested_exact_fee_rate)) => {
                     if requested_exact_fee_rate < MIN_FEE_RATE {
-                        return Err(UserInputError(format!(
-                            "requested max fee rate {} is too low, minimum fee rate is {}",
-                            requested_exact_fee_rate, MIN_FEE_RATE
-                        )));
+                        return Err(WalletError::from(TransactionError::FeeTooLow {
+                            provided_sompi: requested_exact_fee_rate as u64,
+                            required_sompi: MIN_FEE_RATE as u64,
+                            location: ErrorLocation::capture(),
+                        }));
                     }
 
                     Ok((requested_exact_fee_rate, u64::MAX))
                 }
                 Some(fee_policy::FeePolicy::MaxFee(requested_max_fee)) => {
-                    let fee_estimate = self
-                        .kaspa_client
-                        .get_fee_estimate()
-                        .await
-                        .to_wallet_result_internal()?;
+                    let fee_estimate = self.kaspa_client.get_fee_estimate().await.map_err(|e| {
+                        common::errors::RpcError::Transport {
+                            reason: e.to_string(),
+                            location: ErrorLocation::capture(),
+                        }
+                    })?;
                     Ok((fee_estimate.priority_bucket.feerate, requested_max_fee))
                 }
                 None => self.default_fee_rate().await,
@@ -802,11 +826,12 @@ impl TransactionGenerator {
         let mut total_value = 0;
         let mut selected_utxos = vec![];
 
-        let dag_info = self
-            .kaspa_client
-            .get_block_dag_info()
-            .await
-            .to_wallet_result_internal()?;
+        let dag_info = self.kaspa_client.get_block_dag_info().await.map_err(|e| {
+            common::errors::RpcError::Transport {
+                reason: e.to_string(),
+                location: ErrorLocation::capture(),
+            }
+        })?;
 
         let mut fee = 0;
         let mut fee_per_utxo = None;
@@ -880,14 +905,18 @@ impl TransactionGenerator {
         }
 
         if total_value < total_spend {
-            return Err(UserInputError(format!(
-                "Insufficient funds for send: {} required, while only {} available",
-                amount / SOMPI_PER_KASPA,
-                total_value / SOMPI_PER_KASPA
-            )));
+            return Err(WalletError::from(TransactionError::InsufficientFunds {
+                required_sompi: total_spend,
+                available_sompi: total_value,
+                location: ErrorLocation::capture(),
+            }));
         }
         if is_send_all && total_value == 0 {
-            return Err(UserInputError("No funds to send".to_string()));
+            return Err(WalletError::from(TransactionError::InsufficientFunds {
+                required_sompi: 0,
+                available_sompi: 0,
+                location: ErrorLocation::capture(),
+            }));
         }
 
         debug!(

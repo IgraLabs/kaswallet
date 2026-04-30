@@ -32,6 +32,7 @@ tonic.workspace = true
 tokio.workspace = true
 console-subscriber.workspace = true
 thiserror.workspace = true
+secrecy.workspace = true
 # Not used directly; pinned to fix transitive dep version conflict in Docker builds (ENG-746)
 wasm-bindgen.workspace = true
 js-sys.workspace = true

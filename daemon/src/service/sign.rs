@@ -1,6 +1,6 @@
 use crate::service::kaswallet_service::KasWalletService;
-use common::errors::WalletError::SanityCheckFailed;
-use common::errors::{ResultExt, WalletResult};
+use common::error_location::ErrorLocation;
+use common::errors::{CryptoError, TransactionError, WalletError, WalletResult};
 use common::keys::master_key_path;
 use common::model::WalletSignableTransaction;
 use itertools::Itertools;
@@ -14,6 +14,7 @@ use kaspa_consensus_core::sign::Signed::{Fully, Partially};
 use kaspa_consensus_core::tx::SignableTransaction;
 use log::debug;
 use proto::kaswallet_proto::{SignRequest, SignResponse};
+use secrecy::SecretString;
 use std::collections::BTreeMap;
 use std::iter::once;
 
@@ -25,8 +26,11 @@ impl KasWalletService {
             .map(Into::into)
             .collect();
 
+        // Wrap the password as soon as it crosses the protobuf boundary so it
+        // is zeroized on Drop and `Debug`-redacted from any log line.
+        let password = SecretString::from(request.password);
         let signed_transactions = self
-            .sign_transactions(unsigned_transactions, &request.password)
+            .sign_transactions(unsigned_transactions, &password)
             .await?;
 
         Ok(SignResponse {
@@ -37,12 +41,9 @@ impl KasWalletService {
     pub(crate) async fn sign_transactions(
         &self,
         unsigned_transactions: Vec<WalletSignableTransaction>,
-        password: &String,
+        password: &SecretString,
     ) -> WalletResult<Vec<WalletSignableTransaction>> {
-        let mnemonics = self
-            .keys
-            .decrypt_mnemonics(password)
-            .to_wallet_result_user_input()?;
+        let mnemonics = self.keys.decrypt_mnemonics(password)?;
         let extended_private_keys = Self::mnemonics_to_private_keys(&mnemonics)?;
 
         let mut signed_transactions = vec![];
@@ -51,9 +52,8 @@ impl KasWalletService {
             let address_by_input_index = unsigned_transaction.address_by_input_index.clone();
             let address_by_output_index = unsigned_transaction.address_by_output_index.clone();
 
-            let signed_transaction = self
-                .sign_transaction(unsigned_transaction, &extended_private_keys)
-                .to_wallet_result_user_input()?;
+            let signed_transaction =
+                self.sign_transaction(unsigned_transaction, &extended_private_keys)?;
             let wallet_signed_transaction = WalletSignableTransaction::new(
                 signed_transaction,
                 derivation_paths,
@@ -78,7 +78,10 @@ impl KasWalletService {
                 let private_key = extended_private_key
                     .clone()
                     .derive_path(derivation_path)
-                    .to_wallet_result_internal()?;
+                    .map_err(|e| CryptoError::Bip32Derivation {
+                        reason: e.to_string(),
+                        location: ErrorLocation::capture(),
+                    })?;
                 private_keys.push(private_key.private_key().secret_bytes());
             }
         }
@@ -99,11 +102,14 @@ impl KasWalletService {
             return Ok(());
         }
         let verifiable_transaction = &signed_transaction.unwrap_ref().as_verifiable();
+        // Whole-transaction verify failure has no per-input attribution; use
+        // the dedicated `VerifyFailed` variant rather than fabricating
+        // `input_index: 0` (which the reviewer flagged as misleading).
         kaspa_consensus_core::sign::verify(verifiable_transaction).map_err(|e| {
-            SanityCheckFailed(format!(
-                "Signed transaction does not verify correctly: {}",
-                e
-            ))
+            WalletError::from(TransactionError::VerifyFailed {
+                reason: e.to_string(),
+                location: ErrorLocation::capture(),
+            })
         })?;
 
         Ok(())
@@ -126,11 +132,18 @@ pub fn mnemonic_to_private_key(
     is_multisig: bool,
 ) -> WalletResult<ExtendedPrivateKey<SecretKey>> {
     let seed = mnemonic.to_seed("");
-    let x_private_key = ExtendedPrivateKey::new(seed).to_wallet_result_internal()?;
+    let x_private_key =
+        ExtendedPrivateKey::new(seed).map_err(|e| CryptoError::Bip32Derivation {
+            reason: e.to_string(),
+            location: ErrorLocation::capture(),
+        })?;
     let master_key_derivation_path = master_key_path(is_multisig);
     let private_key = x_private_key
         .derive_path(&master_key_derivation_path)
-        .to_wallet_result_internal()?;
+        .map_err(|e| CryptoError::Bip32Derivation {
+            reason: e.to_string(),
+            location: ErrorLocation::capture(),
+        })?;
     Ok(private_key)
 }
 
@@ -143,7 +156,7 @@ pub fn sign_with_multiple(mut mutable_tx: SignableTransaction, privkeys: &[[u8; 
             secp256k1::Keypair::from_seckey_slice(secp256k1::SECP256K1, privkey).unwrap();
         let schnorr_public_key = schnorr_key.public_key().x_only_public_key().0;
         let script_pub_key_script = once(0x20)
-            .chain(schnorr_public_key.serialize().into_iter())
+            .chain(schnorr_public_key.serialize())
             .chain(once(0xac))
             .collect_vec();
         map.insert(script_pub_key_script, schnorr_key);

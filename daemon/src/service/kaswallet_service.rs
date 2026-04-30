@@ -2,7 +2,6 @@ use crate::address_manager::AddressManager;
 use crate::sync_manager::SyncManager;
 use crate::transaction_generator::TransactionGenerator;
 use crate::utxo_manager::UtxoManager;
-use common::errors::WalletResultExt;
 use common::keys::Keys;
 use kaspa_grpc_client::GrpcClient;
 use log::trace;
@@ -57,27 +56,38 @@ impl Wallet for KasWalletService {
     ) -> Result<Response<GetAddressesResponse>, Status> {
         trace!("Received request: {:?}", request.get_ref());
 
-        let addresses = self.get_addresses(request.into_inner()).await.to_status()?;
+        let addresses = self
+            .get_addresses(request.into_inner())
+            .await
+            .map_err(Status::from)?;
 
         Ok(Response::new(GetAddressesResponse { address: addresses }))
     }
+
     async fn new_address(
         &self,
         request: Request<NewAddressRequest>,
     ) -> Result<Response<NewAddressResponse>, Status> {
         trace!("Received request: {:?}", request.get_ref());
 
-        let response = self.new_address(request.into_inner()).await.to_status()?;
+        let response = self
+            .new_address(request.into_inner())
+            .await
+            .map_err(Status::from)?;
 
         Ok(Response::new(response))
     }
+
     async fn get_balance(
         &self,
         request: Request<GetBalanceRequest>,
     ) -> Result<Response<GetBalanceResponse>, Status> {
         trace!("Received request: {:?}", request.get_ref());
 
-        let response = self.get_balance(request.into_inner()).await.to_status()?;
+        let response = self
+            .get_balance(request.into_inner())
+            .await
+            .map_err(Status::from)?;
 
         Ok(Response::new(response))
     }
@@ -88,7 +98,10 @@ impl Wallet for KasWalletService {
     ) -> Result<Response<GetUtxosResponse>, Status> {
         trace!("Received request: {:?}", request.get_ref());
 
-        let response = self.get_utxos(request.into_inner()).await.to_status()?;
+        let response = self
+            .get_utxos(request.into_inner())
+            .await
+            .map_err(Status::from)?;
 
         Ok(Response::new(response))
     }
@@ -102,7 +115,7 @@ impl Wallet for KasWalletService {
         let response = self
             .create_unsigned_transactions(request.into_inner())
             .await
-            .to_status()?;
+            .map_err(Status::from)?;
 
         Ok(Response::new(response))
     }
@@ -110,7 +123,10 @@ impl Wallet for KasWalletService {
     async fn sign(&self, request: Request<SignRequest>) -> Result<Response<SignResponse>, Status> {
         trace!("Received request: {:?}", request.get_ref());
 
-        let response = self.sign(request.into_inner()).await.to_status()?;
+        let response = self
+            .sign(request.into_inner())
+            .await
+            .map_err(Status::from)?;
 
         Ok(Response::new(response))
     }
@@ -121,15 +137,21 @@ impl Wallet for KasWalletService {
     ) -> Result<Response<BroadcastResponse>, Status> {
         trace!("Received request: {:?}", request.get_ref());
 
-        let response = self.broadcast(request.into_inner()).await.to_status()?;
+        let response = self
+            .broadcast(request.into_inner())
+            .await
+            .map_err(Status::from)?;
 
         Ok(Response::new(response))
     }
 
     async fn send(&self, request: Request<SendRequest>) -> Result<Response<SendResponse>, Status> {
-        trace!("Received request: {:?}", request.get_ref()); // TODO: return to trace
+        trace!("Received request: {:?}", request.get_ref());
 
-        let response = self.send(request.into_inner()).await.to_status()?;
+        let response = self
+            .send(request.into_inner())
+            .await
+            .map_err(Status::from)?;
 
         Ok(Response::new(response))
     }

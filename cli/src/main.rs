@@ -1,10 +1,27 @@
 use args::{Args, Commands};
 use clap::Parser;
+use common::errors::{ErrorCategory, WalletError};
 use std::process;
 
 mod args;
 mod commands;
 mod utils;
+
+// Process exit codes loosely modelled on `sysexits.h` so shells / CI scripts
+// can branch on the *kind* of failure without parsing stderr. The mapping is
+// exhaustive — adding a new `ErrorCategory` variant forces this match to be
+// updated, so we never silently fall through to a default code.
+fn exit_code_for(err: &WalletError) -> i32 {
+    match err.category() {
+        ErrorCategory::UserInput => 64,   // EX_USAGE — bad invocation
+        ErrorCategory::Config => 78,      // EX_CONFIG — config error
+        ErrorCategory::Rpc => 69,         // EX_UNAVAILABLE — service unavailable
+        ErrorCategory::Crypto => 77,      // EX_NOPERM — permission/credentials
+        ErrorCategory::Storage => 74,     // EX_IOERR — i/o error
+        ErrorCategory::Sync => 75,        // EX_TEMPFAIL — transient failure
+        ErrorCategory::Transaction => 65, // EX_DATAERR — bad data
+    }
+}
 
 #[tokio::main]
 async fn main() {
@@ -110,7 +127,13 @@ async fn main() {
     };
 
     if let Err(e) = result {
-        eprintln!("Error: {}", e);
-        process::exit(1);
+        eprintln!(
+            "Error [{}/{}] at {}: {}",
+            e.category(),
+            e.kind_name(),
+            e.location(),
+            e.user_message()
+        );
+        process::exit(exit_code_for(&e));
     }
 }
