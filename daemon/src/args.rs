@@ -1,4 +1,4 @@
-﻿use clap::{Parser, ValueEnum};
+use clap::{Parser, ValueEnum};
 use common::args::parse_network_type;
 use kaspa_consensus_core::network::NetworkId;
 use tracing_subscriber::filter::LevelFilter as TracingLevelFilter;

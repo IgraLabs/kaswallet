@@ -2,24 +2,18 @@ use kaspa_consensus_core::config::params::SIMNET_PARAMS;
 use kaspa_consensus_core::subnets::SUBNETWORK_ID_NATIVE;
 use kaswallet_client::client::KaswalletClient;
 use kaswallet_client::model::TransactionBuilder;
-use kaswallet_daemon::args::LogsLevel;
-use kaswallet_daemon::log::init_log;
+use kaswallet_daemon::log::init_log_for_tests;
 use kaswallet_test_helpers::mine_block::mine_block;
 use kaswallet_test_helpers::mnemonics::create_known_test_mnemonic;
 use kaswallet_test_helpers::start_daemon::{start_kaspad, start_wallet_daemon};
 use rstest::rstest;
 use std::time::Duration;
-use tempfile::tempdir;
 use tokio::time::sleep;
 
 #[rstest]
 #[tokio::test]
 pub async fn test_p2pk_send() {
-    init_log(
-        tempdir().unwrap().path().to_str().unwrap(),
-        &LogsLevel::Info,
-    )
-    .expect("Failed to initialize logger");
+    init_log_for_tests();
     let mnemonic = create_known_test_mnemonic();
 
     let (_keys, keys_file_path) =
@@ -116,11 +110,7 @@ pub async fn test_p2pk_send() {
 #[rstest]
 #[tokio::test]
 pub async fn test_p2pk_create_sign_broadcast() {
-    init_log(
-        tempdir().unwrap().path().to_str().unwrap(),
-        &LogsLevel::Info,
-    )
-    .expect("Failed to initialize logger");
+    init_log_for_tests();
     let mnemonic = create_known_test_mnemonic();
 
     let (_keys, keys_file_path) =
