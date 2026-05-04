@@ -1,9 +1,9 @@
 use crate::service::kaswallet_service::KasWalletService;
 use common::errors::WalletResult;
 use common::model::WalletUtxo;
-use log::info;
 use proto::kaswallet_proto::{AddressBalances, GetBalanceRequest, GetBalanceResponse};
 use std::collections::HashMap;
+use tracing::info;
 
 impl KasWalletService {
     pub(crate) async fn get_balance(

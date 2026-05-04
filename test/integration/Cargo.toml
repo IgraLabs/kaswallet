@@ -27,6 +27,4 @@ kaspa-grpc-client.workspace = true
 
 tonic.workspace = true
 tokio.workspace = true
-log.workspace = true
 thiserror.workspace = true
-tempfile.workspace = true

@@ -1,10 +1,10 @@
 use crate::service::kaswallet_service::KasWalletService;
 use common::error_location::ErrorLocation;
 use common::errors::{UserInputError, WalletError, WalletResult};
-use log::{debug, error, info};
 use proto::kaswallet_proto::{SendRequest, SendResponse};
 use secrecy::SecretString;
 use std::time::Instant;
+use tracing::{debug, info};
 
 impl KasWalletService {
     pub(crate) async fn send(&self, request: SendRequest) -> WalletResult<SendResponse> {
@@ -42,14 +42,9 @@ impl KasWalletService {
         debug!("Transactions got signed!");
 
         debug!("Submitting transactions...");
-        let submit_transactions_result = self
+        let transaction_ids = self
             .submit_transactions(&mut utxo_manager, &signed_transactions)
-            .await;
-        if let Err(e) = submit_transactions_result {
-            error!("Failed to submit transactions: {}", e);
-            return Err(e);
-        }
-        let transaction_ids = submit_transactions_result?;
+            .await?;
         debug!("Transactions submitted: {:?}", transaction_ids);
 
         info!(

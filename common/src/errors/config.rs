@@ -16,6 +16,12 @@ pub enum ConfigError {
         location: ErrorLocation,
     },
 
+    #[error("{location} SubscriberAlreadyInitialized: reason={reason}")]
+    SubscriberAlreadyInitialized {
+        reason: String,
+        location: ErrorLocation,
+    },
+
     #[error("{location} MissingArgument: {name}")]
     MissingArgument {
         name: &'static str,
@@ -28,6 +34,7 @@ impl ConfigError {
         match self {
             Self::InvalidPath { .. } => "InvalidPath",
             Self::InvalidLogLevel { .. } => "InvalidLogLevel",
+            Self::SubscriberAlreadyInitialized { .. } => "SubscriberAlreadyInitialized",
             Self::MissingArgument { .. } => "MissingArgument",
         }
     }
@@ -36,6 +43,7 @@ impl ConfigError {
         match self {
             Self::InvalidPath { location, .. }
             | Self::InvalidLogLevel { location, .. }
+            | Self::SubscriberAlreadyInitialized { location, .. }
             | Self::MissingArgument { location, .. } => *location,
         }
     }
@@ -46,6 +54,9 @@ impl ConfigError {
                 format!("invalid config path {path:?}: {reason}")
             }
             Self::InvalidLogLevel { value, .. } => format!("invalid log level {value:?}"),
+            Self::SubscriberAlreadyInitialized { reason, .. } => {
+                format!("tracing subscriber already initialized: {reason}")
+            }
             Self::MissingArgument { name, .. } => format!("missing argument {name}"),
         }
     }

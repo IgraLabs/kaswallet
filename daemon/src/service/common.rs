@@ -6,8 +6,8 @@ use common::model::WalletSignableTransaction;
 use common::status_classify::classify_submit_rpc_error;
 use kaspa_consensus_core::sign::Signed::{Fully, Partially};
 use kaspa_wallet_core::rpc::RpcApi;
-use log::{error, info};
 use tokio::sync::MutexGuard;
+use tracing::{error, info};
 
 impl KasWalletService {
     pub(crate) async fn get_virtual_daa_score(&self) -> WalletResult<u64> {
@@ -80,8 +80,12 @@ impl KasWalletService {
             {
                 Ok(rpc_transaction_id) => {
                     info!(
-                        "tx submitted: tx_id={}, mass={}, fee_sompi={}, input_count={}, output_count={}",
-                        tx_id, mass, fee_sompi, input_count, output_count
+                        tx_id = %tx_id,
+                        mass,
+                        fee_sompi,
+                        input_count,
+                        output_count,
+                        "tx submitted"
                     );
                     transaction_ids.push(rpc_transaction_id.to_string());
 
@@ -97,14 +101,14 @@ impl KasWalletService {
                     // branch unreachable) — see PR #27 review on this file.
                     let classified = classify_submit_rpc_error(tx_id, rpc_err);
                     error!(
-                        "tx submit failed: tx_id={}, error_kind={}, error_loc={}, input_count={}, output_count={}, mass={}, fee_sompi={}",
-                        tx_id,
-                        classified.kind_name(),
-                        classified.location(),
+                        tx_id = %tx_id,
+                        error_kind = classified.kind_name(),
+                        error_loc = %classified.location(),
                         input_count,
                         output_count,
                         mass,
-                        fee_sompi
+                        fee_sompi,
+                        "tx submit failed"
                     );
                     return Err(WalletError::from(classified));
                 }

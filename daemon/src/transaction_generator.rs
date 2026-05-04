@@ -19,12 +19,12 @@ use kaspa_rpc_core::api::rpc::RpcApi;
 use kaspa_txscript::pay_to_address_script;
 use kaspa_wallet_core::prelude::AddressPrefix;
 use kaspa_wallet_core::tx::{MAXIMUM_STANDARD_TRANSACTION_MASS, MassCalculator};
-use log::debug;
 use proto::kaswallet_proto::{FeePolicy, Outpoint, TransactionDescription, fee_policy};
 use std::cmp::min;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::{Mutex, MutexGuard};
+use tracing::debug;
 
 // The current minimal fee rate according to mempool standards
 const MIN_FEE_RATE: f64 = 1.0;

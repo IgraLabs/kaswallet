@@ -1,7 +1,7 @@
-﻿use clap::{Parser, ValueEnum};
+use clap::{Parser, ValueEnum};
 use common::args::parse_network_type;
 use kaspa_consensus_core::network::NetworkId;
-use log::LevelFilter;
+use tracing_subscriber::filter::LevelFilter as TracingLevelFilter;
 
 #[derive(Parser, Debug, Clone)]
 #[command(name = "kaswallet-daemon")]
@@ -86,15 +86,15 @@ pub enum LogsLevel {
     Error,
 }
 
-impl From<LogsLevel> for LevelFilter {
-    fn from(value: LogsLevel) -> LevelFilter {
+impl From<&LogsLevel> for TracingLevelFilter {
+    fn from(value: &LogsLevel) -> TracingLevelFilter {
         match value {
-            LogsLevel::Off => LevelFilter::Off,
-            LogsLevel::Trace => LevelFilter::Trace,
-            LogsLevel::Debug => LevelFilter::Debug,
-            LogsLevel::Info => LevelFilter::Info,
-            LogsLevel::Warn => LevelFilter::Warn,
-            LogsLevel::Error => LevelFilter::Error,
+            LogsLevel::Off => TracingLevelFilter::OFF,
+            LogsLevel::Trace => TracingLevelFilter::TRACE,
+            LogsLevel::Debug => TracingLevelFilter::DEBUG,
+            LogsLevel::Info => TracingLevelFilter::INFO,
+            LogsLevel::Warn => TracingLevelFilter::WARN,
+            LogsLevel::Error => TracingLevelFilter::ERROR,
         }
     }
 }
