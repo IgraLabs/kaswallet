@@ -1,5 +1,6 @@
 use crate::address_manager::AddressManager;
 use crate::args::Args;
+use crate::args::parse_subnetwork_id;
 use crate::service::kaswallet_service::KasWalletService;
 use crate::sync_manager::SyncManager;
 use crate::transaction_generator::TransactionGenerator;
@@ -70,12 +71,14 @@ impl Daemon {
             consensus_params,
             block_dag_info,
         )));
+        let subnetwork_id = parse_subnetwork_id(self.args.subnetwork_id.as_deref())?;
         let transaction_generator = Arc::new(Mutex::new(TransactionGenerator::new(
             kaspa_rpc_client.clone(),
             keys.clone(),
             address_manager.clone(),
             mass_calculator.clone(),
             address_prefix,
+            subnetwork_id,
         )));
         let sync_manager = Arc::new(SyncManager::new(
             kaspa_rpc_client.clone(),

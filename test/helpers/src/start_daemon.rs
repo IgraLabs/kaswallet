@@ -44,6 +44,34 @@ pub async fn start_wallet_daemon(
     (daemon, listen)
 }
 
+pub async fn start_wallet_daemon_with_subnetwork_id(
+    kaspad_client: Arc<GrpcClient>,
+    keys_file_path: String,
+    subnetwork_id_hex: &str,
+) -> (Daemon, String) {
+    let port = pick_unused_port();
+    let listen = format!("127.0.0.1:{}", port);
+    let args = Arc::new(Args {
+        keys_file_path: Some(keys_file_path),
+        simnet: true,
+        listen: listen.clone(),
+        sync_interval_millis: 500,
+        subnetwork_id: Some(subnetwork_id_hex.to_string()),
+        ..Default::default()
+    });
+    let mut params = SIMNET_PARAMS.clone();
+    params.prior_coinbase_maturity = 0;
+    params.crescendo.coinbase_maturity = 0;
+
+    let daemon = Daemon::new(args);
+    daemon
+        .start_with_kaspad_client_and_consensus_params(kaspad_client, params)
+        .await
+        .unwrap();
+
+    (daemon, listen)
+}
+
 pub async fn start_kaspad() -> (KaspadDaemon, Arc<GrpcClient>) {
     let override_params_file = Some(
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
