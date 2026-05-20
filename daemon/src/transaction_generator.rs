@@ -9,7 +9,7 @@ use common::model::{
 };
 use itertools::Itertools;
 use kaspa_addresses::{Address, Version};
-use kaspa_consensus_core::constants::{SOMPI_PER_KASPA, UNACCEPTED_DAA_SCORE};
+use kaspa_consensus_core::constants::{SOMPI_PER_KASPA, TX_VERSION, UNACCEPTED_DAA_SCORE};
 use kaspa_consensus_core::subnets::SubnetworkId;
 use kaspa_consensus_core::tx::{
     SignableTransaction, Transaction, TransactionInput, TransactionOutpoint, TransactionOutput,
@@ -38,6 +38,26 @@ const MIN_FEE_RATE: f64 = 1.0;
 // output, thus overall lower than standard mass upper bound which is 100K gram)
 const MIN_CHANGE_TARGET: u64 = SOMPI_PER_KASPA * 10;
 
+/// Transaction version used when sending on a non-native (custom) subnetwork.
+///
+/// Mirrors `TX_VERSION_TOCCATA` from a future upgrade of `kaspa-consensus-core`
+/// to the Toccata branch. Once `Cargo.lock` is pointed at that branch this
+/// constant should be replaced with the upstream symbol.
+pub const TX_VERSION_TOCCATA: u16 = 1;
+
+/// Pick the consensus transaction version for a given subnetwork.
+///
+/// Native subnetwork uses `TX_VERSION` (0); any other subnetwork carries
+/// the Toccata-era v1 version that enables non-native subnetwork
+/// transactions on Toccata-active networks.
+pub fn select_tx_version(subnetwork_id: &SubnetworkId) -> u16 {
+    if subnetwork_id.is_native() {
+        TX_VERSION
+    } else {
+        TX_VERSION_TOCCATA
+    }
+}
+
 pub struct TransactionGenerator {
     kaspa_client: Arc<GrpcClient>,
     keys: Arc<Keys>,
@@ -45,6 +65,7 @@ pub struct TransactionGenerator {
     mass_calculator: Arc<MassCalculator>,
     address_prefix: AddressPrefix,
     subnetwork_id: SubnetworkId,
+    tx_version: u16,
 
     signature_mass_per_input: u64,
 }
@@ -60,6 +81,7 @@ impl TransactionGenerator {
     ) -> Self {
         let signature_mass_per_input =
             mass_calculator.calc_compute_mass_for_signature(keys.minimum_signatures);
+        let tx_version = select_tx_version(&subnetwork_id);
         Self {
             kaspa_client,
             keys,
@@ -67,6 +89,7 @@ impl TransactionGenerator {
             mass_calculator,
             address_prefix,
             subnetwork_id,
+            tx_version,
             signature_mass_per_input,
         }
     }
@@ -732,8 +755,10 @@ impl TransactionGenerator {
             addresses_by_output_index.push(payment.address.clone());
         }
 
+        // SubnetworkId is a 20-byte fixed array without Copy, so .clone() here is a
+        // cheap memcpy, not a heap allocation; Transaction::new takes the id by value.
         let transaction = Transaction::new(
-            0,
+            self.tx_version,
             inputs,
             outputs,
             0,
@@ -1013,6 +1038,21 @@ impl TransactionGenerator {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use kaspa_consensus_core::subnets::SUBNETWORK_ID_NATIVE;
+    use std::str::FromStr;
+
+    #[test]
+    fn select_tx_version_native_subnetwork_uses_tx_version() {
+        assert_eq!(select_tx_version(&SUBNETWORK_ID_NATIVE), TX_VERSION);
+    }
+
+    #[test]
+    fn select_tx_version_non_native_subnetwork_uses_toccata() {
+        let igra_lane = SubnetworkId::from_str("97b1000000000000000000000000000000000000").unwrap();
+        assert_eq!(select_tx_version(&igra_lane), TX_VERSION_TOCCATA);
+        assert_ne!(TX_VERSION, TX_VERSION_TOCCATA);
+    }
 
     // Helper: Create a known test mnemonic
     //fn create_test_mnemonic() -> Mnemonic {

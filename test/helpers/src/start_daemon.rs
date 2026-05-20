@@ -1,4 +1,5 @@
 use kaspa_consensus_core::config::params::SIMNET_PARAMS;
+use kaspa_consensus_core::subnets::SubnetworkId;
 use kaspa_grpc_client::GrpcClient;
 use kaspa_testing_integration::common::daemon::Daemon as KaspadDaemon;
 use kaspa_utils::fd_budget;
@@ -7,6 +8,7 @@ use kaswallet_daemon::Daemon;
 use kaswallet_daemon::args::Args;
 use std::net::TcpListener;
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::sync::Arc;
 
 #[tokio::test]
@@ -18,9 +20,10 @@ fn pick_unused_port() -> u16 {
     // Dropping listener here frees the port (eventually)
 }
 
-pub async fn start_wallet_daemon(
+async fn start_wallet_daemon_inner(
     kaspad_client: Arc<GrpcClient>,
     keys_file_path: String,
+    subnetwork_id: Option<SubnetworkId>,
 ) -> (Daemon, String) {
     let port = pick_unused_port();
     let listen = format!("127.0.0.1:{}", port);
@@ -29,6 +32,7 @@ pub async fn start_wallet_daemon(
         simnet: true,
         listen: listen.clone(),
         sync_interval_millis: 500,
+        subnetwork_id,
         ..Default::default()
     });
     let mut params = SIMNET_PARAMS.clone();
@@ -39,9 +43,16 @@ pub async fn start_wallet_daemon(
     daemon
         .start_with_kaspad_client_and_consensus_params(kaspad_client, params)
         .await
-        .unwrap();
+        .expect("failed to start wallet daemon");
 
     (daemon, listen)
+}
+
+pub async fn start_wallet_daemon(
+    kaspad_client: Arc<GrpcClient>,
+    keys_file_path: String,
+) -> (Daemon, String) {
+    start_wallet_daemon_inner(kaspad_client, keys_file_path, None).await
 }
 
 pub async fn start_wallet_daemon_with_subnetwork_id(
@@ -49,27 +60,9 @@ pub async fn start_wallet_daemon_with_subnetwork_id(
     keys_file_path: String,
     subnetwork_id_hex: &str,
 ) -> (Daemon, String) {
-    let port = pick_unused_port();
-    let listen = format!("127.0.0.1:{}", port);
-    let args = Arc::new(Args {
-        keys_file_path: Some(keys_file_path),
-        simnet: true,
-        listen: listen.clone(),
-        sync_interval_millis: 500,
-        subnetwork_id: Some(subnetwork_id_hex.to_string()),
-        ..Default::default()
-    });
-    let mut params = SIMNET_PARAMS.clone();
-    params.prior_coinbase_maturity = 0;
-    params.crescendo.coinbase_maturity = 0;
-
-    let daemon = Daemon::new(args);
-    daemon
-        .start_with_kaspad_client_and_consensus_params(kaspad_client, params)
-        .await
-        .unwrap();
-
-    (daemon, listen)
+    let subnetwork_id = SubnetworkId::from_str(subnetwork_id_hex)
+        .expect("test must pass a well-formed subnetwork id");
+    start_wallet_daemon_inner(kaspad_client, keys_file_path, Some(subnetwork_id)).await
 }
 
 pub async fn start_kaspad() -> (KaspadDaemon, Arc<GrpcClient>) {

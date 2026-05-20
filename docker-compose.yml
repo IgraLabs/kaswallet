@@ -11,6 +11,10 @@ services:
       - ./keys:/app/keys:ro
     environment:
       - RUST_LOG=info
+      # Optional: set to the 40-hex-char subnetwork ID (e.g. IGRA lane id
+      # 97b1000000000000000000000000000000000000) to route every wallet send
+      # through that lane. Omit (leave empty) to use the native subnetwork.
+      - KASWALLET_SUBNETWORK_ID=${KASWALLET_SUBNETWORK_ID:-}
     entrypoint: ["/app/kaswallet-daemon", "--listen", "0.0.0.0:8082", "--keys", "/app/keys/keys.json"]
     healthcheck:
       test: ["CMD-SHELL", "echo hello > /dev/tcp/localhost/8082"]
