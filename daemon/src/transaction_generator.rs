@@ -10,6 +10,7 @@ use common::model::{
 use itertools::Itertools;
 use kaspa_addresses::{Address, Version};
 use kaspa_consensus_core::constants::{SOMPI_PER_KASPA, UNACCEPTED_DAA_SCORE};
+use kaspa_consensus_core::subnets::SubnetworkId;
 use kaspa_consensus_core::tx::{
     SignableTransaction, Transaction, TransactionInput, TransactionOutpoint, TransactionOutput,
     UtxoEntry,
@@ -43,6 +44,7 @@ pub struct TransactionGenerator {
     address_manager: Arc<Mutex<AddressManager>>,
     mass_calculator: Arc<MassCalculator>,
     address_prefix: AddressPrefix,
+    subnetwork_id: SubnetworkId,
 
     signature_mass_per_input: u64,
 }
@@ -54,6 +56,7 @@ impl TransactionGenerator {
         address_manager: Arc<Mutex<AddressManager>>,
         mass_calculator: Arc<MassCalculator>,
         address_prefix: AddressPrefix,
+        subnetwork_id: SubnetworkId,
     ) -> Self {
         let signature_mass_per_input =
             mass_calculator.calc_compute_mass_for_signature(keys.minimum_signatures);
@@ -63,6 +66,7 @@ impl TransactionGenerator {
             address_manager,
             mass_calculator,
             address_prefix,
+            subnetwork_id,
             signature_mass_per_input,
         }
     }
@@ -728,7 +732,15 @@ impl TransactionGenerator {
             addresses_by_output_index.push(payment.address.clone());
         }
 
-        let transaction = Transaction::new(0, inputs, outputs, 0, Default::default(), 0, payload);
+        let transaction = Transaction::new(
+            0,
+            inputs,
+            outputs,
+            0,
+            self.subnetwork_id.clone(),
+            0,
+            payload,
+        );
         let signable_transaction = SignableTransaction::with_entries(transaction, utxo_entries);
         let wallet_signable_transaction = WalletSignableTransaction::new_from_unsigned(
             signable_transaction,
