@@ -1,2 +1,4 @@
 *.rs text eol=lf
 *.toml text eol=lf
+*.proto text eol=lf
+*.md text eol=lf
