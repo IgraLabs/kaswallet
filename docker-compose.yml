@@ -11,6 +11,12 @@ services:
       - ./keys:/app/keys:ro
     environment:
       - RUST_LOG=info
+      # Optional: set externally if you want this daemon to route every send
+      # through a specific IGRA lane. Value is the 4-byte lane namespace as
+      # 8 lowercase hex chars (e.g. 97b10000); the daemon zero-pads it to the
+      # on-chain 20-byte SubnetworkId per KIP-21. Leave unset (the line below
+      # commented out) to use the native subnetwork.
+      # - KASWALLET_SUBNETWORK_ID=97b10000
     entrypoint: ["/app/kaswallet-daemon", "--listen", "0.0.0.0:8082", "--keys", "/app/keys/keys.json"]
     healthcheck:
       test: ["CMD-SHELL", "echo hello > /dev/tcp/localhost/8082"]

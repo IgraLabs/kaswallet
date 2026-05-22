@@ -502,7 +502,7 @@ fn deserialize_transaction(hex: &str) -> Result<WalletSignableTransaction> {
                 location: ErrorLocation::capture(),
             })
         })?;
-    Ok(proto_transaction.into())
+    proto_transaction.try_into()
 }
 fn serialize_transaction(tx: WalletSignableTransaction) -> String {
     let proto_transaction: ProtoWalletSignableTransaction = tx.into();

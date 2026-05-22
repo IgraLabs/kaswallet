@@ -1,3 +1,4 @@
+use crate::service::common::SubmitSource;
 use crate::service::kaswallet_service::KasWalletService;
 use common::error_location::ErrorLocation;
 use common::errors::{UserInputError, WalletError, WalletResult};
@@ -43,7 +44,11 @@ impl KasWalletService {
 
         debug!("Submitting transactions...");
         let transaction_ids = self
-            .submit_transactions(&mut utxo_manager, &signed_transactions)
+            .submit_transactions(
+                &mut utxo_manager,
+                &signed_transactions,
+                SubmitSource::Internal,
+            )
             .await?;
         debug!("Transactions submitted: {:?}", transaction_ids);
 

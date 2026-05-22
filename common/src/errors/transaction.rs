@@ -40,12 +40,22 @@ pub enum TransactionError {
     #[error("{location} NotFullySigned")]
     NotFullySigned { location: ErrorLocation },
 
-    // Whole-transaction signature-verification failure (the transaction was
-    // signed but `verify()` rejected it). Distinct from `InvalidSignature`,
-    // which can attribute the failure to a specific input. Maps to
-    // `Code::Internal` — this is a programmer/state error, not user input.
+    // Whole-transaction signature-verification failure on a transaction the
+    // daemon itself just signed (`sanity_check_verify`). A failure here is a
+    // programmer/state error in the wallet, not caller input — maps to
+    // `Code::Internal`.
     #[error("{location} VerifyFailed: {reason}")]
     VerifyFailed {
+        reason: String,
+        location: ErrorLocation,
+    },
+
+    // Signature-verification failure on a wire-supplied payload reaching the
+    // broadcast/submit path. The caller sent us a tx that does not verify;
+    // map to `Code::InvalidArgument` so oncall is not paged for caller
+    // malformed input.
+    #[error("{location} SubmitVerifyFailed: {reason}")]
+    SubmitVerifyFailed {
         reason: String,
         location: ErrorLocation,
     },
@@ -122,6 +132,7 @@ impl TransactionError {
             Self::SignFailed { .. } => "SignFailed",
             Self::NotFullySigned { .. } => "NotFullySigned",
             Self::VerifyFailed { .. } => "VerifyFailed",
+            Self::SubmitVerifyFailed { .. } => "SubmitVerifyFailed",
             Self::InvalidSignature { .. } => "InvalidSignature",
             Self::SerializationFailed { .. } => "SerializationFailed",
             Self::MassExceeded { .. } => "MassExceeded",
@@ -141,6 +152,7 @@ impl TransactionError {
             | Self::SignFailed { location, .. }
             | Self::NotFullySigned { location }
             | Self::VerifyFailed { location, .. }
+            | Self::SubmitVerifyFailed { location, .. }
             | Self::InvalidSignature { location, .. }
             | Self::SerializationFailed { location, .. }
             | Self::MassExceeded { location, .. }
@@ -171,6 +183,9 @@ impl TransactionError {
             Self::NotFullySigned { .. } => "transaction is not fully signed".to_string(),
             Self::VerifyFailed { reason, .. } => {
                 format!("transaction failed signature verification: {reason}")
+            }
+            Self::SubmitVerifyFailed { reason, .. } => {
+                format!("submitted transaction failed signature verification: {reason}")
             }
             Self::InvalidSignature { input_index, .. } => {
                 format!("invalid signature at input {input_index}")
