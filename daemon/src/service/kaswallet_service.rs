@@ -2,7 +2,10 @@ use crate::address_manager::AddressManager;
 use crate::sync_manager::SyncManager;
 use crate::transaction_generator::TransactionGenerator;
 use crate::utxo_manager::UtxoManager;
+use common::error_location::ErrorLocation;
+use common::errors::{UserInputError, WalletError, WalletResult};
 use common::keys::Keys;
+use kaspa_consensus_core::subnets::SubnetworkId;
 use kaspa_grpc_client::GrpcClient;
 use proto::kaswallet_proto::wallet_server::Wallet;
 use proto::kaswallet_proto::{
@@ -32,6 +35,12 @@ pub struct KasWalletService {
     pub(crate) transaction_generator: Arc<Mutex<TransactionGenerator>>,
     pub(crate) sync_manager: Arc<SyncManager>,
     pub(crate) submit_transaction_mutex: Mutex<()>,
+    // Operator-configured lane id. Wire-supplied transactions (Sign,
+    // Broadcast) whose `subnetwork_id` does not match this value are
+    // rejected at the service boundary so a daemon configured for a
+    // specific lane (e.g. IGRA `97b10000…`) cannot be coerced into
+    // signing or relaying transactions targeting any other lane.
+    pub(crate) configured_subnetwork_id: SubnetworkId,
 }
 
 impl KasWalletService {
@@ -42,6 +51,7 @@ impl KasWalletService {
         utxo_manager: Arc<Mutex<UtxoManager>>,
         transaction_generator: Arc<Mutex<TransactionGenerator>>,
         sync_manager: Arc<SyncManager>,
+        configured_subnetwork_id: SubnetworkId,
     ) -> Self {
         Self {
             kaspa_client,
@@ -51,8 +61,41 @@ impl KasWalletService {
             transaction_generator,
             sync_manager,
             submit_transaction_mutex: Mutex::new(()),
+            configured_subnetwork_id,
         }
     }
+
+    /// Reject a wire-supplied transaction whose subnetwork id does not match
+    /// the daemon's configured lane. Returns `Ok(())` when the daemon is in
+    /// native mode (no lane restriction) or the ids match.
+    pub(crate) fn ensure_subnetwork_id_matches(
+        &self,
+        tx_subnetwork_id: &SubnetworkId,
+    ) -> WalletResult<()> {
+        ensure_subnetwork_id_matches(&self.configured_subnetwork_id, tx_subnetwork_id)
+    }
+}
+
+/// Pure lane-gate predicate, extracted for unit testing without having to
+/// stand up an `Arc<GrpcClient>` and the rest of the service graph.
+///
+/// We intentionally allow any tx through a native-configured daemon
+/// (`configured.is_native()`), so the generic kaspa wallet behavior is
+/// preserved — only lane-bound daemons gate by subnetwork id.
+pub(crate) fn ensure_subnetwork_id_matches(
+    configured: &SubnetworkId,
+    tx_subnetwork_id: &SubnetworkId,
+) -> WalletResult<()> {
+    if configured.is_native() || tx_subnetwork_id == configured {
+        return Ok(());
+    }
+    Err(WalletError::from(UserInputError::InvalidArgument {
+        reason: format!(
+            "transaction subnetwork_id {tx_subnetwork_id} does not match daemon's \
+             configured subnetwork_id {configured}",
+        ),
+        location: ErrorLocation::capture(),
+    }))
 }
 
 #[tonic::async_trait]
@@ -178,5 +221,55 @@ impl Wallet for KasWalletService {
         Ok(Response::new(GetVersionResponse {
             version: env!("CARGO_PKG_VERSION").to_string(),
         }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kaspa_consensus_core::subnets::{SUBNETWORK_ID_NATIVE, SubnetworkId};
+
+    fn igra_lane() -> SubnetworkId {
+        let mut bytes = [0u8; 20];
+        bytes[0] = 0x97;
+        bytes[1] = 0xb1;
+        SubnetworkId::from_bytes(bytes)
+    }
+
+    fn other_lane() -> SubnetworkId {
+        let mut bytes = [0u8; 20];
+        bytes[0] = 0xaa;
+        bytes[1] = 0xbb;
+        SubnetworkId::from_bytes(bytes)
+    }
+
+    #[test]
+    fn native_configured_allows_any_tx() {
+        ensure_subnetwork_id_matches(&SUBNETWORK_ID_NATIVE, &SUBNETWORK_ID_NATIVE).unwrap();
+        ensure_subnetwork_id_matches(&SUBNETWORK_ID_NATIVE, &igra_lane()).unwrap();
+        ensure_subnetwork_id_matches(&SUBNETWORK_ID_NATIVE, &other_lane()).unwrap();
+    }
+
+    #[test]
+    fn matching_lane_passes() {
+        ensure_subnetwork_id_matches(&igra_lane(), &igra_lane()).unwrap();
+    }
+
+    #[test]
+    fn mismatched_lane_is_rejected() {
+        let err = ensure_subnetwork_id_matches(&igra_lane(), &other_lane()).unwrap_err();
+        let msg = err.to_string();
+        // The message must name both ids so on-call can see which lane the
+        // tx tried to use vs. which the daemon expected.
+        assert!(msg.contains(&igra_lane().to_string()), "got: {msg}");
+        assert!(msg.contains(&other_lane().to_string()), "got: {msg}");
+    }
+
+    #[test]
+    fn lane_daemon_rejects_native_tx() {
+        // Critical: a daemon configured for a non-native lane MUST NOT
+        // sign or broadcast a native (subnetwork=0×20) transaction.
+        let err = ensure_subnetwork_id_matches(&igra_lane(), &SUBNETWORK_ID_NATIVE).unwrap_err();
+        assert!(err.to_string().contains("does not match"), "got: {err}");
     }
 }

@@ -1,9 +1,8 @@
 use common::error_location::ErrorLocation;
 use common::errors::{TransactionError, UserInputError, WalletError, WalletResult};
-use common::model::WalletSignableTransaction;
+use common::model::{WalletSignableTransaction, WalletSigned};
 use futures::StreamExt;
 use futures::stream::FuturesUnordered;
-use kaspa_consensus_core::sign::Signed;
 use kaspa_consensus_core::tx::SignableTransaction;
 use kaswallet_client::client::KaswalletClient;
 use kaswallet_client::model::{AddressBalance, BalanceInfo, TransactionBuilder};
@@ -201,13 +200,13 @@ async fn mine_tx_id_test(client: &mut KaswalletClient) -> WalletResult<()> {
 
     let mut wallet_transaction: WalletSignableTransaction = last_transaction.clone();
 
-    let mut transaction_to_mine = wallet_transaction.transaction.unwrap();
+    let mut transaction_to_mine = wallet_transaction.transaction.into_inner();
 
     println!("Original transaction ID: {}", transaction_to_mine.id());
 
     mine_loop(&mut transaction_to_mine, expected_bitmask);
 
-    wallet_transaction.transaction = Signed::Partially(transaction_to_mine);
+    wallet_transaction.transaction = WalletSigned::Partially(transaction_to_mine);
 
     unsigned_transactions[transactions_count - 1] = wallet_transaction;
 

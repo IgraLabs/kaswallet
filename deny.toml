@@ -95,7 +95,8 @@ unused = 'deny'
 unknown-registry = "deny"
 unknown-git = "deny"
 allow-git = [
-    "https://github.com/IgraLabs/rusty-kaspa.git",
+    "https://github.com/kaspanet/rusty-kaspa.git",
+    "https://github.com/kaspanet/workflow-perf-monitor-rs.git", # transitive via kaspa-perf-monitor
 ]
 
 [sources.allow-org]

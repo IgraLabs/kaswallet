@@ -9,10 +9,16 @@ use common::model::{
 };
 use itertools::Itertools;
 use kaspa_addresses::{Address, Version};
-use kaspa_consensus_core::constants::{SOMPI_PER_KASPA, UNACCEPTED_DAA_SCORE};
+use kaspa_bip32::DerivationPath;
+use kaspa_consensus_core::config::params::Params;
+use kaspa_consensus_core::constants::{
+    SOMPI_PER_KASPA, TX_VERSION, TX_VERSION_TOCCATA, UNACCEPTED_DAA_SCORE,
+};
+use kaspa_consensus_core::mass::GRAMS_PER_COMPUTE_BUDGET_UNIT;
+use kaspa_consensus_core::subnets::SubnetworkId;
 use kaspa_consensus_core::tx::{
     SignableTransaction, Transaction, TransactionInput, TransactionOutpoint, TransactionOutput,
-    UtxoEntry,
+    TxInputMass, UtxoEntry,
 };
 use kaspa_grpc_client::GrpcClient;
 use kaspa_rpc_core::api::rpc::RpcApi;
@@ -37,12 +43,71 @@ const MIN_FEE_RATE: f64 = 1.0;
 // output, thus overall lower than standard mass upper bound which is 100K gram)
 const MIN_CHANGE_TARGET: u64 = SOMPI_PER_KASPA * 10;
 
+/// Pick the consensus transaction version for a given subnetwork.
+///
+/// Native subnetwork uses `TX_VERSION` (0); any other subnetwork carries
+/// the Toccata-era v1 version that enables non-native subnetwork
+/// transactions on Toccata-active networks.
+pub(crate) fn select_tx_version(subnetwork_id: &SubnetworkId) -> u16 {
+    if subnetwork_id.is_native() {
+        TX_VERSION
+    } else {
+        TX_VERSION_TOCCATA
+    }
+}
+
+/// Compute the per-input compute budget for a v1 transaction.
+///
+/// Mirrors the pattern used by upstream consensus tests:
+/// `compute_budget = (mass_per_sig_op / GRAMS_PER_COMPUTE_BUDGET_UNIT) * minimum_signatures`.
+///
+/// Returns an error if the result overflows `u16` (the consensus-side type)
+/// — fail loudly rather than saturating silently.
+fn compute_budget_for_signature(
+    mass_per_sig_op: u64,
+    minimum_signatures: u16,
+) -> WalletResult<u16> {
+    // Use `div_ceil` so any `mass_per_sig_op` that is not a clean multiple
+    // of `GRAMS_PER_COMPUTE_BUDGET_UNIT` rounds up — under-budgeting by
+    // one unit on a network that ships a non-canonical mass-per-sig-op
+    // produces v1 transactions consensus rejects as "compute exceeded".
+    let per_sig =
+        u16::try_from(mass_per_sig_op.div_ceil(GRAMS_PER_COMPUTE_BUDGET_UNIT)).map_err(|_| {
+            WalletError::from(UserInputErr::InvalidArgument {
+                reason: format!(
+                    "mass_per_sig_op/GRAMS_PER_COMPUTE_BUDGET_UNIT must fit u16 \
+                     (mass_per_sig_op={mass_per_sig_op})"
+                ),
+                location: ErrorLocation::capture(),
+            })
+        })?;
+    per_sig.checked_mul(minimum_signatures).ok_or_else(|| {
+        WalletError::from(UserInputErr::InvalidArgument {
+            reason: format!(
+                "compute_budget overflow: per-sig {per_sig} * minimum_signatures \
+                 {minimum_signatures} exceeds u16::MAX"
+            ),
+            location: ErrorLocation::capture(),
+        })
+    })
+}
+
 pub struct TransactionGenerator {
     kaspa_client: Arc<GrpcClient>,
     keys: Arc<Keys>,
     address_manager: Arc<Mutex<AddressManager>>,
     mass_calculator: Arc<MassCalculator>,
     address_prefix: AddressPrefix,
+    subnetwork_id: SubnetworkId,
+    tx_version: u16,
+    compute_budget_per_input: u16,
+    /// `keys.minimum_signatures` narrowed to `u8` once at construction so the
+    /// v0 input builder never silently truncates a wider value.
+    minimum_signatures_u8: u8,
+    /// Authoritative `mass_per_sig_op` from `ConsensusParams`. Used by
+    /// `estimate_mass_per_input` for the v0 sig-op contribution so the local
+    /// approximation tracks whatever the actual network ships with.
+    mass_per_sig_op: u64,
 
     signature_mass_per_input: u64,
 }
@@ -54,17 +119,46 @@ impl TransactionGenerator {
         address_manager: Arc<Mutex<AddressManager>>,
         mass_calculator: Arc<MassCalculator>,
         address_prefix: AddressPrefix,
-    ) -> Self {
+        subnetwork_id: SubnetworkId,
+        consensus_params: &Params,
+    ) -> WalletResult<Self> {
+        if keys.minimum_signatures == 0 {
+            return Err(WalletError::from(UserInputErr::InvalidArgument {
+                reason: "keys.minimum_signatures must be at least 1".to_string(),
+                location: ErrorLocation::capture(),
+            }));
+        }
+        let minimum_signatures_u8 = u8::try_from(keys.minimum_signatures).map_err(|_| {
+            WalletError::from(UserInputErr::InvalidArgument {
+                reason: format!(
+                    "keys.minimum_signatures ({}) must fit in u8",
+                    keys.minimum_signatures
+                ),
+                location: ErrorLocation::capture(),
+            })
+        })?;
+        // Upstream made the per-input variant `pub(crate)` on Toccata; use the
+        // public batch helper and request mass for a single input.
         let signature_mass_per_input =
-            mass_calculator.calc_compute_mass_for_signature(keys.minimum_signatures);
-        Self {
+            mass_calculator.calc_signature_compute_mass_for_inputs(1, keys.minimum_signatures);
+        let tx_version = select_tx_version(&subnetwork_id);
+        let compute_budget_per_input = compute_budget_for_signature(
+            consensus_params.mass_per_sig_op,
+            keys.minimum_signatures,
+        )?;
+        Ok(Self {
             kaspa_client,
             keys,
             address_manager,
             mass_calculator,
             address_prefix,
+            subnetwork_id,
+            tx_version,
+            compute_budget_per_input,
+            minimum_signatures_u8,
+            mass_per_sig_op: consensus_params.mass_per_sig_op,
             signature_mass_per_input,
-        }
+        })
     }
 
     pub async fn create_unsigned_transactions(
@@ -121,10 +215,10 @@ impl TransactionGenerator {
             let mut preselected_utxos = HashMap::new();
             let utxos_by_outpoint = utxo_manager.utxos_by_outpoint();
             for preselected_outpoint in &transaction_description.utxos {
-                if let Some(utxo) = utxos_by_outpoint.get(&preselected_outpoint.clone().into()) {
+                let wo: WalletOutpoint = preselected_outpoint.clone().try_into()?;
+                if let Some(utxo) = utxos_by_outpoint.get(&wo) {
                     preselected_utxos.insert(utxo.outpoint.clone(), utxo.clone());
                 } else {
-                    let wo: WalletOutpoint = preselected_outpoint.clone().into();
                     let op = TransactionOutpoint::new(wo.transaction_id, wo.index);
                     return Err(WalletError::from(TransactionError::UtxoNotFound {
                         outpoint: op,
@@ -221,14 +315,12 @@ impl TransactionGenerator {
     ) -> WalletResult<Vec<WalletSignableTransaction>> {
         self.check_transaction_fee_rate(&original_wallet_transaction, max_fee)?;
 
-        let original_consensus_transaction = original_wallet_transaction.transaction.unwrap_ref();
+        let original_consensus_transaction = original_wallet_transaction.transaction.inner();
 
-        let transaction_mass = self
-            .mass_calculator
-            .calc_compute_mass_for_unsigned_consensus_transaction(
-                &original_consensus_transaction.tx,
-                self.keys.minimum_signatures,
-            );
+        let transaction_mass = self.compute_mass_for_unsigned_consensus_transaction(
+            &original_consensus_transaction.tx,
+            self.keys.minimum_signatures,
+        );
 
         if transaction_mass < MAXIMUM_STANDARD_TRANSACTION_MASS {
             debug!("No need to auto-compound transaction");
@@ -349,12 +441,12 @@ impl TransactionGenerator {
         let mut utxos_from_split_transactions = vec![];
 
         for split_transaction in split_transactions {
-            let split_consensus_transaction = split_transaction.transaction.unwrap_ref();
+            let split_consensus_transaction = split_transaction.transaction.inner();
             let split_consensus_transaction = &split_consensus_transaction.tx;
             let output = &split_consensus_transaction.outputs[0];
             let utxo = WalletUtxo {
                 outpoint: WalletOutpoint {
-                    transaction_id: split_transaction.transaction.unwrap_ref().id(),
+                    transaction_id: split_transaction.transaction.inner().id(),
                     index: 0,
                 },
                 utxo_entry: WalletUtxoEntry {
@@ -539,12 +631,10 @@ impl TransactionGenerator {
         // to calculate how much mass do all the inputs have
         let mut transaction_without_inputs = original_consensus_transaction.tx.clone();
         transaction_without_inputs.inputs = vec![];
-        let mass_without_inputs = self
-            .mass_calculator
-            .calc_compute_mass_for_unsigned_consensus_transaction(
-                &transaction_without_inputs,
-                self.keys.minimum_signatures,
-            );
+        let mass_without_inputs = self.compute_mass_for_unsigned_consensus_transaction(
+            &transaction_without_inputs,
+            self.keys.minimum_signatures,
+        );
         let mass_of_all_inputs = transaction_mass - mass_without_inputs;
 
         // Since the transaction was generated by kaspawallet, we assume all inputs have the same number of signatures, and
@@ -570,9 +660,8 @@ impl TransactionGenerator {
             .await?;
 
         let mass_for_everything_except_inputs_in_split_transaction = self
-            .mass_calculator
-            .calc_compute_mass_for_unsigned_consensus_transaction(
-                &split_transaction_without_inputs.transaction.unwrap_ref().tx,
+            .compute_mass_for_unsigned_consensus_transaction(
+                &split_transaction_without_inputs.transaction.inner().tx,
                 self.keys.minimum_signatures,
             );
 
@@ -638,7 +727,7 @@ impl TransactionGenerator {
         transaction: &WalletSignableTransaction,
         max_fee: u64,
     ) -> WalletResult<()> {
-        let signable_transaction = transaction.transaction.unwrap_ref();
+        let signable_transaction = transaction.transaction.inner();
         let total_ins: u64 = signable_transaction
             .entries
             .iter()
@@ -663,12 +752,10 @@ impl TransactionGenerator {
             }));
         };
         let fee = total_ins - total_outs;
-        let mass = self
-            .mass_calculator
-            .calc_compute_mass_for_unsigned_consensus_transaction(
-                &signable_transaction.tx,
-                self.keys.minimum_signatures,
-            );
+        let mass = self.compute_mass_for_unsigned_consensus_transaction(
+            &signable_transaction.tx,
+            self.keys.minimum_signatures,
+        );
 
         let fee_rate = fee as f64 / mass as f64;
 
@@ -695,26 +782,51 @@ impl TransactionGenerator {
 
         let mut inputs = vec![];
         let mut utxo_entries = vec![];
-        let mut derivation_paths = HashSet::new();
+        // DerivationPath lost Hash/Ord/Borsh derives upstream — track set
+        // membership via the string representation (cheap, stable) so dedup
+        // stays O(1) per insertion. The signer iterates the resulting Vec.
+        let mut derivation_paths: Vec<DerivationPath> = vec![];
+        let mut seen_paths: HashSet<String> = HashSet::new();
         let mut address_by_input_index = vec![];
 
-        for utxo in selected_utxos {
-            let previous_outpoint =
-                TransactionOutpoint::new(utxo.outpoint.transaction_id, utxo.outpoint.index);
-            let input = TransactionInput::new(
-                previous_outpoint,
-                vec![],
-                0,
-                self.keys.minimum_signatures as u8,
-            );
-            inputs.push(input);
+        // Scope the address-manager lock to the input loop only — the
+        // subsequent Transaction::new + finalize hashes inputs/outputs/
+        // payload and can be expensive on large transactions; holding the
+        // lock through that work blocks sync_manager and change_address.
+        {
+            let address_manager = self.address_manager.lock().await;
+            for utxo in selected_utxos {
+                let previous_outpoint =
+                    TransactionOutpoint::new(utxo.outpoint.transaction_id, utxo.outpoint.index);
+                // Build a v0 (sig_op_count) or v1 (compute_budget) input based on
+                // the transaction version we will emit. v1 inputs that carry
+                // sig_op_count are rejected by Toccata-era consensus.
+                //
+                // Both branches budget for `minimum_signatures` sig-ops per input.
+                // That matches consensus exactly for 1-of-1 P2PK (the common
+                // single-sig wallet shape). For an M-of-N multisig P2SH where
+                // M < N, consensus counts N sig-ops in the redeem script while
+                // we only commit M — pre-existing wallet behaviour the v1 path
+                // intentionally mirrors so the migration adds zero new
+                // regression surface. Fix is out of scope here.
+                let input = if TxInputMass::version_expects_compute_budget_field(self.tx_version) {
+                    TransactionInput::new_with_compute_budget(
+                        previous_outpoint,
+                        vec![],
+                        0,
+                        self.compute_budget_per_input,
+                    )
+                } else {
+                    TransactionInput::new(previous_outpoint, vec![], 0, self.minimum_signatures_u8)
+                };
+                inputs.push(input);
 
-            let utxo_entry: UtxoEntry = utxo.utxo_entry.clone().into();
-            utxo_entries.push(utxo_entry);
-            {
-                let address_manager = self.address_manager.lock().await;
+                let utxo_entry: UtxoEntry = utxo.utxo_entry.clone().into();
+                utxo_entries.push(utxo_entry);
                 let derivation_path = address_manager.calculate_address_path(&utxo.address)?;
-                derivation_paths.insert(derivation_path);
+                if seen_paths.insert(derivation_path.to_string()) {
+                    derivation_paths.push(derivation_path);
+                }
                 address_by_input_index.push(utxo.address.clone());
             }
         }
@@ -728,7 +840,15 @@ impl TransactionGenerator {
             addresses_by_output_index.push(payment.address.clone());
         }
 
-        let transaction = Transaction::new(0, inputs, outputs, 0, Default::default(), 0, payload);
+        let transaction = Transaction::new(
+            self.tx_version,
+            inputs,
+            outputs,
+            0,
+            self.subnetwork_id,
+            0,
+            payload,
+        );
         let signable_transaction = SignableTransaction::with_entries(transaction, utxo_entries);
         let wallet_signable_transaction = WalletSignableTransaction::new_from_unsigned(
             signable_transaction,
@@ -946,6 +1066,34 @@ impl TransactionGenerator {
         Ok(fee)
     }
 
+    /// Upstream's `calc_compute_mass_for_unsigned_consensus_transaction`
+    /// still has an explicit `TODO: Add support for v1 transactions` and
+    /// counts only `sig_op_count` for the per-input script-mass term — for
+    /// v1 inputs this term is zero, undercounting fee by ~1000 grams per
+    /// input. Apply a local compensation until upstream catches up.
+    fn compute_mass_for_unsigned_consensus_transaction(
+        &self,
+        tx: &Transaction,
+        minimum_signatures: u16,
+    ) -> u64 {
+        let base = self
+            .mass_calculator
+            .calc_compute_mass_for_unsigned_consensus_transaction(tx, minimum_signatures);
+        if TxInputMass::version_expects_compute_budget_field(tx.version) {
+            let v1_script_mass: u64 = tx
+                .inputs
+                .iter()
+                .map(|input| {
+                    u64::from(input.mass.compute_budget().unwrap_or(0))
+                        * GRAMS_PER_COMPUTE_BUDGET_UNIT
+                })
+                .sum();
+            base + v1_script_mass
+        } else {
+            base
+        }
+    }
+
     pub async fn estimate_mass(
         &self,
         selected_utxos: &Vec<WalletUtxo>,
@@ -983,24 +1131,168 @@ impl TransactionGenerator {
             .generate_unsigned_transaction(mock_payments, selected_utxos, payload.to_owned())
             .await?;
 
-        let mass = self
-            .mass_calculator
-            .calc_compute_mass_for_unsigned_consensus_transaction(
-                &mock_transaction.transaction.unwrap_ref().tx,
-                self.keys.minimum_signatures,
-            );
+        let mass = self.compute_mass_for_unsigned_consensus_transaction(
+            &mock_transaction.transaction.inner().tx,
+            self.keys.minimum_signatures,
+        );
         Ok(mass)
     }
 
     pub async fn estimate_mass_per_input(&self, input: &TransactionInput) -> u64 {
-        self.mass_calculator
-            .calc_compute_mass_for_client_transaction_input(input)
+        // Upstream's `calc_compute_mass_for_client_transaction_input` became
+        // `pub(crate)` on the Toccata branch. Approximate the per-input
+        // contribution locally: a wallet input serializes to roughly 64
+        // bytes plus its sig-op cost. The result is used only for UTXO
+        // selection / fee estimation — final fee uses
+        // `calc_compute_mass_for_unsigned_consensus_transaction` end-to-end.
+        //
+        // v0 charges `sig_op_count * mass_per_sig_op`. v1 charges
+        // `compute_budget * GRAMS_PER_COMPUTE_BUDGET_UNIT` — so the same
+        // execution allowance produces the same mass.
+        const APPROX_INPUT_BYTES: u64 = 64;
+        const APPROX_MASS_PER_TX_BYTE: u64 = 1;
+        let input_compute_mass = match (input.mass.sig_op_count(), input.mass.compute_budget()) {
+            (Some(sig_ops), _) => sig_ops as u64 * self.mass_per_sig_op,
+            (None, Some(cb)) => cb as u64 * GRAMS_PER_COMPUTE_BUDGET_UNIT,
+            (None, None) => 0,
+        };
+        input_compute_mass
+            + APPROX_INPUT_BYTES * APPROX_MASS_PER_TX_BYTE
             + self.signature_mass_per_input
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use kaspa_consensus_core::subnets::SUBNETWORK_ID_NATIVE;
+    use std::str::FromStr;
+
+    #[test]
+    fn select_tx_version_native_subnetwork_uses_tx_version() {
+        assert_eq!(select_tx_version(&SUBNETWORK_ID_NATIVE), TX_VERSION);
+    }
+
+    #[test]
+    fn select_tx_version_non_native_subnetwork_uses_toccata() {
+        let igra_lane = SubnetworkId::from_str("97b1000000000000000000000000000000000000").unwrap();
+        assert_eq!(select_tx_version(&igra_lane), TX_VERSION_TOCCATA);
+        assert_ne!(TX_VERSION, TX_VERSION_TOCCATA);
+    }
+
+    const TEST_MASS_PER_SIG_OP: u64 = 1000;
+
+    #[test]
+    fn compute_budget_for_single_signature_covers_one_sigop() {
+        // mass_per_sig_op / GRAMS_PER_COMPUTE_BUDGET_UNIT = 1000 / 100 = 10
+        // mirrors the upstream consensus-test pattern for a 1-sigop input.
+        assert_eq!(
+            compute_budget_for_signature(TEST_MASS_PER_SIG_OP, 1).unwrap(),
+            10
+        );
+    }
+
+    #[test]
+    fn compute_budget_for_zero_signatures_is_zero() {
+        // A 0-of-N keys configuration is invalid and rejected at
+        // `TransactionGenerator::new`. The helper itself faithfully
+        // returns `per_sig * 0 = 0`; the construction-time check is the
+        // load-bearing gate.
+        assert_eq!(
+            compute_budget_for_signature(TEST_MASS_PER_SIG_OP, 0).unwrap(),
+            0
+        );
+    }
+
+    #[test]
+    fn compute_budget_for_multisig_scales_with_minimum_signatures() {
+        // Each additional required signature adds one sigop's worth of
+        // budget (10 compute_budget units, equivalent to one v0 sig_op_count).
+        assert_eq!(
+            compute_budget_for_signature(TEST_MASS_PER_SIG_OP, 2).unwrap(),
+            20
+        );
+        assert_eq!(
+            compute_budget_for_signature(TEST_MASS_PER_SIG_OP, 3).unwrap(),
+            30
+        );
+    }
+
+    #[test]
+    fn compute_budget_v0_v1_equivalence() {
+        // v0 sig_op_count = N committed mass field maps to
+        // `allowed_script_units = N * SCRIPT_UNITS_PER_SIGOP_COUNT_UNIT`,
+        // i.e. `N * 100_000`. v1 commits `compute_budget = N*10` and maps to
+        // `N*10 * SCRIPT_UNITS_PER_COMPUTE_BUDGET_UNIT = N*10 * 10_000 =
+        // N * 100_000`. Same allowance, so single-sig wallets see no
+        // behavioural change moving from v0 to v1.
+        for n in [1u16, 2, 3, 5, 10] {
+            let v0_units = n as u64 * 100_000;
+            let v1_units =
+                compute_budget_for_signature(TEST_MASS_PER_SIG_OP, n).unwrap() as u64 * 10_000;
+            assert_eq!(v0_units, v1_units, "mismatch at minimum_signatures={n}");
+        }
+    }
+
+    #[test]
+    fn upstream_v1_mass_calc_still_needs_local_compensation() {
+        // Canary: when upstream removes its `TODO: Add support for v1
+        // transactions` and adds the script-mass term itself, this test
+        // will fail and the maintainer must remove the local compensation
+        // in `compute_mass_for_unsigned_consensus_transaction` to avoid
+        // double-counting. Today the upstream helper returns the same
+        // value for a single-input v0 tx (sig_op_count=0) as for the v1
+        // counterpart (compute_budget=1) — proving the v1 term is still
+        // missing from upstream's accounting.
+        use kaspa_consensus_core::config::params::DEVNET_PARAMS;
+        use kaspa_consensus_core::subnets::SUBNETWORK_ID_NATIVE;
+        use kaspa_consensus_core::tx::{Transaction, TransactionInput, TransactionOutpoint};
+        let mc = MassCalculator::new(&DEVNET_PARAMS);
+        let outpoint = TransactionOutpoint::new(kaspa_hashes::Hash::from_bytes([7u8; 32]), 0);
+        let v0_tx = Transaction::new(
+            0,
+            vec![TransactionInput::new(outpoint, vec![], 0, 0)],
+            vec![],
+            0,
+            SUBNETWORK_ID_NATIVE,
+            0,
+            vec![],
+        );
+        let v1_tx = Transaction::new(
+            1,
+            vec![TransactionInput::new_with_compute_budget(
+                outpoint,
+                vec![],
+                0,
+                1,
+            )],
+            vec![],
+            0,
+            SUBNETWORK_ID_NATIVE,
+            0,
+            vec![],
+        );
+        let v0 = mc.calc_compute_mass_for_unsigned_consensus_transaction(&v0_tx, 1);
+        let v1 = mc.calc_compute_mass_for_unsigned_consensus_transaction(&v1_tx, 1);
+        assert_eq!(
+            v0, v1,
+            "upstream calc_compute_mass_for_unsigned_consensus_transaction now \
+             distinguishes v0 from v1 — remove the local compensation in \
+             compute_mass_for_unsigned_consensus_transaction to avoid double-counting"
+        );
+    }
+
+    #[test]
+    fn compute_budget_for_overflow_returns_error() {
+        // A pathological minimum_signatures that overflows u16 must be
+        // rejected loudly rather than saturated silently.
+        let err = compute_budget_for_signature(TEST_MASS_PER_SIG_OP, u16::MAX)
+            .expect_err("overflow must be rejected");
+        assert!(
+            err.to_string().contains("overflow"),
+            "expected overflow error, got: {err}"
+        );
+    }
 
     // Helper: Create a known test mnemonic
     //fn create_test_mnemonic() -> Mnemonic {
@@ -1111,7 +1403,7 @@ mod tests {
 
     //    // Sign the transaction
     //    let private_key_bytes = derived_key.private_key().secret_bytes();
-    //    let signed_tx = sign_with_multiple(unsigned_tx.transaction.unwrap(), &[private_key_bytes]);
+    //    let signed_tx = sign_with_multiple(unsigned_tx.transaction.into_inner(), &[private_key_bytes]);
 
     //    // Verify transaction is fully signed
     //    assert!(
