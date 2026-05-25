@@ -268,9 +268,26 @@ impl TransactionGenerator {
             )
             .await?;
 
+        // Enriched selection log: include each UTXO's block_daa_score,
+        // is_unconfirmed, and is_coinbase. With these in the trail, an
+        // Orphan rejection downstream can be matched back to the exact
+        // input it came from — if block_daa_score > 0 the parent was
+        // in kaspad's consensus UTXO set at sync time, pointing at a
+        // reorg; block_daa_score == 0 with is_unconfirmed=true would
+        // mean a mempool leak slipped past the filter.
         debug!(
             "Selected utxos: {}",
-            selected_utxos.iter().map(|utxo| &utxo.outpoint).join(", ")
+            selected_utxos
+                .iter()
+                .map(|u| format!(
+                    "{}(amount={}, block_daa_score={}, is_unconfirmed={}, is_coinbase={})",
+                    u.outpoint,
+                    u.utxo_entry.amount,
+                    u.utxo_entry.block_daa_score,
+                    u.utxo_entry.is_unconfirmed,
+                    u.utxo_entry.is_coinbase,
+                ))
+                .join(", ")
         );
 
         let mut payments = vec![WalletPayment::new(
@@ -465,6 +482,15 @@ impl TransactionGenerator {
                     script_public_key: output.script_public_key.clone(),
                     block_daa_score: UNACCEPTED_DAA_SCORE,
                     is_coinbase: false,
+                    // Synthetic UTXO representing the output of a split tx
+                    // we are about to submit ourselves in the same Send
+                    // batch (`SubmitSource::Internal`). The merge tx that
+                    // will consume this is broadcast sequentially after
+                    // its parent in `submit_transactions`, and the wallet
+                    // tracks parents via `mempool_transactions` + replay,
+                    // so chaining here is safe by design — same rationale
+                    // as `apply_mempool_transaction` in `utxo_manager.rs`.
+                    is_unconfirmed: false,
                 },
                 address: change_wallet_address.clone(),
             };
@@ -602,7 +628,7 @@ impl TransactionGenerator {
         let mut total_value_added = 0;
         for utxo in utxos_sorted_by_amount {
             if already_selected_utxos.contains(&utxo)
-                || utxo_manager.is_utxo_pending(&utxo, dag_info.virtual_daa_score)
+                || utxo_manager.is_utxo_unspendable(&utxo, dag_info.virtual_daa_score)
             {
                 continue;
             }
@@ -987,7 +1013,7 @@ impl TransactionGenerator {
             if !from_addresses.is_empty() && !from_addresses.contains(&&utxo.address) {
                 return Ok(true);
             }
-            if utxo_manager.is_utxo_pending(utxo, dag_info.virtual_daa_score) {
+            if utxo_manager.is_utxo_unspendable(utxo, dag_info.virtual_daa_score) {
                 return Ok(true);
             }
 
