@@ -89,7 +89,12 @@ impl WalletError {
         let code = match self {
             Self::UserInput(_) => Code::InvalidArgument,
             Self::Config(_) => Code::FailedPrecondition,
-            Self::Crypto(CryptoError::WrongPassword { .. }) => Code::InvalidArgument,
+            // Both `WrongPassword` and `KeyFileCorrupt` share the same
+            // user-facing message (`KEY_DECRYPT_FAILED_MSG`) to avoid an
+            // oracle that distinguishes the two. Mapping them to the same
+            // gRPC code closes the same oracle at the wire level.
+            Self::Crypto(CryptoError::WrongPassword { .. })
+            | Self::Crypto(CryptoError::KeyFileCorrupt { .. }) => Code::Unauthenticated,
             Self::Crypto(_) => Code::Internal,
             Self::Rpc(_) => Code::Unavailable,
             Self::Storage(_) => Code::Internal,
@@ -190,12 +195,23 @@ mod tests {
     }
 
     #[test]
-    fn wrong_password_maps_to_invalid_argument() {
-        let e: WalletError = CryptoError::WrongPassword {
+    fn wrong_password_and_key_file_corrupt_share_unauthenticated_code() {
+        // Both variants share the same user-facing message
+        // (KEY_DECRYPT_FAILED_MSG); the gRPC code must match too so a
+        // remote observer cannot use `Status::code()` as an oracle to
+        // distinguish "wrong password" from "corrupt keys file".
+        let wp: WalletError = CryptoError::WrongPassword {
             location: ErrorLocation::capture(),
         }
         .into();
-        assert_eq!(e.to_status().code(), Code::InvalidArgument);
+        let kc: WalletError = CryptoError::KeyFileCorrupt {
+            reason: "irrelevant".to_string(),
+            location: ErrorLocation::capture(),
+        }
+        .into();
+        assert_eq!(wp.to_status().code(), Code::Unauthenticated);
+        assert_eq!(kc.to_status().code(), Code::Unauthenticated);
+        assert_eq!(wp.to_status().code(), kc.to_status().code());
     }
 
     #[test]

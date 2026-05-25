@@ -20,11 +20,21 @@ use tracing::debug;
 
 impl KasWalletService {
     pub(crate) async fn sign(&self, request: SignRequest) -> WalletResult<SignResponse> {
-        let unsigned_transactions: Vec<_> = request
+        let unsigned_transactions: Vec<WalletSignableTransaction> = request
             .unsigned_transactions
             .into_iter()
-            .map(Into::into)
-            .collect();
+            .map(WalletSignableTransaction::try_from)
+            .collect::<WalletResult<Vec<_>>>()?;
+
+        // Reject wire-supplied unsigned txs whose subnetwork id does not
+        // match the daemon's configured lane. This is the only Sign-side
+        // surface that produces signatures, so gating here ensures a
+        // lane-bound daemon never signs a cross-lane tx — even if the
+        // caller bypasses Send/CreateUnsignedTransactions and submits a
+        // hand-built unsigned via Sign + Broadcast.
+        for unsigned in &unsigned_transactions {
+            self.ensure_subnetwork_id_matches(&unsigned.transaction.inner().tx.subnetwork_id)?;
+        }
 
         // Wrap the password as soon as it crosses the protobuf boundary so it
         // is zeroized on Drop and `Debug`-redacted from any log line.
@@ -55,7 +65,7 @@ impl KasWalletService {
             let signed_transaction =
                 self.sign_transaction(unsigned_transaction, &extended_private_keys)?;
             let wallet_signed_transaction = WalletSignableTransaction::new(
-                signed_transaction,
+                signed_transaction.into(),
                 derivation_paths,
                 address_by_input_index,
                 address_by_output_index,
@@ -87,21 +97,25 @@ impl KasWalletService {
         }
 
         let signable_transaction = unsigned_transaction.transaction;
-        let signed_transaction = sign_with_multiple(signable_transaction.unwrap(), &private_keys);
+        let signed_transaction =
+            sign_with_multiple(signable_transaction.into_inner(), &private_keys);
 
         Self::sanity_check_verify(&signed_transaction)?;
         Ok(signed_transaction)
     }
 
     fn sanity_check_verify(signed_transaction: &Signed) -> WalletResult<()> {
-        if let Fully(_) = signed_transaction {
-            debug!("Transaction is fully signed");
-        }
-        if let Partially(_) = signed_transaction {
-            debug!("Transaction is partially signed, so can't verify");
-            return Ok(());
-        }
-        let verifiable_transaction = &signed_transaction.unwrap_ref().as_verifiable();
+        let signable = match signed_transaction {
+            Signed::Fully(tx) => {
+                debug!("Transaction is fully signed");
+                tx
+            }
+            Signed::Partially(_) => {
+                debug!("Transaction is partially signed, so can't verify");
+                return Ok(());
+            }
+        };
+        let verifiable_transaction = &signable.as_verifiable();
         // Whole-transaction verify failure has no per-input attribution; use
         // the dedicated `VerifyFailed` variant rather than fabricating
         // `input_index: 0` (which the reviewer flagged as misleading).

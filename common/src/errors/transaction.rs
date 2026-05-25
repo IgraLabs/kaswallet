@@ -40,10 +40,10 @@ pub enum TransactionError {
     #[error("{location} NotFullySigned")]
     NotFullySigned { location: ErrorLocation },
 
-    // Whole-transaction signature-verification failure (the transaction was
-    // signed but `verify()` rejected it). Distinct from `InvalidSignature`,
-    // which can attribute the failure to a specific input. Maps to
-    // `Code::Internal` — this is a programmer/state error, not user input.
+    // Whole-transaction signature-verification failure on a transaction the
+    // daemon itself just signed (`sanity_check_verify`). A failure here is a
+    // programmer/state error in the wallet, not caller input — maps to
+    // `Code::Internal`.
     #[error("{location} VerifyFailed: {reason}")]
     VerifyFailed {
         reason: String,

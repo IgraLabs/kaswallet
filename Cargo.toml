@@ -40,18 +40,21 @@ kaswallet-create = { path = "create" }
 kaswallet-client = { path = "client" }
 kaswallet-test-helpers = { path = "test/helpers" }
 
-kaspad = { git = "https://github.com/IgraLabs/rusty-kaspa.git" }
-kaspa-consensus = { git = "https://github.com/IgraLabs/rusty-kaspa.git" }
-kaspa-consensus-core = { git = "https://github.com/IgraLabs/rusty-kaspa.git" }
-kaspa-bip32 = { git = "https://github.com/IgraLabs/rusty-kaspa.git" }
-kaspa-utils = { git = "https://github.com/IgraLabs/rusty-kaspa.git" }
-kaspa-testing-integration = { git = "https://github.com/IgraLabs/rusty-kaspa.git" }
-kaspa-hashes = { git = "https://github.com/IgraLabs/rusty-kaspa.git" }
-kaspa-addresses = { git = "https://github.com/IgraLabs/rusty-kaspa.git" }
-kaspa-rpc-core = { git = "https://github.com/IgraLabs/rusty-kaspa.git" }
-kaspa-grpc-client = { git = "https://github.com/IgraLabs/rusty-kaspa.git" }
-kaspa-txscript = { git = "https://github.com/IgraLabs/rusty-kaspa.git" }
-kaspa-wallet-core = { git = "https://github.com/IgraLabs/rusty-kaspa.git" }
+# Pinned to the upstream `toccata` branch on kaspanet/rusty-kaspa so the wallet
+# can build v1 transactions carrying compute_budget input mass and non-native
+# subnetwork ids. Flip to `master` once Toccata is merged there.
+kaspad = { git = "https://github.com/kaspanet/rusty-kaspa.git", branch = "toccata" }
+kaspa-consensus = { git = "https://github.com/kaspanet/rusty-kaspa.git", branch = "toccata" }
+kaspa-consensus-core = { git = "https://github.com/kaspanet/rusty-kaspa.git", branch = "toccata" }
+kaspa-bip32 = { git = "https://github.com/kaspanet/rusty-kaspa.git", branch = "toccata" }
+kaspa-utils = { git = "https://github.com/kaspanet/rusty-kaspa.git", branch = "toccata" }
+kaspa-testing-integration = { git = "https://github.com/kaspanet/rusty-kaspa.git", branch = "toccata" }
+kaspa-hashes = { git = "https://github.com/kaspanet/rusty-kaspa.git", branch = "toccata" }
+kaspa-addresses = { git = "https://github.com/kaspanet/rusty-kaspa.git", branch = "toccata" }
+kaspa-rpc-core = { git = "https://github.com/kaspanet/rusty-kaspa.git", branch = "toccata" }
+kaspa-grpc-client = { git = "https://github.com/kaspanet/rusty-kaspa.git", branch = "toccata" }
+kaspa-txscript = { git = "https://github.com/kaspanet/rusty-kaspa.git", branch = "toccata" }
+kaspa-wallet-core = { git = "https://github.com/kaspanet/rusty-kaspa.git", branch = "toccata" }
 
 serde = { version = "1.0.218", features = ["derive"] }
 serde_json = "1.0.139"
@@ -65,7 +68,7 @@ zeroize = "1.8.1"
 shellexpand = "3.1.0"
 thiserror = "2.0.17"
 borsh = "1.5.7"
-clap = { version = "4.5.31", features = ["derive"] }
+clap = { version = "4.5.31", features = ["derive", "env"] }
 rpassword = "7.3.1"
 constant_time_eq = "0.4.0"
 itertools = "0.14.0"
@@ -83,5 +86,6 @@ tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.20", features = ["env-filter", "fmt", "json"] }
 tracing-appender = "0.2.3"
 # Pin wasm-bindgen/js-sys to avoid version mismatch with rusty-kaspa transitive deps (ENG-746)
+# Bumped js-sys from 0.3.70 -> 0.3.77 to match the Toccata (v3.0) branch.
 wasm-bindgen = "=0.2.100"
-js-sys = "=0.3.70"
+js-sys = "=0.3.77"
