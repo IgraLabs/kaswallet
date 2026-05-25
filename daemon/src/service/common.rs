@@ -3,8 +3,8 @@ use crate::utxo_manager::UtxoManager;
 use common::error_location::ErrorLocation;
 use common::errors::{RpcError, SyncError, TransactionError, WalletError, WalletResult};
 use common::model::WalletSignableTransaction;
+use common::model::WalletSigned;
 use common::status_classify::classify_submit_rpc_error;
-use kaspa_consensus_core::sign::Signed::{Fully, Partially};
 use kaspa_wallet_core::rpc::RpcApi;
 use tokio::sync::MutexGuard;
 use tracing::{error, info};
@@ -42,31 +42,37 @@ impl KasWalletService {
         utxo_manager: &mut MutexGuard<'_, UtxoManager>,
         signed_transactions: &Vec<WalletSignableTransaction>,
     ) -> WalletResult<Vec<String>> {
-        let _ = self.submit_transaction_mutex.lock().await;
+        // Bind the guard so it lives for the body, not the statement —
+        // `let _ = ...` would drop the MutexGuard immediately and remove
+        // the intended serialization across concurrent broadcast/send.
+        let _guard = self.submit_transaction_mutex.lock().await;
 
         let mut transaction_ids = vec![];
         for signed_transaction in signed_transactions {
-            if let Partially(_) = signed_transaction.transaction {
-                // Whole-transaction precondition (no per-input index to attribute).
-                // Maps to `Code::InvalidArgument` — the caller sent us something
-                // they had not finished signing.
-                return Err(WalletError::from(TransactionError::NotFullySigned {
-                    location: ErrorLocation::capture(),
-                }));
-            }
-
+            // Encode the "must be Fully signed" precondition on the match
+            // itself so the type system enforces it. A future reorder
+            // cannot accidentally submit a Partially-signed payload.
             let tx = match &signed_transaction.transaction {
-                Fully(tx) => tx,
-                Partially(tx) => tx,
+                WalletSigned::Fully(tx) => tx,
+                WalletSigned::Partially(_) => {
+                    return Err(WalletError::from(TransactionError::NotFullySigned {
+                        location: ErrorLocation::capture(),
+                    }));
+                }
             };
+
+            // Lane gate: a lane-bound daemon must never sign or broadcast a
+            // cross-lane tx. The check is a no-op for Send (the tx generator
+            // built with the configured lane) and catches misrouted wire
+            // payloads at the Broadcast entry.
+            self.ensure_subnetwork_id_matches(&tx.tx.subnetwork_id)?;
+
             let rpc_transaction = (&tx.tx).into();
             let tx_id = tx.tx.id();
             let input_count = tx.tx.inputs.len();
             let output_count = tx.tx.outputs.len();
             let mass = tx.tx.mass();
-            let fee_sompi: u64 = signed_transaction
-                .transaction
-                .unwrap_ref()
+            let fee_sompi: u64 = tx
                 .entries
                 .iter()
                 .map(|e| e.as_ref().map(|e| e.amount).unwrap_or(0))

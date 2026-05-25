@@ -35,15 +35,18 @@ fn to_status_mapping_table() {
         ),
         (
             CryptoError::WrongPassword { location: loc() }.into(),
-            Code::InvalidArgument,
+            Code::Unauthenticated,
         ),
         (
+            // KeyFileCorrupt shares the user-facing message with
+            // WrongPassword to avoid an oracle, so it must share the
+            // gRPC code as well.
             CryptoError::KeyFileCorrupt {
                 reason: "tag".into(),
                 location: loc(),
             }
             .into(),
-            Code::Internal,
+            Code::Unauthenticated,
         ),
         (
             RpcError::Transport {
@@ -103,6 +106,14 @@ fn to_status_mapping_table() {
         (
             TransactionError::NotFullySigned { location: loc() }.into(),
             Code::InvalidArgument,
+        ),
+        (
+            TransactionError::VerifyFailed {
+                reason: "internal bug".into(),
+                location: loc(),
+            }
+            .into(),
+            Code::Internal,
         ),
         (
             TransactionError::BuildFailed {

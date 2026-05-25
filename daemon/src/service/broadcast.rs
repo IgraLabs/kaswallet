@@ -1,5 +1,6 @@
 use crate::service::kaswallet_service::KasWalletService;
 use common::errors::WalletResult;
+use common::model::WalletSignableTransaction;
 use proto::kaswallet_proto::{BroadcastRequest, BroadcastResponse};
 
 impl KasWalletService {
@@ -7,8 +8,11 @@ impl KasWalletService {
         &self,
         request: BroadcastRequest,
     ) -> WalletResult<BroadcastResponse> {
-        let signed_transactions: Vec<_> =
-            request.transactions.into_iter().map(Into::into).collect();
+        let signed_transactions: Vec<WalletSignableTransaction> = request
+            .transactions
+            .into_iter()
+            .map(WalletSignableTransaction::try_from)
+            .collect::<WalletResult<Vec<_>>>()?;
 
         let mut utxo_manager = self.utxo_manager.lock().await;
         let transaction_ids = self

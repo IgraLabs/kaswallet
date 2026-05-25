@@ -152,11 +152,11 @@ impl KaswalletClient {
             .map_err(|s| WalletError::from(classify_rpc_status("create_unsigned_transactions", s)))?
             .into_inner();
 
-        Ok(response
+        response
             .unsigned_transactions
             .into_iter()
-            .map(Into::into)
-            .collect())
+            .map(WalletSignableTransaction::try_from)
+            .collect()
     }
 
     /// Sign unsigned transactions with the wallet's private keys.
@@ -175,11 +175,11 @@ impl KaswalletClient {
             .map_err(|s| WalletError::from(classify_rpc_status("sign", s)))?
             .into_inner();
 
-        Ok(response
+        response
             .signed_transactions
             .into_iter()
-            .map(Into::into)
-            .collect())
+            .map(WalletSignableTransaction::try_from)
+            .collect()
     }
 
     /// Broadcast signed transactions to the network.
@@ -225,13 +225,15 @@ impl KaswalletClient {
 
         let transaction_ids = Self::transaction_ids_to_hashes(response.transaction_ids)?;
 
+        let signed_transactions = response
+            .signed_transactions
+            .into_iter()
+            .map(WalletSignableTransaction::try_from)
+            .collect::<WalletResult<Vec<_>>>()?;
+
         Ok(SendResult {
             transaction_ids,
-            signed_transactions: response
-                .signed_transactions
-                .into_iter()
-                .map(Into::into)
-                .collect(),
+            signed_transactions,
         })
     }
 

@@ -4,8 +4,7 @@ use argon2::password_hash::{SaltString, rand_core::OsRng};
 use argon2::{Argon2, PasswordHasher};
 use chacha20poly1305::aead::{AeadMutInPlace, Key, Nonce};
 use chacha20poly1305::{AeadCore, XChaCha20Poly1305, aead::KeyInit};
-use kaspa_bip32::Language;
-use kaspa_bip32::mnemonic::Mnemonic;
+use kaspa_bip32::{Language, Mnemonic};
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 
@@ -118,8 +117,7 @@ impl EncryptedMnemonic {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kaspa_bip32::mnemonic::Mnemonic;
-    use kaspa_bip32::{Language, WordCount};
+    use kaspa_bip32::{Language, Mnemonic, WordCount};
     use kaswallet_test_helpers::mnemonics;
     use rstest::rstest;
 

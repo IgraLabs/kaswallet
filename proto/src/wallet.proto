@@ -174,7 +174,12 @@ message TransactionInput {
   TransactionOutpoint previous_outpoint = 1;
   bytes signature_script = 2;
   uint64 sequence = 3;
+  // Per-input mass commitment. The parent Transaction's `version` field is
+  // authoritative: v0 transactions use `sig_op_count`, v1 (Toccata) and
+  // later use `compute_budget`. The other field is always present on the
+  // wire but ignored by the consensus model on receive.
   uint32 sig_op_count = 4;
+  uint32 compute_budget = 5;
 }
 
 message TransactionOutput {

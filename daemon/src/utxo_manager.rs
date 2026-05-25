@@ -1,12 +1,16 @@
 use crate::address_manager::{AddressManager, AddressSet};
 use common::errors::WalletResult;
-use common::model::{WalletOutpoint, WalletSignableTransaction, WalletUtxo, WalletUtxoEntry};
+use common::model::{
+    WalletOutpoint, WalletSignableTransaction, WalletUtxo, WalletUtxoEntry,
+    is_spendable_rpc_utxo_entry,
+};
 use itertools::Itertools;
 use kaspa_consensus_core::config::params::Params;
-use kaspa_rpc_core::{GetBlockDagInfoResponse, RpcMempoolEntryByAddress, RpcUtxosByAddressesEntry};
+use kaspa_rpc_core::{RpcMempoolEntryByAddress, RpcUtxosByAddressesEntry};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use tracing::warn;
 
 pub struct UtxoManager {
     address_manager: Arc<Mutex<AddressManager>>,
@@ -22,14 +26,10 @@ pub struct UtxoManager {
 }
 
 impl UtxoManager {
-    pub fn new(
-        address_manager: Arc<Mutex<AddressManager>>,
-        consensus_params: Params,
-        block_dag_info: GetBlockDagInfoResponse,
-    ) -> Self {
-        let coinbase_maturity = consensus_params
-            .coinbase_maturity()
-            .get(block_dag_info.virtual_daa_score);
+    pub fn new(address_manager: Arc<Mutex<AddressManager>>, consensus_params: Params) -> Self {
+        // Upstream collapsed `coinbase_maturity` from a DAA-score-keyed
+        // Forkable into a flat `u64` on the Toccata branch.
+        let coinbase_maturity = consensus_params.coinbase_maturity();
 
         Self {
             address_manager,
@@ -54,7 +54,7 @@ impl UtxoManager {
     }
 
     async fn apply_mempool_transaction(&mut self, transaction: &WalletSignableTransaction) {
-        let tx = &transaction.transaction.unwrap_ref().tx;
+        let tx = &transaction.transaction.inner().tx;
 
         for input in &tx.inputs {
             let outpoint = input.previous_outpoint;
@@ -145,7 +145,28 @@ impl UtxoManager {
                 continue;
             }
 
-            let wallet_utxo_entry: WalletUtxoEntry = rpc_utxo_entry.utxo_entry.clone().into();
+            // Covenant-bound UTXOs cannot be spent by this wallet — the
+            // signer does not satisfy the covenant. Skip them at the
+            // sync boundary (the only path where `RpcUtxoEntry` enters
+            // the wallet) so they never reach UTXO selection.
+            if !is_spendable_rpc_utxo_entry(&rpc_utxo_entry.utxo_entry) {
+                warn!(
+                    outpoint = ?wallet_outpoint,
+                    covenant_id = ?rpc_utxo_entry.utxo_entry.covenant_id,
+                    "skipping covenant-bound UTXO; this wallet cannot spend covenants"
+                );
+                continue;
+            }
+
+            // Safe to `try_into` after the filter above: covenant-bound
+            // entries are the only failure mode and we've already skipped
+            // them. Use `expect` so any future variant addition trips
+            // loudly during development.
+            let wallet_utxo_entry: WalletUtxoEntry = rpc_utxo_entry
+                .utxo_entry
+                .clone()
+                .try_into()
+                .expect("covenant-bound entry already filtered above");
 
             let address = address_set
                 .get(&rpc_utxo_entry.address.as_ref().unwrap().to_string())
@@ -210,7 +231,7 @@ impl UtxoManager {
         let previous_mempool_transactions = std::mem::take(&mut self.mempool_transactions);
         self.mempool_transactions = vec![];
         'outer: for transaction in &previous_mempool_transactions {
-            for input in transaction.transaction.unwrap_ref().tx.inputs.iter() {
+            for input in transaction.transaction.inner().tx.inputs.iter() {
                 let outpoint = input.previous_outpoint;
                 if !self.contains_utxo(&outpoint.into()) {
                     // this means this transaction was either accepted or double-spent
