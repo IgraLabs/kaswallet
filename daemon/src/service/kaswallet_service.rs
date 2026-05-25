@@ -19,7 +19,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::sync::Mutex;
 use tonic::{Request, Response, Status};
-use tracing::instrument;
+use tracing::{instrument, warn};
 
 static REQUEST_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -89,6 +89,14 @@ pub(crate) fn ensure_subnetwork_id_matches(
     if configured.is_native() || tx_subnetwork_id == configured {
         return Ok(());
     }
+    // Surface lane-mismatch attempts: silent rejections leave on-call with
+    // no signal that a probe or misroute happened. Emitted at warn so
+    // log aggregators flag it without paging.
+    warn!(
+        configured = %configured,
+        attempted = %tx_subnetwork_id,
+        "rejecting wire-supplied tx with mismatched subnetwork id"
+    );
     Err(WalletError::from(UserInputError::InvalidArgument {
         reason: format!(
             "transaction subnetwork_id {tx_subnetwork_id} does not match daemon's \
@@ -152,7 +160,14 @@ impl Wallet for KasWalletService {
         Ok(Response::new(response))
     }
 
-    #[instrument(skip(self, request), fields(request_id = next_request_id()), err(Display))]
+    #[instrument(
+        skip(self, request),
+        fields(
+            request_id = next_request_id(),
+            subnetwork_id = %self.configured_subnetwork_id,
+        ),
+        err(Display)
+    )]
     async fn create_unsigned_transactions(
         &self,
         request: Request<CreateUnsignedTransactionsRequest>,
@@ -165,7 +180,14 @@ impl Wallet for KasWalletService {
         Ok(Response::new(response))
     }
 
-    #[instrument(skip(self, request), fields(request_id = next_request_id()), err(Display))]
+    #[instrument(
+        skip(self, request),
+        fields(
+            request_id = next_request_id(),
+            subnetwork_id = %self.configured_subnetwork_id,
+        ),
+        err(Display)
+    )]
     async fn sign(&self, request: Request<SignRequest>) -> Result<Response<SignResponse>, Status> {
         let response = self
             .sign(request.into_inner())
@@ -175,7 +197,14 @@ impl Wallet for KasWalletService {
         Ok(Response::new(response))
     }
 
-    #[instrument(skip(self, request), fields(request_id = next_request_id()), err(Display))]
+    #[instrument(
+        skip(self, request),
+        fields(
+            request_id = next_request_id(),
+            subnetwork_id = %self.configured_subnetwork_id,
+        ),
+        err(Display)
+    )]
     async fn broadcast(
         &self,
         request: Request<BroadcastRequest>,
@@ -192,6 +221,7 @@ impl Wallet for KasWalletService {
         skip(self, request),
         fields(
             request_id = next_request_id(),
+            subnetwork_id = %self.configured_subnetwork_id,
             amount_sompi = tracing::field::Empty,
         ),
         err(Display)

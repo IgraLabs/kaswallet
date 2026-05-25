@@ -144,6 +144,12 @@ impl KasWalletService {
                 .map(|e| e.as_ref().map(|e| e.amount).unwrap_or(0))
                 .sum::<u64>()
                 .saturating_sub(tx.tx.outputs.iter().map(|o| o.value).sum::<u64>());
+            // Capture lane / consensus-version on the tx itself (not from
+            // the daemon's configured lane) so the log line truthfully
+            // describes what was sent to kaspad even if the two diverge.
+            // `SubnetworkId: Copy` so this is a cheap byte-array copy.
+            let subnetwork_id = tx.tx.subnetwork_id;
+            let tx_version = tx.tx.version;
 
             match self
                 .kaspa_client
@@ -153,6 +159,8 @@ impl KasWalletService {
                 Ok(rpc_transaction_id) => {
                     info!(
                         tx_id = %tx_id,
+                        subnetwork_id = %subnetwork_id,
+                        tx_version,
                         mass,
                         fee_sompi,
                         input_count,
@@ -182,6 +190,8 @@ impl KasWalletService {
                     let classified = classify_submit_rpc_error(tx_id, rpc_err);
                     error!(
                         tx_id = %tx_id,
+                        subnetwork_id = %subnetwork_id,
+                        tx_version,
                         error_kind = classified.kind_name(),
                         error_loc = %classified.location(),
                         input_count,
