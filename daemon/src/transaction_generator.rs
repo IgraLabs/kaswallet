@@ -30,7 +30,7 @@ use std::cmp::min;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::{Mutex, MutexGuard};
-use tracing::debug;
+use tracing::{debug, info};
 
 // The current minimal fee rate according to mempool standards
 const MIN_FEE_RATE: f64 = 1.0;
@@ -146,6 +146,17 @@ impl TransactionGenerator {
             consensus_params.mass_per_sig_op,
             keys.minimum_signatures,
         )?;
+        // One-time log of the resolved lane/version profile so an operator
+        // can audit what shape this daemon will emit without having to
+        // wait for the first tx.
+        debug!(
+            subnetwork_id = %subnetwork_id,
+            tx_version,
+            compute_budget_per_input,
+            mass_per_sig_op = consensus_params.mass_per_sig_op,
+            minimum_signatures = keys.minimum_signatures,
+            "transaction generator configured"
+        );
         Ok(Self {
             kaspa_client,
             keys,
@@ -840,6 +851,8 @@ impl TransactionGenerator {
             addresses_by_output_index.push(payment.address.clone());
         }
 
+        let input_count = inputs.len();
+        let output_count = outputs.len();
         let transaction = Transaction::new(
             self.tx_version,
             inputs,
@@ -849,12 +862,24 @@ impl TransactionGenerator {
             0,
             payload,
         );
+        // Capture id before `transaction` is moved into `SignableTransaction`.
+        // One info! per built tx — bounded, much lower volume than per-input.
+        let tx_id = transaction.id();
         let signable_transaction = SignableTransaction::with_entries(transaction, utxo_entries);
         let wallet_signable_transaction = WalletSignableTransaction::new_from_unsigned(
             signable_transaction,
             derivation_paths,
             address_by_input_index,
             addresses_by_output_index,
+        );
+        info!(
+            tx_id = %tx_id,
+            subnetwork_id = %self.subnetwork_id,
+            tx_version = self.tx_version,
+            compute_budget_per_input = self.compute_budget_per_input,
+            input_count,
+            output_count,
+            "built unsigned tx"
         );
 
         Ok(wallet_signable_transaction)
