@@ -154,6 +154,24 @@ impl SyncManager {
             .update_utxo_set(get_utxo_by_addresses_response, mempool_entries_by_addresses)
             .await?;
 
+        // Surface a per-sync summary of what we now hold, split by
+        // confirmed vs. mempool-receiving. The two counts let an operator
+        // tell at a glance whether the wallet is sourcing inputs from
+        // kaspad's consensus UTXO set or from ephemeral mempool outputs
+        // (only the former survive a reorg → orphan).
+        let snapshot = utxo_manager.utxos_by_outpoint();
+        let confirmed = snapshot
+            .values()
+            .filter(|u| !u.utxo_entry.is_unconfirmed)
+            .count();
+        let unconfirmed = snapshot.len().saturating_sub(confirmed);
+        info!(
+            confirmed,
+            unconfirmed,
+            total = snapshot.len(),
+            "utxo set refreshed"
+        );
+
         Ok(())
     }
 

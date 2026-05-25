@@ -95,7 +95,7 @@ impl KasWalletService {
         for utxo in utxos {
             let is_pending = {
                 let utxo_manager = self.utxo_manager.lock().await;
-                utxo_manager.is_utxo_pending(utxo, virtual_daa_score)
+                utxo_manager.is_utxo_unspendable(utxo, virtual_daa_score)
             };
             if !include_pending && is_pending {
                 continue;
