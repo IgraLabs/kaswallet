@@ -131,6 +131,18 @@ pub struct WalletUtxoEntry {
     pub script_public_key: ScriptPublicKey,
     pub block_daa_score: u64,
     pub is_coinbase: bool,
+    // True for UTXOs ingested from kaspad's mempool-receiving view
+    // (`get_mempool_entries_by_addresses`). These outputs only exist in
+    // kaspad's mempool — they can disappear (eviction, re-org, double-spend)
+    // before we get a chance to spend them, in which case kaspad rejects
+    // the child as Orphan. `select_utxos` skips entries with this flag
+    // set so we only ever spend confirmed UTXOs by default.
+    //
+    // Stays `false` for: all confirmed on-chain UTXOs from
+    // `get_utxos_by_addresses`, and wallet-self-tracking outputs added
+    // via `apply_mempool_transaction` (those have their own safe replay
+    // path through `apply_mempool_transactions_after_update`).
+    pub is_unconfirmed: bool,
 }
 
 impl WalletUtxoEntry {
@@ -139,12 +151,14 @@ impl WalletUtxoEntry {
         script_public_key: ScriptPublicKey,
         block_daa_score: u64,
         is_coinbase: bool,
+        is_unconfirmed: bool,
     ) -> Self {
         Self {
             amount,
             script_public_key,
             block_daa_score,
             is_coinbase,
+            is_unconfirmed,
         }
     }
 }
@@ -153,6 +167,9 @@ impl From<WalletUtxoEntry> for UtxoEntry {
     fn from(value: WalletUtxoEntry) -> UtxoEntry {
         // Wallet UTXOs never originate from a covenant-bearing output, so
         // covenant_id stays None on the round-trip into upstream UtxoEntry.
+        // `is_unconfirmed` is a wallet-internal selection hint; upstream
+        // has no equivalent and it would have no meaning at the consensus
+        // boundary, so it drops here intentionally.
         UtxoEntry {
             amount: value.amount,
             script_public_key: value.script_public_key,
@@ -168,6 +185,13 @@ impl From<WalletUtxoEntry> for UtxoEntry {
 // `covenant_id: None`. The external risk vector — kaspad RPC supplying a
 // covenant-bound entry — flows through `RpcUtxoEntry` and is filtered at
 // the sync boundary in `UtxoManager::update_utxo_set`.
+//
+// `is_unconfirmed` defaults to `false`. The two callers — proto round-trip
+// in service handlers and mempool replay in `apply_mempool_transactions_after_update`
+// — both operate on transactions whose ownership has already been
+// established and which are safe to chain. The genuinely ephemeral path
+// (kaspad mempool-receiving) constructs `WalletUtxoEntry` directly and
+// sets the flag explicitly.
 impl From<UtxoEntry> for WalletUtxoEntry {
     fn from(value: UtxoEntry) -> Self {
         Self {
@@ -175,6 +199,7 @@ impl From<UtxoEntry> for WalletUtxoEntry {
             script_public_key: value.script_public_key,
             block_daa_score: value.block_daa_score,
             is_coinbase: value.is_coinbase,
+            is_unconfirmed: false,
         }
     }
 }
@@ -197,6 +222,12 @@ impl TryFrom<RpcUtxoEntry> for WalletUtxoEntry {
         // explicitly skip) covenant-bound entries; the runtime gate in
         // `UtxoManager::update_utxo_set` filters them with a warn log
         // before reaching here.
+        //
+        // `RpcUtxoEntry` reaches us only through `get_utxos_by_addresses`,
+        // which surfaces confirmed (block-included) UTXOs — kaspad's
+        // mempool-receiving outputs travel through a different RPC and
+        // are constructed elsewhere. So `is_unconfirmed = false` is the
+        // correct default for this path.
         if let Some(covenant_id) = value.covenant_id {
             return Err(WalletUtxoEntryError::CovenantBound { covenant_id });
         }
@@ -205,6 +236,7 @@ impl TryFrom<RpcUtxoEntry> for WalletUtxoEntry {
             script_public_key: value.script_public_key,
             block_daa_score: value.block_daa_score,
             is_coinbase: value.is_coinbase,
+            is_unconfirmed: false,
         })
     }
 }
@@ -286,5 +318,62 @@ impl WalletSignableTransaction {
             address_by_input_index,
             address_by_output_index,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn empty_spk() -> ScriptPublicKey {
+        ScriptPublicKey::new(0, vec![].into())
+    }
+
+    #[test]
+    fn rpc_utxo_entry_try_from_marks_confirmed() {
+        // `RpcUtxoEntry` only reaches the wallet via `get_utxos_by_addresses`,
+        // which yields confirmed (block-included) UTXOs. The conversion
+        // must reflect that — `select_utxos` relies on this default.
+        let rpc_entry = RpcUtxoEntry {
+            amount: 100,
+            script_public_key: empty_spk(),
+            block_daa_score: 42,
+            is_coinbase: false,
+            covenant_id: None,
+        };
+        let wallet_entry = WalletUtxoEntry::try_from(rpc_entry).unwrap();
+        assert!(!wallet_entry.is_unconfirmed);
+        assert_eq!(wallet_entry.block_daa_score, 42);
+    }
+
+    #[test]
+    fn utxo_entry_from_marks_confirmed() {
+        // Same default for the infallible `UtxoEntry` conversion. The only
+        // callers (proto round-trip, mempool replay) operate on payloads
+        // already known to be safe to chain.
+        let upstream_entry = UtxoEntry {
+            amount: 100,
+            script_public_key: empty_spk(),
+            block_daa_score: 7,
+            is_coinbase: true,
+            covenant_id: None,
+        };
+        let wallet_entry: WalletUtxoEntry = upstream_entry.into();
+        assert!(!wallet_entry.is_unconfirmed);
+        assert!(wallet_entry.is_coinbase);
+    }
+
+    #[test]
+    fn wallet_entry_to_utxo_entry_drops_unconfirmed_bit() {
+        // The unconfirmed flag is wallet-internal. Upstream `UtxoEntry`
+        // does not represent it and must not — it would be meaningless at
+        // the consensus boundary. The conversion drops it silently.
+        let wallet_entry = WalletUtxoEntry::new(100, empty_spk(), 0, false, true);
+        let upstream: UtxoEntry = wallet_entry.into();
+        // No `is_unconfirmed` field to assert against; this test exists to
+        // catch a future regression where someone tries to surface it
+        // upstream and breaks the boundary contract.
+        assert_eq!(upstream.amount, 100);
+        assert_eq!(upstream.covenant_id, None);
     }
 }

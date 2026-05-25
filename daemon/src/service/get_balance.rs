@@ -27,7 +27,7 @@ impl KasWalletService {
                 let balances = balances_map
                     .entry(entry.address.clone())
                     .or_insert_with(BalancesEntry::new);
-                if utxo_manager.is_utxo_pending(&entry, virtual_daa_score) {
+                if utxo_manager.is_utxo_unspendable(&entry, virtual_daa_score) {
                     balances.add_pending(amount);
                 } else {
                     balances.add_available(amount);

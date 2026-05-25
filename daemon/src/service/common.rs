@@ -7,7 +7,7 @@ use common::model::WalletSigned;
 use common::status_classify::classify_submit_rpc_error;
 use kaspa_wallet_core::rpc::RpcApi;
 use tokio::sync::MutexGuard;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 impl KasWalletService {
     pub(crate) async fn get_virtual_daa_score(&self) -> WalletResult<u64> {
@@ -61,10 +61,10 @@ impl KasWalletService {
                 }
             };
 
-            // Lane gate: a lane-bound daemon must never sign or broadcast a
-            // cross-lane tx. The check is a no-op for Send (the tx generator
-            // built with the configured lane) and catches misrouted wire
-            // payloads at the Broadcast entry.
+            // Lane gate is unconditional: a lane-bound daemon must never
+            // sign or broadcast a cross-lane tx, no matter the source.
+            // The check is a no-op for Send (the tx generator built with
+            // the configured lane) and catches misrouted wire payloads.
             self.ensure_subnetwork_id_matches(&tx.tx.subnetwork_id)?;
 
             let rpc_transaction = (&tx.tx).into();
@@ -103,6 +103,13 @@ impl KasWalletService {
                     );
                     transaction_ids.push(rpc_transaction_id.to_string());
 
+                    // Mempool-track every successful submit, regardless of
+                    // RPC source. The daemon is deployed on internal
+                    // networks where the gRPC trust boundary lives at the
+                    // perimeter, not at the RPC endpoint — there is no
+                    // attacker model that justifies skipping the input-
+                    // removal / output-addition that keeps the wallet's
+                    // view consistent across rapid back-to-back submits.
                     utxo_manager
                         .add_mempool_transaction(signed_transaction)
                         .await;
@@ -114,6 +121,39 @@ impl KasWalletService {
                     // (which would also make the classifier's `InvalidArgument`
                     // branch unreachable) — see PR #27 review on this file.
                     let classified = classify_submit_rpc_error(tx_id, rpc_err);
+                    // On Orphan, dump the wallet's view of each input
+                    // outpoint so we can distinguish (a) confirmed-then-
+                    // reorged (block_daa_score > 0, is_unconfirmed=false),
+                    // (b) NOT_IN_WALLET_VIEW (wallet desynced post-build),
+                    // and (c) is_unconfirmed=true (filter saw it but the
+                    // selector still picked it — a bug we want to find).
+                    if matches!(classified, TransactionError::Orphan { .. }) {
+                        let view = utxo_manager.utxos_by_outpoint();
+                        let parents: Vec<String> = tx
+                            .tx
+                            .inputs
+                            .iter()
+                            .map(|input| {
+                                let op = input.previous_outpoint;
+                                match view.get(&op.into()) {
+                                    Some(u) => format!(
+                                        "{op}(block_daa_score={}, is_unconfirmed={}, is_coinbase={})",
+                                        u.utxo_entry.block_daa_score,
+                                        u.utxo_entry.is_unconfirmed,
+                                        u.utxo_entry.is_coinbase,
+                                    ),
+                                    None => format!("{op}(NOT_IN_WALLET_VIEW)"),
+                                }
+                            })
+                            .collect();
+                        warn!(
+                            tx_id = %tx_id,
+                            subnetwork_id = %subnetwork_id,
+                            tx_version,
+                            parents = ?parents,
+                            "orphan parents — wallet's view of each input outpoint at submit time"
+                        );
+                    }
                     error!(
                         tx_id = %tx_id,
                         subnetwork_id = %subnetwork_id,

@@ -78,6 +78,15 @@ impl UtxoManager {
                 transaction_id: tx.id(),
                 index: i as u32,
             };
+            // `is_unconfirmed: false` even though the parent tx has not
+            // confirmed yet: this path runs only for `SubmitSource::Internal`
+            // submissions whose payload we built, signed, and just shipped
+            // to kaspad. The wallet retains the parent in
+            // `mempool_transactions` and re-applies it after every sync via
+            // `apply_mempool_transactions_after_update`, so a chained Send
+            // referencing this output is safe by design. The ephemeral
+            // mempool ingestion path (kaspad's `receiving` slot in
+            // `update_utxo_set`) is the one that needs the unconfirmed flag.
             let utxo = WalletUtxo::new(
                 outpoint.clone(),
                 WalletUtxoEntry {
@@ -85,6 +94,7 @@ impl UtxoManager {
                     script_public_key: output.script_public_key.clone(),
                     block_daa_score: 0,
                     is_coinbase: false,
+                    is_unconfirmed: false,
                 },
                 wallet_address,
             );
@@ -206,11 +216,20 @@ impl UtxoManager {
                     if exclude.contains(&wallet_outpoint) {
                         continue;
                     }
+                    // Mempool-receiving UTXOs live only in kaspad's
+                    // mempool view. If kaspad evicts the parent (capacity,
+                    // fee competition, re-org) before we broadcast a child,
+                    // the child orphans. Tag the entry so `select_utxos`
+                    // can skip it — only confirmed UTXOs are safe to spend
+                    // by default. (`block_daa_score = 0` is preserved for
+                    // observability; the unconfirmed bit is the load-bearing
+                    // signal.)
                     let utxo_entry = WalletUtxoEntry::new(
                         output.value,
                         output.script_public_key.clone(),
                         0,
                         false,
+                        true,
                     );
 
                     let utxo = WalletUtxo::new(wallet_outpoint, utxo_entry, address.unwrap());
@@ -255,11 +274,96 @@ impl UtxoManager {
         }
     }
 
-    pub fn is_utxo_pending(&self, utxo: &WalletUtxo, virtual_daa_score: u64) -> bool {
-        if !utxo.utxo_entry.is_coinbase {
-            return false;
-        }
+    /// True if this UTXO must NOT be selected as a transaction input.
+    ///
+    /// Two unspendable shapes today:
+    /// 1. `is_unconfirmed` — the UTXO came from kaspad's mempool-receiving
+    ///    view. Its parent may have been evicted from kaspad's mempool by
+    ///    the time we broadcast a child, producing an Orphan rejection.
+    /// 2. Immature coinbase — coinbase outputs must wait
+    ///    `coinbase_maturity` DAA-score units after their containing block
+    ///    before consensus permits spending.
+    ///
+    /// Both checks default to safe-conservative (skip the UTXO). Override
+    /// is intentionally not provided in this initial cut.
+    pub fn is_utxo_unspendable(&self, utxo: &WalletUtxo, virtual_daa_score: u64) -> bool {
+        is_utxo_unspendable_with(self.coinbase_maturity, utxo, virtual_daa_score)
+    }
+}
 
-        utxo.utxo_entry.block_daa_score + self.coinbase_maturity > virtual_daa_score
+/// Pure predicate extracted for unit testing without standing up an
+/// `AddressManager` + `Keys` graph just to exercise the spendability rules.
+pub(crate) fn is_utxo_unspendable_with(
+    coinbase_maturity: u64,
+    utxo: &WalletUtxo,
+    virtual_daa_score: u64,
+) -> bool {
+    if utxo.utxo_entry.is_unconfirmed {
+        return true;
+    }
+    if !utxo.utxo_entry.is_coinbase {
+        return false;
+    }
+    utxo.utxo_entry.block_daa_score + coinbase_maturity > virtual_daa_score
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use common::model::{Keychain, WalletAddress};
+
+    const COINBASE_MATURITY: u64 = 100;
+
+    fn make_utxo(is_coinbase: bool, is_unconfirmed: bool, block_daa_score: u64) -> WalletUtxo {
+        WalletUtxo {
+            outpoint: WalletOutpoint::new(kaspa_hashes::Hash::from_bytes([1u8; 32]), 0),
+            utxo_entry: WalletUtxoEntry {
+                amount: 1_000,
+                script_public_key: kaspa_consensus_core::tx::ScriptPublicKey::new(0, vec![].into()),
+                block_daa_score,
+                is_coinbase,
+                is_unconfirmed,
+            },
+            address: WalletAddress::new(0, 0, Keychain::External),
+        }
+    }
+
+    #[test]
+    fn is_utxo_unspendable_rejects_unconfirmed() {
+        // virtual_daa_score is irrelevant: the unconfirmed branch
+        // short-circuits before the coinbase-maturity arithmetic.
+        let utxo = make_utxo(false, true, 0);
+        assert!(is_utxo_unspendable_with(COINBASE_MATURITY, &utxo, 999_999));
+    }
+
+    #[test]
+    fn is_utxo_unspendable_accepts_normal_confirmed_utxo() {
+        let utxo = make_utxo(false, false, 42);
+        assert!(!is_utxo_unspendable_with(COINBASE_MATURITY, &utxo, 100));
+    }
+
+    #[test]
+    fn is_utxo_unspendable_rejects_immature_coinbase() {
+        // Block at score 50, coinbase_maturity = 100, virtual at 100 ⇒
+        // available at score 150. Still immature.
+        let utxo = make_utxo(true, false, 50);
+        assert!(is_utxo_unspendable_with(COINBASE_MATURITY, &utxo, 100));
+    }
+
+    #[test]
+    fn is_utxo_unspendable_accepts_mature_coinbase() {
+        // Coinbase block at 50, matures at 150, virtual at 200 ⇒ mature.
+        let utxo = make_utxo(true, false, 50);
+        assert!(!is_utxo_unspendable_with(COINBASE_MATURITY, &utxo, 200));
+    }
+
+    #[test]
+    fn is_utxo_unspendable_unconfirmed_overrides_other_checks() {
+        // An unconfirmed coinbase (synthetic case) must still be rejected
+        // even if it would have matured by virtual_daa_score — the mempool
+        // eviction risk is the load-bearing reason, regardless of coinbase
+        // maturity arithmetic.
+        let utxo = make_utxo(true, true, 50);
+        assert!(is_utxo_unspendable_with(COINBASE_MATURITY, &utxo, 999_999));
     }
 }
