@@ -149,22 +149,22 @@ async fn run_send_assertions(
 
     // v1 (Toccata) inputs must carry compute_budget, v0 inputs must carry
     // sig_op_count. The RpcTransaction view carries the post-conversion
-    // consensus Transaction, so each input's `mass` field is authoritative.
+    // consensus Transaction, so each input's `compute_commit` field is authoritative.
     let consensus_tx =
         Transaction::try_from(tx.clone()).expect("rpc tx must round-trip into consensus tx");
     for (i, input) in consensus_tx.inputs.iter().enumerate() {
         if expected_version >= 1 {
             assert!(
-                input.mass.compute_budget().is_some(),
+                input.compute_commit.compute_budget().is_some(),
                 "v{expected_version} input #{i} must carry compute_budget"
             );
             assert!(
-                input.mass.sig_op_count().is_none(),
+                input.compute_commit.sig_op_count().is_none(),
                 "v{expected_version} input #{i} must not carry sig_op_count"
             );
         } else {
             assert!(
-                input.mass.sig_op_count().is_some(),
+                input.compute_commit.sig_op_count().is_some(),
                 "v0 input #{i} must carry sig_op_count"
             );
         }
