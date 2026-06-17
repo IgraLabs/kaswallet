@@ -8,8 +8,8 @@ use kaspa_bip32::{ChildNumber, DerivationPath};
 use kaspa_consensus_core::sign::Signed;
 use kaspa_consensus_core::subnets::{SUBNETWORK_ID_SIZE, SubnetworkId};
 use kaspa_consensus_core::tx::{
-    ScriptPublicKey, SignableTransaction, Transaction, TransactionInput, TransactionOutpoint,
-    TransactionOutput, TxInputMass, UtxoEntry,
+    ComputeCommit, ScriptPublicKey, SignableTransaction, Transaction, TransactionInput,
+    TransactionOutpoint, TransactionOutput, UtxoEntry,
 };
 use kaspa_hashes::Hash;
 use proto::kaswallet_proto::{
@@ -221,8 +221,8 @@ pub fn transaction_input_to_proto(value: TransactionInput) -> ProtoTransactionIn
         previous_outpoint: Some(transaction_outpoint_to_proto(value.previous_outpoint)),
         signature_script: value.signature_script.into(),
         sequence: value.sequence,
-        sig_op_count: u32::from(value.mass.sig_op_count().unwrap_or(0)),
-        compute_budget: u32::from(value.mass.compute_budget().unwrap_or(0)),
+        sig_op_count: u32::from(value.compute_commit.sig_op_count().unwrap_or(0)),
+        compute_budget: u32::from(value.compute_commit.compute_budget().unwrap_or(0)),
     }
 }
 
@@ -240,7 +240,7 @@ pub fn transaction_input_from_proto(
     let previous_outpoint =
         transaction_outpoint_from_proto(value.previous_outpoint.unwrap_or_default())?;
     let signature_script = value.signature_script.to_vec();
-    if TxInputMass::version_expects_compute_budget_field(tx_version) {
+    if ComputeCommit::version_expects_compute_budget_field(tx_version) {
         // v1 inputs must carry compute_budget only. Reject a non-zero
         // sig_op_count on the wire — upstream consensus enforces this
         // invariant in `consensus/core/src/sign.rs` (see
@@ -323,7 +323,7 @@ pub fn transaction_output_from_proto(
 
 pub fn transaction_to_proto(value: Transaction) -> ProtoTransaction {
     let id = value.id();
-    let mass = value.mass();
+    let mass = value.storage_mass();
     let subnetwork_id: &[u8] = value.subnetwork_id.as_ref();
 
     ProtoTransaction {
@@ -384,7 +384,7 @@ pub fn transaction_from_proto(value: ProtoTransaction) -> WalletResult<Transacti
         value.gas,
         value.payload.to_vec(),
     );
-    transaction.set_mass(value.mass);
+    transaction.set_storage_mass(value.mass);
     transaction.finalize();
     Ok(transaction)
 }
@@ -588,8 +588,8 @@ mod tests {
 
         let restored =
             transaction_input_from_proto(proto, /* tx_version */ 0).expect("valid v0 input");
-        assert_eq!(restored.mass.sig_op_count(), Some(5));
-        assert_eq!(restored.mass.compute_budget(), None);
+        assert_eq!(restored.compute_commit.sig_op_count(), Some(5));
+        assert_eq!(restored.compute_commit.compute_budget(), None);
         assert_eq!(restored.previous_outpoint, original_outpoint);
         assert_eq!(restored.signature_script, original_script);
         assert_eq!(restored.sequence, original_sequence);
@@ -609,8 +609,8 @@ mod tests {
 
         let restored =
             transaction_input_from_proto(proto, /* tx_version */ 1).expect("valid v1 input");
-        assert_eq!(restored.mass.compute_budget(), Some(42));
-        assert_eq!(restored.mass.sig_op_count(), None);
+        assert_eq!(restored.compute_commit.compute_budget(), Some(42));
+        assert_eq!(restored.compute_commit.sig_op_count(), None);
     }
 
     #[test]
@@ -634,10 +634,10 @@ mod tests {
         };
 
         let as_v0 = transaction_input_from_proto(v0_proto, 0).expect("valid v0");
-        assert_eq!(as_v0.mass.sig_op_count(), Some(7));
+        assert_eq!(as_v0.compute_commit.sig_op_count(), Some(7));
 
         let as_v1 = transaction_input_from_proto(v1_proto, 1).expect("valid v1");
-        assert_eq!(as_v1.mass.compute_budget(), Some(11));
+        assert_eq!(as_v1.compute_commit.compute_budget(), Some(11));
     }
 
     #[test]

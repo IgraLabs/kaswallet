@@ -17,8 +17,8 @@ use kaspa_consensus_core::constants::{
 use kaspa_consensus_core::mass::GRAMS_PER_COMPUTE_BUDGET_UNIT;
 use kaspa_consensus_core::subnets::SubnetworkId;
 use kaspa_consensus_core::tx::{
-    SignableTransaction, Transaction, TransactionInput, TransactionOutpoint, TransactionOutput,
-    TxInputMass, UtxoEntry,
+    ComputeCommit, SignableTransaction, Transaction, TransactionInput, TransactionOutpoint,
+    TransactionOutput, UtxoEntry,
 };
 use kaspa_grpc_client::GrpcClient;
 use kaspa_rpc_core::api::rpc::RpcApi;
@@ -846,7 +846,8 @@ impl TransactionGenerator {
                 // we only commit M — pre-existing wallet behaviour the v1 path
                 // intentionally mirrors so the migration adds zero new
                 // regression surface. Fix is out of scope here.
-                let input = if TxInputMass::version_expects_compute_budget_field(self.tx_version) {
+                let input = if ComputeCommit::version_expects_compute_budget_field(self.tx_version)
+                {
                     TransactionInput::new_with_compute_budget(
                         previous_outpoint,
                         vec![],
@@ -1130,12 +1131,12 @@ impl TransactionGenerator {
         let base = self
             .mass_calculator
             .calc_compute_mass_for_unsigned_consensus_transaction(tx, minimum_signatures);
-        if TxInputMass::version_expects_compute_budget_field(tx.version) {
+        if ComputeCommit::version_expects_compute_budget_field(tx.version) {
             let v1_script_mass: u64 = tx
                 .inputs
                 .iter()
                 .map(|input| {
-                    u64::from(input.mass.compute_budget().unwrap_or(0))
+                    u64::from(input.compute_commit.compute_budget().unwrap_or(0))
                         * GRAMS_PER_COMPUTE_BUDGET_UNIT
                 })
                 .sum();
@@ -1202,7 +1203,10 @@ impl TransactionGenerator {
         // execution allowance produces the same mass.
         const APPROX_INPUT_BYTES: u64 = 64;
         const APPROX_MASS_PER_TX_BYTE: u64 = 1;
-        let input_compute_mass = match (input.mass.sig_op_count(), input.mass.compute_budget()) {
+        let input_compute_mass = match (
+            input.compute_commit.sig_op_count(),
+            input.compute_commit.compute_budget(),
+        ) {
             (Some(sig_ops), _) => sig_ops as u64 * self.mass_per_sig_op,
             (None, Some(cb)) => cb as u64 * GRAMS_PER_COMPUTE_BUDGET_UNIT,
             (None, None) => 0,

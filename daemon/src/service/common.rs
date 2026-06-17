@@ -71,7 +71,7 @@ impl KasWalletService {
             let tx_id = tx.tx.id();
             let input_count = tx.tx.inputs.len();
             let output_count = tx.tx.outputs.len();
-            let mass = tx.tx.mass();
+            let mass = tx.tx.storage_mass();
             let fee_sompi: u64 = tx
                 .entries
                 .iter()
