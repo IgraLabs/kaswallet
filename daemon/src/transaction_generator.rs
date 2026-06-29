@@ -12,9 +12,13 @@ use kaspa_addresses::{Address, Version};
 use kaspa_bip32::DerivationPath;
 use kaspa_consensus_core::config::params::Params;
 use kaspa_consensus_core::constants::{
-    SOMPI_PER_KASPA, TX_VERSION, TX_VERSION_TOCCATA, UNACCEPTED_DAA_SCORE,
+    SOMPI_PER_KASPA, TRANSIENT_BYTE_TO_MASS_FACTOR, TX_VERSION, TX_VERSION_TOCCATA,
+    UNACCEPTED_DAA_SCORE,
 };
-use kaspa_consensus_core::mass::GRAMS_PER_COMPUTE_BUDGET_UNIT;
+use kaspa_consensus_core::mass::{
+    GRAMS_PER_COMPUTE_BUDGET_UNIT, MassCofactors, NonContextualMasses,
+    transaction_estimated_serialized_size,
+};
 use kaspa_consensus_core::subnets::SubnetworkId;
 use kaspa_consensus_core::tx::{
     ComputeCommit, SignableTransaction, Transaction, TransactionInput, TransactionOutpoint,
@@ -24,7 +28,7 @@ use kaspa_grpc_client::GrpcClient;
 use kaspa_rpc_core::api::rpc::RpcApi;
 use kaspa_txscript::pay_to_address_script;
 use kaspa_wallet_core::prelude::AddressPrefix;
-use kaspa_wallet_core::tx::{MAXIMUM_STANDARD_TRANSACTION_MASS, MassCalculator};
+use kaspa_wallet_core::tx::{MAXIMUM_STANDARD_TRANSACTION_MASS, MassCalculator, SIGNATURE_SIZE};
 use proto::kaswallet_proto::{FeePolicy, Outpoint, TransactionDescription, fee_policy};
 use std::cmp::min;
 use std::collections::{HashMap, HashSet};
@@ -92,6 +96,18 @@ fn compute_budget_for_signature(
     })
 }
 
+/// Estimated transient mass of the *signed* transaction = serialized_size · TRANSIENT_BYTE_TO_MASS_FACTOR.
+/// The unsigned mock has empty signature scripts, so the signed signature footprint (`SIGNATURE_SIZE`
+/// per required signature per input) is added before scaling — the node charges transient on the signed
+/// serialized size, mirroring the compute side's signature accounting. Free function (no generator state)
+/// so it is unit-testable.
+fn estimate_transient_mass(tx: &Transaction, minimum_signatures: u16) -> u64 {
+    let signature_bytes =
+        SIGNATURE_SIZE * (minimum_signatures.max(1) as u64) * (tx.inputs.len() as u64);
+    let signed_serialized_size = transaction_estimated_serialized_size(tx) + signature_bytes;
+    signed_serialized_size * TRANSIENT_BYTE_TO_MASS_FACTOR
+}
+
 pub struct TransactionGenerator {
     kaspa_client: Arc<GrpcClient>,
     keys: Arc<Keys>,
@@ -110,6 +126,11 @@ pub struct TransactionGenerator {
     mass_per_sig_op: u64,
 
     signature_mass_per_input: u64,
+
+    /// Post-Toccata mempool mass cofactors (transient cofactor = compute_block_limit /
+    /// transient_block_limit). Used to normalize transient mass to the compute scale exactly as the
+    /// node's standardness relay-fee floor does — the node reads `mempool_mass_cofactors.raw_post()`.
+    mass_cofactors: MassCofactors,
 }
 
 impl TransactionGenerator {
@@ -169,6 +190,7 @@ impl TransactionGenerator {
             minimum_signatures_u8,
             mass_per_sig_op: consensus_params.mass_per_sig_op,
             signature_mass_per_input,
+            mass_cofactors: consensus_params.mempool_block_mass_cofactors().raw_post(),
         })
     }
 
@@ -789,10 +811,8 @@ impl TransactionGenerator {
             }));
         };
         let fee = total_ins - total_outs;
-        let mass = self.compute_mass_for_unsigned_consensus_transaction(
-            &signable_transaction.tx,
-            self.keys.minimum_signatures,
-        );
+        let mass =
+            self.non_contextual_fee_mass(&signable_transaction.tx, self.keys.minimum_signatures);
 
         let fee_rate = fee as f64 / mass as f64;
 
@@ -892,7 +912,17 @@ impl TransactionGenerator {
         // Capture id before `transaction` is moved into `SignableTransaction`.
         // One info! per built tx — bounded, much lower volume than per-input.
         let tx_id = transaction.id();
-        let signable_transaction = SignableTransaction::with_entries(transaction, utxo_entries);
+        let mut signable_transaction = SignableTransaction::with_entries(transaction, utxo_entries);
+        // Populate the (already proto-plumbed) non-contextual masses with the same signature-aware
+        // values used to size the fee, so the returned tx is self-consistent for diagnostics / the
+        // rpc-provider. The node recomputes its own masses, so this never affects acceptance.
+        signable_transaction.calculated_non_contextual_masses = Some(NonContextualMasses::new(
+            self.compute_mass_for_unsigned_consensus_transaction(
+                &signable_transaction.tx,
+                self.keys.minimum_signatures,
+            ),
+            estimate_transient_mass(&signable_transaction.tx, self.keys.minimum_signatures),
+        ));
         let wallet_signable_transaction = WalletSignableTransaction::new_from_unsigned(
             signable_transaction,
             derivation_paths,
@@ -1146,6 +1176,19 @@ impl TransactionGenerator {
         }
     }
 
+    /// Node-equivalent relay-fee mass = `normalized_max(compute_mass, transient_mass)`, matching the
+    /// Toccata node's standardness floor, which charges the relay fee on
+    /// `max(compute, normalized_transient)` (`check_transaction_standard`). Reuses the local compute
+    /// helper (which carries the v1 `ComputeCommit` compensation) for the compute term so it is not
+    /// double-counted, and pairs it with the byte-proportional transient term so poorly-compressible
+    /// payload-heavy transactions are priced even when their compute mass is small.
+    fn non_contextual_fee_mass(&self, tx: &Transaction, minimum_signatures: u16) -> u64 {
+        let compute_mass =
+            self.compute_mass_for_unsigned_consensus_transaction(tx, minimum_signatures);
+        let transient_mass = estimate_transient_mass(tx, minimum_signatures);
+        NonContextualMasses::new(compute_mass, transient_mass).normalized_max(&self.mass_cofactors)
+    }
+
     pub async fn estimate_mass(
         &self,
         selected_utxos: &Vec<WalletUtxo>,
@@ -1183,7 +1226,7 @@ impl TransactionGenerator {
             .generate_unsigned_transaction(mock_payments, selected_utxos, payload.to_owned())
             .await?;
 
-        let mass = self.compute_mass_for_unsigned_consensus_transaction(
+        let mass = self.non_contextual_fee_mass(
             &mock_transaction.transaction.inner().tx,
             self.keys.minimum_signatures,
         );
@@ -1334,6 +1377,106 @@ mod tests {
             "upstream calc_compute_mass_for_unsigned_consensus_transaction now \
              distinguishes v0 from v1 — remove the local compensation in \
              compute_mass_for_unsigned_consensus_transaction to avoid double-counting"
+        );
+    }
+
+    #[test]
+    fn estimate_transient_mass_includes_signature_bytes() {
+        // The unsigned mock has empty signature scripts, but the node charges transient on the SIGNED
+        // size — so the estimate must add `SIGNATURE_SIZE` per required signature per input.
+        use kaspa_consensus_core::subnets::SUBNETWORK_ID_NATIVE;
+        use kaspa_consensus_core::tx::{Transaction, TransactionInput, TransactionOutpoint};
+        let outpoint = TransactionOutpoint::new(kaspa_hashes::Hash::from_bytes([7u8; 32]), 0);
+        let tx = Transaction::new(
+            0,
+            vec![TransactionInput::new(outpoint, vec![], 0, 0)],
+            vec![],
+            0,
+            SUBNETWORK_ID_NATIVE,
+            0,
+            vec![],
+        );
+        let unsigned_size = transaction_estimated_serialized_size(&tx);
+        assert_eq!(
+            estimate_transient_mass(&tx, 1),
+            (unsigned_size + SIGNATURE_SIZE) * TRANSIENT_BYTE_TO_MASS_FACTOR
+        );
+        // Each additional required signature adds another signature footprint per input.
+        assert_eq!(
+            estimate_transient_mass(&tx, 2),
+            (unsigned_size + 2 * SIGNATURE_SIZE) * TRANSIENT_BYTE_TO_MASS_FACTOR
+        );
+    }
+
+    #[test]
+    fn fee_mass_uses_normalized_transient_for_payload_heavy_tx() {
+        // The exact failure case: a poorly-compressible payload-heavy tx. Transient (∝ byte size)
+        // dominates compute, so the node-equivalent fee mass = normalized transient, which is strictly
+        // greater than the old compute-only mass. Pre-fix the wallet returned `compute` and underpaid.
+        use kaspa_consensus_core::config::params::DEVNET_PARAMS;
+        use kaspa_consensus_core::subnets::SUBNETWORK_ID_NATIVE;
+        use kaspa_consensus_core::tx::{Transaction, TransactionInput, TransactionOutpoint};
+        let mc = MassCalculator::new(&DEVNET_PARAMS);
+        let cofactors = DEVNET_PARAMS.mempool_block_mass_cofactors().raw_post();
+        let outpoint = TransactionOutpoint::new(kaspa_hashes::Hash::from_bytes([7u8; 32]), 0);
+        let tx = Transaction::new(
+            0,
+            vec![TransactionInput::new(outpoint, vec![], 0, 0)],
+            vec![],
+            0,
+            SUBNETWORK_ID_NATIVE,
+            0,
+            vec![0xABu8; 6000],
+        );
+        let compute = mc.calc_compute_mass_for_unsigned_consensus_transaction(&tx, 1);
+        let transient = estimate_transient_mass(&tx, 1);
+        let fee_mass = NonContextualMasses::new(compute, transient).normalized_max(&cofactors);
+        let normalized_transient =
+            NonContextualMasses::new(0, transient).normalized_max(&cofactors);
+        assert!(
+            transient > compute,
+            "transient {transient} should dominate compute {compute} for a 6KB payload"
+        );
+        assert_eq!(
+            fee_mass, normalized_transient,
+            "fee mass must equal the normalized transient when transient dominates"
+        );
+        assert!(
+            fee_mass > compute,
+            "fee mass {fee_mass} must exceed the compute-only mass {compute} (the underpaying pre-fix value)"
+        );
+    }
+
+    #[test]
+    fn fee_mass_uses_compute_for_tiny_no_payload_tx() {
+        // No-payload single-input tx: compute (sig-op + script mass) dominates, so the fee mass stays
+        // the compute mass — no regression and no over-pay for ordinary small transactions.
+        use kaspa_consensus_core::config::params::DEVNET_PARAMS;
+        use kaspa_consensus_core::subnets::SUBNETWORK_ID_NATIVE;
+        use kaspa_consensus_core::tx::{Transaction, TransactionInput, TransactionOutpoint};
+        let mc = MassCalculator::new(&DEVNET_PARAMS);
+        let cofactors = DEVNET_PARAMS.mempool_block_mass_cofactors().raw_post();
+        let outpoint = TransactionOutpoint::new(kaspa_hashes::Hash::from_bytes([7u8; 32]), 0);
+        let tx = Transaction::new(
+            0,
+            vec![TransactionInput::new(outpoint, vec![], 0, 1)],
+            vec![],
+            0,
+            SUBNETWORK_ID_NATIVE,
+            0,
+            vec![],
+        );
+        let compute = mc.calc_compute_mass_for_unsigned_consensus_transaction(&tx, 1);
+        let transient = estimate_transient_mass(&tx, 1);
+        let fee_mass = NonContextualMasses::new(compute, transient).normalized_max(&cofactors);
+        let normalized_compute = NonContextualMasses::new(compute, 0).normalized_max(&cofactors);
+        assert!(
+            compute >= NonContextualMasses::new(0, transient).normalized_max(&cofactors),
+            "compute should dominate for a tiny no-payload tx"
+        );
+        assert_eq!(
+            fee_mass, normalized_compute,
+            "fee mass must be the compute mass for tiny txs"
         );
     }
 
