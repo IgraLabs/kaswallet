@@ -914,15 +914,12 @@ impl TransactionGenerator {
         let tx_id = transaction.id();
         let mut signable_transaction = SignableTransaction::with_entries(transaction, utxo_entries);
         // Populate the (already proto-plumbed) non-contextual masses with the same signature-aware
-        // values used to size the fee, so the returned tx is self-consistent for diagnostics / the
-        // rpc-provider. The node recomputes its own masses, so this never affects acceptance.
-        signable_transaction.calculated_non_contextual_masses = Some(NonContextualMasses::new(
-            self.compute_mass_for_unsigned_consensus_transaction(
-                &signable_transaction.tx,
-                self.keys.minimum_signatures,
-            ),
-            estimate_transient_mass(&signable_transaction.tx, self.keys.minimum_signatures),
-        ));
+        // values used to size the fee (shared `non_contextual_masses` helper), so the returned tx is
+        // self-consistent for diagnostics / the rpc-provider. The node recomputes its own masses, so
+        // this never affects acceptance.
+        signable_transaction.calculated_non_contextual_masses = Some(
+            self.non_contextual_masses(&signable_transaction.tx, self.keys.minimum_signatures),
+        );
         let wallet_signable_transaction = WalletSignableTransaction::new_from_unsigned(
             signable_transaction,
             derivation_paths,
@@ -1176,17 +1173,30 @@ impl TransactionGenerator {
         }
     }
 
-    /// Node-equivalent relay-fee mass = `normalized_max(compute_mass, transient_mass)`, matching the
-    /// Toccata node's standardness floor, which charges the relay fee on
-    /// `max(compute, normalized_transient)` (`check_transaction_standard`). Reuses the local compute
-    /// helper (which carries the v1 `ComputeCommit` compensation) for the compute term so it is not
-    /// double-counted, and pairs it with the byte-proportional transient term so poorly-compressible
-    /// payload-heavy transactions are priced even when their compute mass is small.
-    fn non_contextual_fee_mass(&self, tx: &Transaction, minimum_signatures: u16) -> u64 {
+    /// The transaction's non-contextual masses (compute + transient), computed with the same
+    /// signature-aware accounting the node uses. Single source of truth shared by the fee-sizing path
+    /// (`non_contextual_fee_mass`) and the diagnostic `calculated_non_contextual_masses` populated on
+    /// the returned tx, so the two can never drift. Reuses the local compute helper (which carries the
+    /// v1 `ComputeCommit` compensation) so the compute term is not double-counted, and pairs it with
+    /// the byte-proportional transient term so poorly-compressible payload-heavy transactions are
+    /// priced even when their compute mass is small.
+    fn non_contextual_masses(
+        &self,
+        tx: &Transaction,
+        minimum_signatures: u16,
+    ) -> NonContextualMasses {
         let compute_mass =
             self.compute_mass_for_unsigned_consensus_transaction(tx, minimum_signatures);
         let transient_mass = estimate_transient_mass(tx, minimum_signatures);
-        NonContextualMasses::new(compute_mass, transient_mass).normalized_max(&self.mass_cofactors)
+        NonContextualMasses::new(compute_mass, transient_mass)
+    }
+
+    /// Node-equivalent relay-fee mass = `normalized_max(compute_mass, transient_mass)`, matching the
+    /// Toccata node's standardness floor, which charges the relay fee on
+    /// `max(compute, normalized_transient)` (`check_transaction_standard`).
+    fn non_contextual_fee_mass(&self, tx: &Transaction, minimum_signatures: u16) -> u64 {
+        self.non_contextual_masses(tx, minimum_signatures)
+            .normalized_max(&self.mass_cofactors)
     }
 
     pub async fn estimate_mass(
@@ -1409,6 +1419,35 @@ mod tests {
     }
 
     #[test]
+    fn estimate_transient_mass_scales_with_input_count() {
+        // Transient mass tracks the SIGNED serialized size, which grows by one signature footprint
+        // (`SIGNATURE_SIZE`) per required signature per input. A 3-input tx therefore carries 3× the
+        // signature footprint of a single-input tx at the same `minimum_signatures` — guarding the
+        // `* tx.inputs.len()` factor in `estimate_transient_mass`.
+        use kaspa_consensus_core::subnets::SUBNETWORK_ID_NATIVE;
+        use kaspa_consensus_core::tx::{Transaction, TransactionInput, TransactionOutpoint};
+        let input = |seed: u8| {
+            let outpoint = TransactionOutpoint::new(kaspa_hashes::Hash::from_bytes([seed; 32]), 0);
+            TransactionInput::new(outpoint, vec![], 0, 0)
+        };
+        let tx = Transaction::new(
+            0,
+            vec![input(1), input(2), input(3)],
+            vec![],
+            0,
+            SUBNETWORK_ID_NATIVE,
+            0,
+            vec![],
+        );
+        let unsigned_size = transaction_estimated_serialized_size(&tx);
+        // 2 required signatures × 3 inputs = 6 signature footprints added before scaling.
+        assert_eq!(
+            estimate_transient_mass(&tx, 2),
+            (unsigned_size + 6 * SIGNATURE_SIZE) * TRANSIENT_BYTE_TO_MASS_FACTOR
+        );
+    }
+
+    #[test]
     fn fee_mass_uses_normalized_transient_for_payload_heavy_tx() {
         // The exact failure case: a poorly-compressible payload-heavy tx. Transient (∝ byte size)
         // dominates compute, so the node-equivalent fee mass = normalized transient, which is strictly
@@ -1431,11 +1470,16 @@ mod tests {
         let compute = mc.calc_compute_mass_for_unsigned_consensus_transaction(&tx, 1);
         let transient = estimate_transient_mass(&tx, 1);
         let fee_mass = NonContextualMasses::new(compute, transient).normalized_max(&cofactors);
+        // DEVNET's transient cofactor = compute_block_limit / transient_block_limit = 0.5, so the node
+        // scales transient down to `normalized_transient = ceil(transient * 0.5)` before taking the max
+        // with compute. The load-bearing inequality the fix relies on is therefore
+        // `normalized_transient >= compute` — assert that directly, not the raw `transient > compute`
+        // (which does not by itself imply the normalized relationship).
         let normalized_transient =
             NonContextualMasses::new(0, transient).normalized_max(&cofactors);
         assert!(
-            transient > compute,
-            "transient {transient} should dominate compute {compute} for a 6KB payload"
+            normalized_transient > compute,
+            "normalized transient {normalized_transient} should dominate compute {compute} for a 6KB payload"
         );
         assert_eq!(
             fee_mass, normalized_transient,
