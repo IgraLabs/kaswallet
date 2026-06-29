@@ -9,7 +9,10 @@ use common::model::{
 };
 use itertools::Itertools;
 use kaspa_addresses::{Address, Version};
-use kaspa_consensus_core::constants::{SOMPI_PER_KASPA, UNACCEPTED_DAA_SCORE};
+use kaspa_consensus_core::constants::{
+    SOMPI_PER_KASPA, TRANSIENT_BYTE_TO_MASS_FACTOR, UNACCEPTED_DAA_SCORE,
+};
+use kaspa_consensus_core::mass::transaction_estimated_serialized_size;
 use kaspa_consensus_core::tx::{
     SignableTransaction, Transaction, TransactionInput, TransactionOutpoint, TransactionOutput,
     UtxoEntry,
@@ -18,7 +21,7 @@ use kaspa_grpc_client::GrpcClient;
 use kaspa_rpc_core::api::rpc::RpcApi;
 use kaspa_txscript::pay_to_address_script;
 use kaspa_wallet_core::prelude::AddressPrefix;
-use kaspa_wallet_core::tx::{MAXIMUM_STANDARD_TRANSACTION_MASS, MassCalculator};
+use kaspa_wallet_core::tx::{MAXIMUM_STANDARD_TRANSACTION_MASS, MassCalculator, SIGNATURE_SIZE};
 use log::debug;
 use proto::kaswallet_proto::{FeePolicy, Outpoint, TransactionDescription, fee_policy};
 use std::cmp::min;
@@ -28,6 +31,12 @@ use tokio::sync::{Mutex, MutexGuard};
 
 // The current minimal fee rate according to mempool standards
 const MIN_FEE_RATE: f64 = 1.0;
+
+// Post-Toccata transient-mass normalization cofactor = compute_block_limit / transient_block_limit
+// = 500_000 / 1_000_000 = 0.5 (mainnet and testnet-10). Hard-coded because the kaspa fork this wallet
+// version links predates the MassCofactors / normalized_max API. Mirrors the node's standardness relay-
+// fee floor, which charges max(compute_mass, normalized_transient_mass).
+const TRANSIENT_MASS_COFACTOR: f64 = 0.5;
 
 // The minimal change amount to target in order to avoid large storage mass (see KIP9 for more details).
 // By having at least 10KAS in the change output we make sure that the storage mass charged for change is
@@ -618,6 +627,30 @@ impl TransactionGenerator {
             .await
     }
 
+    /// Fee-relevant non-contextual mass = `max(compute_mass, normalized_transient_mass)`, matching the
+    /// Toccata node's relay-fee floor (`check_transaction_standard` charges the relay fee on
+    /// `max(compute, normalized_transient)`). `transient_mass` is proportional to the serialized byte
+    /// size, so poorly-compressible payload-heavy transactions are priced correctly even when their
+    /// compute mass is small. The mock/unsigned transaction has empty signature scripts, so the signed
+    /// signature footprint (`SIGNATURE_SIZE` per required signature per input) is added before scaling,
+    /// so the estimate is not below the signed transaction the node actually charges.
+    fn fee_mass_for_unsigned_consensus_transaction(
+        &self,
+        tx: &Transaction,
+        minimum_signatures: u16,
+    ) -> u64 {
+        let compute_mass = self
+            .mass_calculator
+            .calc_compute_mass_for_unsigned_consensus_transaction(tx, minimum_signatures);
+        let signature_bytes =
+            SIGNATURE_SIZE * (minimum_signatures.max(1) as u64) * (tx.inputs.len() as u64);
+        let signed_serialized_size = transaction_estimated_serialized_size(tx) + signature_bytes;
+        let transient_mass = signed_serialized_size * TRANSIENT_BYTE_TO_MASS_FACTOR;
+        let normalized_transient_mass =
+            ((transient_mass as f64) * TRANSIENT_MASS_COFACTOR).ceil() as u64;
+        compute_mass.max(normalized_transient_mass)
+    }
+
     fn check_transaction_fee_rate(
         &self,
         transaction: &WalletSignableTransaction,
@@ -646,12 +679,10 @@ impl TransactionGenerator {
             ));
         };
         let fee = total_ins - total_outs;
-        let mass = self
-            .mass_calculator
-            .calc_compute_mass_for_unsigned_consensus_transaction(
-                &signable_transaction.tx,
-                self.keys.minimum_signatures,
-            );
+        let mass = self.fee_mass_for_unsigned_consensus_transaction(
+            &signable_transaction.tx,
+            self.keys.minimum_signatures,
+        );
 
         let fee_rate = fee as f64 / mass as f64;
 
@@ -954,12 +985,10 @@ impl TransactionGenerator {
             .generate_unsigned_transaction(mock_payments, selected_utxos, payload.to_owned())
             .await?;
 
-        let mass = self
-            .mass_calculator
-            .calc_compute_mass_for_unsigned_consensus_transaction(
-                &mock_transaction.transaction.unwrap_ref().tx,
-                self.keys.minimum_signatures,
-            );
+        let mass = self.fee_mass_for_unsigned_consensus_transaction(
+            &mock_transaction.transaction.unwrap_ref().tx,
+            self.keys.minimum_signatures,
+        );
         Ok(mass)
     }
 
