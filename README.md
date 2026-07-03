@@ -90,3 +90,56 @@ Available commands are:
 ```
 
 See `kaswallet-cli [command] --help` for available arguments for each command.
+
+## Batch send (standalone, no daemon)
+
+`kaswallet-batch-send` sends KAS to a list of addresses in ONE multi-output
+transaction, talking directly to a kaspad node — no running `kaswallet-daemon`
+required. Keys are passed directly (the `keys.json` created by
+`kaswallet-create`).
+
+```bash
+kaswallet-batch-send \
+  [--testnet/--devnet/--simnet] \
+  [--keys <path_to_keys_file>] \          # defaults to ~/.kaswallet/<network>/keys.json
+  [--server 'grpc://<ip>:<port>'] \       # kaspad gRPC endpoint (default: localhost)
+  --output <address>:<amount-KAS> \       # repeatable, e.g. -o 'kaspatest:qq...:1.5'
+  [--output <address>:<amount-KAS>] ... \ # or -F payouts.json ({"address": "amount-KAS", ...})
+  [-p <password>] \                       # prompted when omitted
+  [--dry-run]                             # full plan + logs, nothing submitted
+```
+
+The stage-by-stage narrative (node info, the wallet's receive address,
+spendable balance per address, an explicit balance check, the sending
+addresses, per-recipient outputs, change, fee and masses, tx id) goes to
+stderr; stdout carries only a short parseable summary. Exit codes follow the
+same sysexits-style mapping as `kaswallet-cli`. Fee control matches
+`kaswallet-cli send` (`--fee-rate-max`, `--fee-rate-exact`, `--fee-max`;
+default: node priority feerate, capped at 1 KAS).
+
+To check a wallet without the daemon (and without a password):
+
+```bash
+kaswallet-batch-send --testnet --show-address
+# kaspatest:qq...                      <- offline, works with no node at all
+
+kaswallet-batch-send --testnet --show-balance
+# spendable_kas: 12.50000000           <- needs a reachable node (--server)
+# total_kas: 12.50000000
+```
+
+The flags combine (`--show-address --show-balance` prints all three lines).
+
+Notes:
+
+- One transaction per run. A batch that exceeds the standard mass limits fails
+  with a clear `MassExceeded` error — fewer recipients per run, larger
+  per-output amounts (KIP-9 storage mass grows as ~10^12 / amount-in-sompi per
+  output), or consolidate UTXOs first.
+- The tool writes `keys.json` (last-used address indexes), like every other
+  kaswallet binary. Do not run it against a keys file a live daemon is
+  actively using.
+- Native subnetwork and fully-signable (non-cosigned) wallets only.
+- `--allow-unsynced-node` skips the node-synced check (isolated simnet nodes).
+
+See `kaswallet-batch-send --help` for all options.

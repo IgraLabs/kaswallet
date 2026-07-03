@@ -16,6 +16,7 @@ integration-tests = []
 
 [dev-dependencies]
 rstest.workspace = true
+kaswallet-batch-send.workspace = true
 kaswallet-common.workspace = true
 kaswallet-daemon.workspace = true
 kaswallet-create.workspace = true
@@ -25,8 +26,10 @@ kaswallet-test-helpers.workspace = true
 kaspa-consensus-core.workspace = true
 kaspa-grpc-client.workspace = true
 kaspa-addresses.workspace = true
+kaspa-rpc-core.workspace = true
 kaspa-txscript.workspace = true
 
 tonic.workspace = true
 tokio.workspace = true
 thiserror.workspace = true
+tempfile.workspace = true

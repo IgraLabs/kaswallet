@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "batch-send",
     "cli",
     "common",
     "create",
@@ -32,6 +33,7 @@ include = [
 ]
 
 [workspace.dependencies]
+kaswallet-batch-send = { path = "batch-send" }
 kaswallet-cli = { path = "cli" }
 kaswallet-common = { path = "common" }
 kaswallet-proto = { path = "proto" }

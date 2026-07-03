@@ -35,6 +35,13 @@ pub enum SyncError {
     // than treating it as a server bug.
     #[error("{location} NotYetSynced")]
     NotYetSynced { location: ErrorLocation },
+
+    // The connected kaspad NODE reports it is not synced with the network —
+    // distinct from `NotYetSynced`, which is about the WALLET's own UTXO
+    // view. UTXO data from an unsynced node is stale; standalone tools
+    // refuse to build transactions on top of it unless explicitly allowed.
+    #[error("{location} NodeNotSynced")]
+    NodeNotSynced { location: ErrorLocation },
 }
 
 impl SyncError {
@@ -44,6 +51,7 @@ impl SyncError {
             Self::UtxoFetchFailed { .. } => "UtxoFetchFailed",
             Self::UtxoIndexInconsistent { .. } => "UtxoIndexInconsistent",
             Self::NotYetSynced { .. } => "NotYetSynced",
+            Self::NodeNotSynced { .. } => "NodeNotSynced",
         }
     }
 
@@ -52,7 +60,8 @@ impl SyncError {
             Self::AddressDerivation { location, .. }
             | Self::UtxoFetchFailed { location, .. }
             | Self::UtxoIndexInconsistent { location, .. }
-            | Self::NotYetSynced { location } => *location,
+            | Self::NotYetSynced { location }
+            | Self::NodeNotSynced { location } => *location,
         }
     }
 
@@ -76,6 +85,11 @@ impl SyncError {
                 format!("utxo index inconsistent: {reason}")
             }
             Self::NotYetSynced { .. } => "wallet is not yet synced".to_string(),
+            Self::NodeNotSynced { .. } => {
+                "kaspad node is not synced with the network; its UTXO data is stale \
+                 (pass --allow-unsynced-node to proceed anyway)"
+                    .to_string()
+            }
         }
     }
 }

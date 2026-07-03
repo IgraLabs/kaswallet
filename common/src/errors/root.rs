@@ -85,6 +85,23 @@ impl WalletError {
         }
     }
 
+    // Process exit codes loosely modelled on `sysexits.h` so shells / CI
+    // scripts can branch on the *kind* of failure without parsing stderr.
+    // The mapping is exhaustive — adding a new `ErrorCategory` variant
+    // forces this match to be updated, so we never silently fall through
+    // to a default code. Shared by every kaswallet binary.
+    pub fn process_exit_code(&self) -> i32 {
+        match self.category() {
+            ErrorCategory::UserInput => 64,   // EX_USAGE — bad invocation
+            ErrorCategory::Config => 78,      // EX_CONFIG — config error
+            ErrorCategory::Rpc => 69,         // EX_UNAVAILABLE — service unavailable
+            ErrorCategory::Crypto => 77,      // EX_NOPERM — permission/credentials
+            ErrorCategory::Storage => 74,     // EX_IOERR — i/o error
+            ErrorCategory::Sync => 75,        // EX_TEMPFAIL — transient failure
+            ErrorCategory::Transaction => 65, // EX_DATAERR — bad data
+        }
+    }
+
     pub fn to_status(&self) -> Status {
         let code = match self {
             Self::UserInput(_) => Code::InvalidArgument,

@@ -1,0 +1,39 @@
+[package]
+name = "kaswallet-batch-send"
+rust-version.workspace = true
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+include.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "batch_send"
+
+[[bin]]
+name = "kaswallet-batch-send"
+path = "src/main.rs"
+
+[dependencies]
+kaswallet-common.workspace = true
+kaswallet-daemon.workspace = true
+kaswallet-proto.workspace = true
+
+kaspa-addresses.workspace = true
+kaspa-bip32.workspace = true
+kaspa-consensus-core.workspace = true
+kaspa-grpc-client.workspace = true
+kaspa-rpc-core.workspace = true
+kaspa-wallet-core.workspace = true
+
+clap = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+rpassword.workspace = true
+secrecy.workspace = true
+tracing.workspace = true
+tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
+
+[dev-dependencies]
+tempfile.workspace = true

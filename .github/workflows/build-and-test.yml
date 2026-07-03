@@ -40,3 +40,13 @@ jobs:
 
       - name: Run tests
         run: cargo +stable test --verbose
+
+      - name: Run integration tests (batch-send)
+        # Spawns a real kaspad: single-threaded to avoid resource races
+        # between concurrent nodes; explicit fd limit because kaspad's
+        # fd-budget probe panics when the shell reports "unlimited".
+        # Scoped to batch_send for now — the pre-existing p2pk/subnetwork
+        # tests rely on fixed post-startup sleeps and flake on slow runners
+        # ("wallet is not yet synced"); they need sync-polling before they
+        # can gate PRs.
+        run: bash -c 'ulimit -n 8192 && cargo +stable test -p kaswallet-test-integration --features integration-tests batch_send --verbose -- --test-threads=1'

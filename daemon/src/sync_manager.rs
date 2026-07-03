@@ -74,12 +74,24 @@ impl SyncManager {
         })
     }
 
+    /// One-shot address discovery + UTXO load, marking the wallet synced.
+    /// Used as the initial pass of the daemon's sync loop and by standalone
+    /// binaries (e.g. `kaswallet-batch-send`) that need a synced wallet view
+    /// without running the background loop. Mirrors daemon startup exactly:
+    /// like the initial sync, it does not run `collect_far_addresses`, so
+    /// wallets with used-address gaps beyond the recent-scan window should
+    /// sync a daemon first.
+    pub async fn sync_once(&self) -> WalletResult<()> {
+        self.collect_recent_addresses().await?;
+        self.refresh_utxos().await?;
+        self.first_sync_done.store(true, Relaxed);
+        Ok(())
+    }
+
     async fn sync_loop(&self) -> WalletResult<()> {
         {
             info!("Starting sync loop");
-            self.collect_recent_addresses().await?;
-            self.refresh_utxos().await?;
-            self.first_sync_done.store(true, Relaxed);
+            self.sync_once().await?;
             info!("Finished initial sync");
         }
 

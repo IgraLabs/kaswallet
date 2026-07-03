@@ -270,6 +270,7 @@ impl WalletUtxo {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct WalletPayment {
     pub address: Address,
     pub amount: u64,
