@@ -1,5 +1,9 @@
 #[cfg(test)]
 #[cfg(feature = "integration-tests")]
+mod batch_send_test;
+
+#[cfg(test)]
+#[cfg(feature = "integration-tests")]
 mod p2pk_test;
 
 #[cfg(test)]

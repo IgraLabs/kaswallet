@@ -16,7 +16,7 @@ use kaspa_consensus_core::constants::{
     UNACCEPTED_DAA_SCORE,
 };
 use kaspa_consensus_core::mass::{
-    GRAMS_PER_COMPUTE_BUDGET_UNIT, MassCofactors, NonContextualMasses,
+    GRAMS_PER_COMPUTE_BUDGET_UNIT, MassCofactors, NonContextualMasses, UtxoCell, calc_storage_mass,
     transaction_estimated_serialized_size,
 };
 use kaspa_consensus_core::subnets::SubnetworkId;
@@ -108,6 +108,70 @@ fn estimate_transient_mass(tx: &Transaction, minimum_signatures: u16) -> u64 {
     signed_serialized_size * TRANSIENT_BYTE_TO_MASS_FACTOR
 }
 
+/// Sum of payment amounts, failing on `u64` overflow instead of wrapping —
+/// a repeated `--output` list can overflow even when each amount parses.
+/// Public so batch tooling shares the same overflow semantics.
+pub fn checked_payment_sum(payments: &[WalletPayment]) -> WalletResult<u64> {
+    payments
+        .iter()
+        .try_fold(0u64, |acc, payment| acc.checked_add(payment.amount))
+        .ok_or_else(|| {
+            WalletError::from(UserInputErr::InvalidArgument {
+                reason: "total payment amount overflows u64".to_string(),
+                location: ErrorLocation::capture(),
+            })
+        })
+}
+
+/// KIP-9 storage mass of an unsigned wallet transaction, computed with the
+/// node's exact calculator over the spent entries and produced outputs.
+/// `None` means arithmetic overflow inside the calculation — treat it as
+/// "exceeds any limit". Free function (no generator state) so standalone
+/// binaries can log it and tests can exercise it offline.
+pub fn storage_mass_for_signable(
+    signable: &SignableTransaction,
+    storage_mass_parameter: u64,
+) -> Option<u64> {
+    let input_cells: Vec<UtxoCell> = signable
+        .entries
+        .iter()
+        .flatten()
+        .map(UtxoCell::from)
+        .collect();
+    let output_cells = signable.tx.outputs.iter().map(UtxoCell::from);
+    calc_storage_mass(
+        false,
+        input_cells.into_iter(),
+        output_cells,
+        storage_mass_parameter,
+    )
+}
+
+/// Standardness gate mirroring the node's `check_transaction_standard`:
+/// compute, transient and storage mass must each stay within
+/// `MAXIMUM_STANDARD_TRANSACTION_MASS` or the mempool rejects the
+/// transaction. `storage_mass = None` (calculator overflow) counts as
+/// exceeded. Only the multi-payment path uses this — the single-recipient
+/// path bounds storage mass structurally via `MIN_CHANGE_TARGET`.
+fn ensure_standard_mass_limits(
+    compute_mass: u64,
+    transient_mass: u64,
+    storage_mass: Option<u64>,
+) -> WalletResult<()> {
+    let limit = MAXIMUM_STANDARD_TRANSACTION_MASS;
+    let max_mass = compute_mass
+        .max(transient_mass)
+        .max(storage_mass.unwrap_or(u64::MAX));
+    if max_mass > limit {
+        return Err(WalletError::from(TransactionError::MassExceeded {
+            mass: max_mass,
+            limit,
+            location: ErrorLocation::capture(),
+        }));
+    }
+    Ok(())
+}
+
 pub struct TransactionGenerator {
     kaspa_client: Arc<GrpcClient>,
     keys: Arc<Keys>,
@@ -131,6 +195,13 @@ pub struct TransactionGenerator {
     /// transient_block_limit). Used to normalize transient mass to the compute scale exactly as the
     /// node's standardness relay-fee floor does — the node reads `mempool_mass_cofactors.raw_post()`.
     mass_cofactors: MassCofactors,
+
+    /// KIP-9 storage-mass parameter (`C ≈ 10^12`) from `ConsensusParams`.
+    /// Per-output storage mass grows as `C / amount`, so many small outputs —
+    /// the batch-send shape — can exceed the standard mass limit while
+    /// compute mass stays low. The multi-payment path gates on it with the
+    /// node's exact calculator.
+    storage_mass_parameter: u64,
 }
 
 impl TransactionGenerator {
@@ -191,6 +262,7 @@ impl TransactionGenerator {
             mass_per_sig_op: consensus_params.mass_per_sig_op,
             signature_mass_per_input,
             mass_cofactors: consensus_params.mempool_block_mass_cofactors().raw_post(),
+            storage_mass_parameter: consensus_params.storage_mass_parameter,
         })
     }
 
@@ -345,6 +417,76 @@ impl TransactionGenerator {
             .await?;
 
         Ok(unsigned_transactions)
+    }
+
+    /// Create ONE unsigned transaction paying every entry of `payments`
+    /// (plus a change output when needed). Multi-recipient counterpart of
+    /// `create_unsigned_transactions`, used by standalone batch tooling.
+    ///
+    /// Unlike the single-recipient path there is NO auto-compounding — the
+    /// merge machinery hard-asserts 1-or-2-output transactions (see
+    /// `merge_transaction`) — so a transaction exceeding the standard mass
+    /// limits fails with a typed `MassExceeded` instead of being split.
+    /// Returns a `Vec` for signature symmetry with the single path; it
+    /// always holds exactly one transaction.
+    pub async fn create_unsigned_transactions_for_payments(
+        &mut self,
+        utxo_manager: &MutexGuard<'_, UtxoManager>,
+        payments: Vec<WalletPayment>,
+        fee_policy: Option<FeePolicy>,
+        use_existing_change_address: bool,
+    ) -> WalletResult<Vec<WalletSignableTransaction>> {
+        if payments.is_empty() {
+            return Err(WalletError::from(UserInputErr::InvalidArgument {
+                reason: "at least one payment is required".to_string(),
+                location: ErrorLocation::capture(),
+            }));
+        }
+        if let Some(zero_payment) = payments.iter().find(|payment| payment.amount == 0) {
+            // Zero-value outputs break KIP-9's storage-mass assumptions
+            // (per-output mass ~ C / amount) and are never useful in a send.
+            return Err(WalletError::from(UserInputErr::InvalidArgument {
+                reason: format!(
+                    "payment amount must be greater than 0 (address {})",
+                    zero_payment.address
+                ),
+                location: ErrorLocation::capture(),
+            }));
+        }
+        checked_payment_sum(&payments)?;
+
+        let (fee_rate, max_fee) = self.calculate_fee_limits(fee_policy).await?;
+
+        let change_address: Address;
+        {
+            let address_manager = self.address_manager.lock().await;
+            (change_address, _) = address_manager
+                .change_address(use_existing_change_address, &[])
+                .await?;
+        }
+
+        let (selected_utxos, change_sompi) = self
+            .select_utxos_for_payments(utxo_manager, &payments, fee_rate, max_fee, &[])
+            .await?;
+
+        let mut all_payments = payments;
+        if change_sompi > 0 {
+            all_payments.push(WalletPayment::new(change_address, change_sompi));
+        }
+        let unsigned_transaction = self
+            .generate_unsigned_transaction(all_payments, &selected_utxos, vec![])
+            .await?;
+
+        // Parity with the single-recipient path, where
+        // `maybe_auto_compound_transaction` runs this check first.
+        self.check_transaction_fee_rate(&unsigned_transaction, max_fee)?;
+
+        let signable = unsigned_transaction.transaction.inner();
+        let masses = self.non_contextual_masses(&signable.tx, self.keys.minimum_signatures);
+        let storage_mass = storage_mass_for_signable(signable, self.storage_mass_parameter);
+        ensure_standard_mass_limits(masses.compute_mass, masses.transient_mass, storage_mass)?;
+
+        Ok(vec![unsigned_transaction])
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1129,6 +1271,111 @@ impl TransactionGenerator {
         Ok((selected_utxos, total_received, total_value - total_spend))
     }
 
+    /// UTXO selection for a multi-payment (batch) transaction. Mirrors
+    /// `select_utxos`' iteration order, spendability filter, stop rules and
+    /// insufficient-funds error, with two deliberate differences:
+    /// - the fee is re-estimated every iteration from a mock built with the
+    ///   real payment set instead of the `fee_per_utxo`-multiply shortcut,
+    ///   which would re-charge the whole fixed output overhead once per
+    ///   input for N-output transactions;
+    /// - the loop fails fast with `MassExceeded` as soon as the mock's
+    ///   compute or transient mass exceeds the standardness cap — both grow
+    ///   monotonically with inputs, so no larger selection can succeed and
+    ///   grinding the rest of a dust-heavy UTXO set would be wasted work
+    ///   (storage mass is NOT monotonic in inputs and is gated only on the
+    ///   final transaction);
+    /// - no `from_addresses` / preselected-UTXO filtering and no send-all
+    ///   mode (the batch path does not expose them).
+    ///
+    /// Returns the selected UTXOs and the change amount in sompi.
+    pub async fn select_utxos_for_payments(
+        &mut self,
+        utxo_manager: &MutexGuard<'_, UtxoManager>,
+        payments: &[WalletPayment],
+        fee_rate: f64,
+        max_fee: u64,
+        payload: &[u8],
+    ) -> WalletResult<(Vec<WalletUtxo>, u64)> {
+        let amount = checked_payment_sum(payments)?;
+        debug!(
+            "Selecting UTXOs for batch payment: recipients: {}, amount: {}, fee_rate: {}, max_fee: {}",
+            payments.len(),
+            amount,
+            fee_rate,
+            max_fee
+        );
+
+        let dag_info = self.kaspa_client.get_block_dag_info().await.map_err(|e| {
+            common::errors::RpcError::Transport {
+                reason: e.to_string(),
+                location: ErrorLocation::capture(),
+            }
+        })?;
+
+        let overflow_error = || {
+            WalletError::from(UserInputErr::InvalidArgument {
+                reason: "total spend (amount + fee) overflows u64".to_string(),
+                location: ErrorLocation::capture(),
+            })
+        };
+
+        let recipient_amounts: Vec<u64> = payments.iter().map(|payment| payment.amount).collect();
+        let mut total_value: u64 = 0;
+        let mut selected_utxos: Vec<WalletUtxo> = vec![];
+        let mut fee: u64 = 0;
+        let owned_utxos = utxo_manager.utxos_sorted_by_amount();
+        for utxo in owned_utxos.iter() {
+            if utxo_manager.is_utxo_unspendable(utxo, dag_info.virtual_daa_score) {
+                continue;
+            }
+            selected_utxos.push(utxo.clone());
+            total_value += utxo.utxo_entry.amount;
+            let masses = self
+                .mock_masses_for_output_amounts(&selected_utxos, &recipient_amounts, payload)
+                .await?;
+            // Fail fast once no larger selection can be standard (storage
+            // mass excluded — it can still shrink as inputs are added).
+            ensure_standard_mass_limits(masses.compute_mass, masses.transient_mass, Some(0))?;
+            let calculated_fee =
+                ((masses.normalized_max(&self.mass_cofactors) as f64) * fee_rate).ceil() as u64;
+            fee = min(calculated_fee, max_fee);
+
+            let total_spend = amount.checked_add(fee).ok_or_else(overflow_error)?;
+            // Same stop rules as `select_utxos`:
+            // 1. exact match — no change output, any input count suffices;
+            // 2. change comfortably above MIN_CHANGE_TARGET (KIP-9 dust
+            //    avoidance) with at least 2 inputs (go-nodes dust patch).
+            if total_value == total_spend {
+                break;
+            }
+            let spend_with_change_target = total_spend
+                .checked_add(MIN_CHANGE_TARGET)
+                .ok_or_else(overflow_error)?;
+            if total_value >= spend_with_change_target && selected_utxos.len() > 1 {
+                break;
+            }
+        }
+
+        let total_spend = amount.checked_add(fee).ok_or_else(overflow_error)?;
+        if total_value < total_spend {
+            return Err(WalletError::from(TransactionError::InsufficientFunds {
+                required_sompi: total_spend,
+                available_sompi: total_value,
+                location: ErrorLocation::capture(),
+            }));
+        }
+
+        debug!(
+            "Selected {} UTXOs for batch payment with amount: {}, fee: {}, total_value: {}",
+            selected_utxos.len(),
+            amount,
+            fee,
+            total_value
+        );
+
+        Ok((selected_utxos, total_value - total_spend))
+    }
+
     async fn estimate_fee(
         &self,
         selected_utxos: &Vec<WalletUtxo>,
@@ -1205,6 +1452,50 @@ impl TransactionGenerator {
         estimated_recipient_value: u64,
         payload: &[u8],
     ) -> WalletResult<u64> {
+        self.estimate_mass_for_output_amounts(selected_utxos, &[estimated_recipient_value], payload)
+            .await
+    }
+
+    /// Estimated relay-fee mass for a transaction paying `payments` from
+    /// `selected_utxos`. Unlike `estimate_mass` (one recipient + change),
+    /// the mock carries one output per payment so N-output batch
+    /// transactions are not underpriced.
+    pub async fn estimate_mass_for_payments(
+        &self,
+        selected_utxos: &Vec<WalletUtxo>,
+        payments: &[WalletPayment],
+        payload: &[u8],
+    ) -> WalletResult<u64> {
+        let amounts: Vec<u64> = payments.iter().map(|payment| payment.amount).collect();
+        self.estimate_mass_for_output_amounts(selected_utxos, &amounts, payload)
+            .await
+    }
+
+    async fn estimate_mass_for_output_amounts(
+        &self,
+        selected_utxos: &Vec<WalletUtxo>,
+        recipient_amounts: &[u64],
+        payload: &[u8],
+    ) -> WalletResult<u64> {
+        let masses = self
+            .mock_masses_for_output_amounts(selected_utxos, recipient_amounts, payload)
+            .await?;
+        Ok(masses.normalized_max(&self.mass_cofactors))
+    }
+
+    /// Shared mock-transaction mass core. Output *values* do not affect mass
+    /// (the value field serializes to a fixed 8 bytes); only the output count
+    /// and script size matter — so one fake worst-case-ECDSA output per
+    /// recipient amount, plus a change mock when the selected inputs exceed
+    /// the recipient sum, prices the real transaction exactly. Returns the
+    /// raw compute/transient masses so callers can both price the fee
+    /// (normalized max) and gate on the standardness caps.
+    async fn mock_masses_for_output_amounts(
+        &self,
+        selected_utxos: &Vec<WalletUtxo>,
+        recipient_amounts: &[u64],
+        payload: &[u8],
+    ) -> WalletResult<NonContextualMasses> {
         let fake_public_key = &[0u8; 33];
         // We assume the worst case where the recipient address is ECDSA. In this case the scriptPubKey will be the longest.
         let fake_address = Address::new(self.address_prefix, Version::PubKeyECDSA, fake_public_key);
@@ -1214,33 +1505,30 @@ impl TransactionGenerator {
             total_value += utxo.utxo_entry.amount;
         }
 
-        // This is an approximation for the distribution of value between the recipient output and the change output.
-        let mock_payments = if total_value > estimated_recipient_value {
-            vec![
-                WalletPayment {
-                    address: fake_address.clone(),
-                    amount: estimated_recipient_value,
-                },
-                WalletPayment {
-                    address: fake_address,
-                    amount: total_value - estimated_recipient_value,
-                },
-            ]
-        } else {
-            vec![WalletPayment {
+        let mut mock_payments: Vec<WalletPayment> = recipient_amounts
+            .iter()
+            .map(|amount| WalletPayment {
+                address: fake_address.clone(),
+                amount: *amount,
+            })
+            .collect();
+        // Summed before the change mock is appended (change must be excluded);
+        // reuses `checked_payment_sum` so overflow semantics stay single-sourced.
+        let recipient_sum = checked_payment_sum(&mock_payments)?;
+        if total_value > recipient_sum {
+            mock_payments.push(WalletPayment {
                 address: fake_address,
-                amount: total_value,
-            }]
-        };
+                amount: total_value - recipient_sum,
+            });
+        }
         let mock_transaction = self
             .generate_unsigned_transaction(mock_payments, selected_utxos, payload.to_owned())
             .await?;
 
-        let mass = self.non_contextual_fee_mass(
+        Ok(self.non_contextual_masses(
             &mock_transaction.transaction.inner().tx,
             self.keys.minimum_signatures,
-        );
-        Ok(mass)
+        ))
     }
 
     pub async fn estimate_mass_per_input(&self, input: &TransactionInput) -> u64 {
@@ -1533,6 +1821,136 @@ mod tests {
         assert!(
             err.to_string().contains("overflow"),
             "expected overflow error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn checked_payment_sum_adds_and_rejects_overflow() {
+        let fake_address =
+            Address::new(kaspa_addresses::Prefix::Simnet, Version::PubKey, &[0u8; 32]);
+        let payments = vec![
+            WalletPayment::new(fake_address.clone(), 100),
+            WalletPayment::new(fake_address.clone(), 250),
+        ];
+        assert_eq!(checked_payment_sum(&payments).unwrap(), 350);
+
+        let overflowing = vec![
+            WalletPayment::new(fake_address.clone(), u64::MAX),
+            WalletPayment::new(fake_address, 1),
+        ];
+        let err = checked_payment_sum(&overflowing).expect_err("overflow must be rejected");
+        assert!(
+            err.to_string().contains("overflows"),
+            "expected overflow error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn ensure_standard_mass_limits_accepts_within_limits() {
+        assert!(ensure_standard_mass_limits(50_000, 80_000, Some(99_999)).is_ok());
+        assert!(
+            ensure_standard_mass_limits(
+                MAXIMUM_STANDARD_TRANSACTION_MASS,
+                MAXIMUM_STANDARD_TRANSACTION_MASS,
+                Some(MAXIMUM_STANDARD_TRANSACTION_MASS)
+            )
+            .is_ok(),
+            "the limit itself is standard (node rejects strictly-greater only)"
+        );
+    }
+
+    #[test]
+    fn ensure_standard_mass_limits_rejects_each_dimension() {
+        for (compute, transient, storage) in [
+            (MAXIMUM_STANDARD_TRANSACTION_MASS + 1, 0, Some(0)),
+            (0, MAXIMUM_STANDARD_TRANSACTION_MASS + 1, Some(0)),
+            (0, 0, Some(MAXIMUM_STANDARD_TRANSACTION_MASS + 1)),
+        ] {
+            let err = ensure_standard_mass_limits(compute, transient, storage)
+                .expect_err("over-limit mass must be rejected");
+            assert!(
+                matches!(
+                    err,
+                    WalletError::Transaction(TransactionError::MassExceeded { .. })
+                ),
+                "expected MassExceeded, got: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn ensure_standard_mass_limits_treats_storage_overflow_as_exceeded() {
+        // `calc_storage_mass` returns None on internal overflow — that is
+        // "more mass than any limit", never "no storage mass".
+        let err = ensure_standard_mass_limits(0, 0, None)
+            .expect_err("storage-mass overflow must be rejected");
+        assert!(matches!(
+            err,
+            WalletError::Transaction(TransactionError::MassExceeded { .. })
+        ));
+    }
+
+    // Build a 1-input signable transaction with `output_amounts` P2PK outputs,
+    // funded by a single entry of `input_amount`, for storage-mass tests.
+    fn signable_with_outputs(input_amount: u64, output_amounts: &[u64]) -> SignableTransaction {
+        let address = Address::new(kaspa_addresses::Prefix::Simnet, Version::PubKey, &[7u8; 32]);
+        let script_public_key = kaspa_txscript::pay_to_address_script(&address);
+        let outpoint = TransactionOutpoint::new(kaspa_hashes::Hash::from_bytes([9u8; 32]), 0);
+        let inputs = vec![TransactionInput::new(outpoint, vec![], 0, 1)];
+        let outputs = output_amounts
+            .iter()
+            .map(|amount| TransactionOutput::new(*amount, script_public_key.clone()))
+            .collect();
+        let tx = Transaction::new(
+            TX_VERSION,
+            inputs,
+            outputs,
+            0,
+            kaspa_consensus_core::subnets::SUBNETWORK_ID_NATIVE,
+            0,
+            vec![],
+        );
+        let entries = vec![UtxoEntry::new(
+            input_amount,
+            script_public_key,
+            0,
+            false,
+            None,
+        )];
+        SignableTransaction::with_entries(tx, entries)
+    }
+
+    #[test]
+    fn storage_mass_small_outputs_exceed_standard_limit() {
+        use kaspa_consensus_core::config::params::SIMNET_PARAMS;
+        // 100 outputs of 1 KAS each: per-output storage mass ≈ C / 10^8 =
+        // 10^4 grams, so ~10^6 total — far above the 100k standard limit
+        // even though compute mass is tiny. This is exactly the batch-send
+        // failure mode the client-side gate exists for.
+        let one_kas = SOMPI_PER_KASPA;
+        let outputs = vec![one_kas; 100];
+        let signable = signable_with_outputs(one_kas * 200, &outputs);
+        let storage = storage_mass_for_signable(&signable, SIMNET_PARAMS.storage_mass_parameter)
+            .expect("no overflow for these magnitudes");
+        assert!(
+            storage > MAXIMUM_STANDARD_TRANSACTION_MASS,
+            "expected storage mass above the standard limit, got {storage}"
+        );
+    }
+
+    #[test]
+    fn storage_mass_large_outputs_stay_standard() {
+        use kaspa_consensus_core::config::params::SIMNET_PARAMS;
+        // A handful of ≥100 KAS outputs keeps per-output storage mass at
+        // ~C / 10^10 = 100 grams — deep inside the standard limit.
+        let hundred_kas = SOMPI_PER_KASPA * 100;
+        let outputs = vec![hundred_kas; 5];
+        let signable = signable_with_outputs(hundred_kas * 6, &outputs);
+        let storage = storage_mass_for_signable(&signable, SIMNET_PARAMS.storage_mass_parameter)
+            .expect("no overflow for these magnitudes");
+        assert!(
+            storage <= MAXIMUM_STANDARD_TRANSACTION_MASS,
+            "expected storage mass within the standard limit, got {storage}"
         );
     }
 
