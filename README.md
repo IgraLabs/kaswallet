@@ -67,6 +67,39 @@ Keep this process running for as long as you want wallet services available.
 
 See `kaswallet-daemon --help` for further options.
 
+### Keys file persistence
+
+`keys.json` holds the encrypted mnemonics, public keys, and the wallet's
+last-used address indexes. Every kaswallet binary rewrites it during ordinary
+operation (the daemon saves on each balance-changing sync and on new/change
+address generation), so the file is not static.
+
+Writes are **atomic and durable**: the new contents are written to a temporary
+file in the same directory, flushed, and then atomically renamed over
+`keys.json`. An interrupted or failed save can therefore never truncate or
+corrupt the previous valid snapshot — the failure mode behind past zero-byte
+key-file loss.
+
+Operational requirements:
+
+- **The keys directory must be writable**, and `keys.json` must be a **regular
+  file**. Mount/expose the containing *directory* read-write — not a single
+  `keys.json` file and not a symlink — because the atomic rename replaces the
+  directory entry. A read-only keys directory makes a live daemon crash on its
+  first index-changing save (it is not a supported read-only mode).
+- **One live writer per keys file.** `kaswallet-create` and
+  `kaswallet-batch-send` write the same file as separate processes; do not run
+  them against a keys file a live daemon is actively using.
+- **Permissions**: a newly created `keys.json` is owner-only (`0600`); an
+  existing file's mode is preserved on save (so an operator-chosen mode such as
+  `0640` is kept). On a container bind mount the replacement file is owned by
+  the writing process's UID, so run the container as the intended host user.
+- A hard kill during a save can leave a harmless `.keys.json.tmp-*` file in the
+  keys directory; it is never loaded and never overwrites `keys.json`. It is
+  safe to delete once all wallet writers are stopped.
+- Atomic writes are not a substitute for backups — keep encrypted off-site
+  backups of your keys directory.
+
 ## Cli client
 
 ```bash
