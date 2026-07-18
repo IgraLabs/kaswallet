@@ -8,7 +8,13 @@ services:
     ports:
       - "8082:8082"
     volumes:
-      - ./keys:/app/keys:ro
+      # Mount the keys DIRECTORY read-write. The daemon persists last-used
+      # address indexes to keys.json on every balance-changing sync, writing a
+      # temp file in this directory and atomically renaming it over the target
+      # — so the directory must be writable and keys.json must be a regular file
+      # (do not bind-mount a single keys.json file or a symlink). A read-only
+      # mount makes the daemon crash on its first index-changing save.
+      - ./keys:/app/keys:rw
     environment:
       - RUST_LOG=info
       # Optional: set externally if you want this daemon to route every send
