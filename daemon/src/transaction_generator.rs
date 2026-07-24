@@ -19,6 +19,7 @@ use kaspa_consensus_core::mass::{
     GRAMS_PER_COMPUTE_BUDGET_UNIT, MassCofactors, NonContextualMasses, UtxoCell, calc_storage_mass,
     transaction_estimated_serialized_size,
 };
+use kaspa_consensus_core::network::NetworkType;
 use kaspa_consensus_core::subnets::SubnetworkId;
 use kaspa_consensus_core::tx::{
     ComputeCommit, SignableTransaction, Transaction, TransactionInput, TransactionOutpoint,
@@ -38,6 +39,8 @@ use tracing::{debug, info};
 
 // The current minimal fee rate according to mempool standards
 const MIN_FEE_RATE: f64 = 1.0;
+
+const COMPUTE_BUDGET_FIELD_SIZE: u64 = 2;
 
 // The minimal change amount to target in order to avoid large storage mass (see KIP9 for more details).
 // By having at least 10KAS in the change output we make sure that the storage mass charged for change is
@@ -172,6 +175,56 @@ fn ensure_standard_mass_limits(
     Ok(())
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct MassCompensations {
+    v1_script_mass: bool,
+    v1_compute_budget_field: bool,
+}
+
+impl MassCompensations {
+    fn for_network(net: NetworkType) -> Self {
+        match net {
+            NetworkType::Devnet => Self {
+                v1_script_mass: true,
+                v1_compute_budget_field: true,
+            },
+            _ => Self {
+                v1_script_mass: true,
+                v1_compute_budget_field: false,
+            },
+        }
+    }
+}
+
+fn compute_mass_for_unsigned_consensus_transaction(
+    mass_calculator: &MassCalculator,
+    tx: &Transaction,
+    minimum_signatures: u16,
+    mass_per_tx_byte: u64,
+    compensations: &MassCompensations,
+) -> u64 {
+    let base = mass_calculator
+        .calc_compute_mass_for_unsigned_consensus_transaction(tx, minimum_signatures);
+    if !ComputeCommit::version_expects_compute_budget_field(tx.version) {
+        return base;
+    }
+    let mut mass = base;
+    if compensations.v1_script_mass {
+        mass += tx
+            .inputs
+            .iter()
+            .map(|input| {
+                u64::from(input.compute_commit.compute_budget().unwrap_or(0))
+                    * GRAMS_PER_COMPUTE_BUDGET_UNIT
+            })
+            .sum::<u64>();
+    }
+    if compensations.v1_compute_budget_field {
+        mass += COMPUTE_BUDGET_FIELD_SIZE * mass_per_tx_byte * tx.inputs.len() as u64;
+    }
+    mass
+}
+
 pub struct TransactionGenerator {
     kaspa_client: Arc<GrpcClient>,
     keys: Arc<Keys>,
@@ -188,6 +241,10 @@ pub struct TransactionGenerator {
     /// `estimate_mass_per_input` for the v0 sig-op contribution so the local
     /// approximation tracks whatever the actual network ships with.
     mass_per_sig_op: u64,
+
+    mass_per_tx_byte: u64,
+
+    mass_compensations: MassCompensations,
 
     signature_mass_per_input: u64,
 
@@ -260,6 +317,8 @@ impl TransactionGenerator {
             compute_budget_per_input,
             minimum_signatures_u8,
             mass_per_sig_op: consensus_params.mass_per_sig_op,
+            mass_per_tx_byte: consensus_params.mass_per_tx_byte,
+            mass_compensations: MassCompensations::for_network(consensus_params.net.network_type),
             signature_mass_per_input,
             mass_cofactors: consensus_params.mempool_block_mass_cofactors().raw_post(),
             storage_mass_parameter: consensus_params.storage_mass_parameter,
@@ -1392,32 +1451,18 @@ impl TransactionGenerator {
         Ok(fee)
     }
 
-    /// Upstream's `calc_compute_mass_for_unsigned_consensus_transaction`
-    /// still has an explicit `TODO: Add support for v1 transactions` and
-    /// counts only `sig_op_count` for the per-input script-mass term — for
-    /// v1 inputs this term is zero, undercounting fee by ~1000 grams per
-    /// input. Apply a local compensation until upstream catches up.
     fn compute_mass_for_unsigned_consensus_transaction(
         &self,
         tx: &Transaction,
         minimum_signatures: u16,
     ) -> u64 {
-        let base = self
-            .mass_calculator
-            .calc_compute_mass_for_unsigned_consensus_transaction(tx, minimum_signatures);
-        if ComputeCommit::version_expects_compute_budget_field(tx.version) {
-            let v1_script_mass: u64 = tx
-                .inputs
-                .iter()
-                .map(|input| {
-                    u64::from(input.compute_commit.compute_budget().unwrap_or(0))
-                        * GRAMS_PER_COMPUTE_BUDGET_UNIT
-                })
-                .sum();
-            base + v1_script_mass
-        } else {
-            base
-        }
+        compute_mass_for_unsigned_consensus_transaction(
+            &self.mass_calculator,
+            tx,
+            minimum_signatures,
+            self.mass_per_tx_byte,
+            &self.mass_compensations,
+        )
     }
 
     /// The transaction's non-contextual masses (compute + transient), computed with the same
@@ -1809,6 +1854,117 @@ mod tests {
         assert_eq!(
             fee_mass, normalized_compute,
             "fee mass must be the compute mass for tiny txs"
+        );
+    }
+
+    #[test]
+    fn mass_compensations_for_network_maps_devnet_to_field_compensation() {
+        assert_eq!(
+            MassCompensations::for_network(NetworkType::Devnet),
+            MassCompensations {
+                v1_script_mass: true,
+                v1_compute_budget_field: true,
+            }
+        );
+        for net in [
+            NetworkType::Mainnet,
+            NetworkType::Testnet,
+            NetworkType::Simnet,
+        ] {
+            assert_eq!(
+                MassCompensations::for_network(net),
+                MassCompensations {
+                    v1_script_mass: true,
+                    v1_compute_budget_field: false,
+                },
+                "{net:?} must not enable the v1 compute_budget-field compensation"
+            );
+        }
+    }
+
+    #[test]
+    fn v1_compute_budget_field_compensation_is_opt_in() {
+        use kaspa_consensus_core::config::params::DEVNET_PARAMS;
+        use kaspa_consensus_core::subnets::SUBNETWORK_ID_NATIVE;
+        use kaspa_consensus_core::tx::{Transaction, TransactionInput, TransactionOutpoint};
+
+        let mc = MassCalculator::new(&DEVNET_PARAMS);
+        let mass_per_tx_byte = DEVNET_PARAMS.mass_per_tx_byte;
+        let without = MassCompensations {
+            v1_script_mass: true,
+            v1_compute_budget_field: false,
+        };
+        let with = MassCompensations {
+            v1_script_mass: true,
+            v1_compute_budget_field: true,
+        };
+
+        let v1_input = |seed: u8| {
+            let op = TransactionOutpoint::new(kaspa_hashes::Hash::from_bytes([seed; 32]), 0);
+            TransactionInput::new_with_compute_budget(op, vec![], 0, 1)
+        };
+        let v1_tx = Transaction::new(
+            1,
+            vec![v1_input(1), v1_input(2), v1_input(3)],
+            vec![],
+            0,
+            SUBNETWORK_ID_NATIVE,
+            0,
+            vec![],
+        );
+
+        let base = compute_mass_for_unsigned_consensus_transaction(
+            &mc,
+            &v1_tx,
+            1,
+            mass_per_tx_byte,
+            &without,
+        );
+        let compensated = compute_mass_for_unsigned_consensus_transaction(
+            &mc,
+            &v1_tx,
+            1,
+            mass_per_tx_byte,
+            &with,
+        );
+
+        assert_eq!(
+            compensated - base,
+            COMPUTE_BUDGET_FIELD_SIZE * mass_per_tx_byte * v1_tx.inputs.len() as u64,
+            "enabling v1_compute_budget_field must add COMPUTE_BUDGET_FIELD_SIZE * mass_per_tx_byte \
+             per v1 input"
+        );
+
+        let v0_tx = Transaction::new(
+            0,
+            vec![TransactionInput::new(
+                TransactionOutpoint::new(kaspa_hashes::Hash::from_bytes([9u8; 32]), 0),
+                vec![],
+                0,
+                0,
+            )],
+            vec![],
+            0,
+            SUBNETWORK_ID_NATIVE,
+            0,
+            vec![],
+        );
+        assert_eq!(
+            compute_mass_for_unsigned_consensus_transaction(
+                &mc,
+                &v0_tx,
+                1,
+                mass_per_tx_byte,
+                &with
+            ),
+            compute_mass_for_unsigned_consensus_transaction(
+                &mc,
+                &v0_tx,
+                1,
+                mass_per_tx_byte,
+                &without
+            ),
+            "v0 transactions carry no compute_budget field; the compensation must not change them"
         );
     }
 
