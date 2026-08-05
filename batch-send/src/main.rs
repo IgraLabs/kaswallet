@@ -81,11 +81,22 @@ async fn main() {
 
             if let Some((reason, exit_code)) = &summary.failure {
                 eprintln!("error: distribution stopped: {reason}");
-                eprintln!(
-                    "hint: {} recipient(s) were paid; rerun with the unpaid recipients to finish \
-                     (the fleet script resumes automatically via its ledger).",
-                    summary.paid.len()
-                );
+                if summary.dry_run {
+                    eprintln!(
+                        "hint: this was a dry run — nothing was sent, and {} recipient(s) \
+                         would have been paid. Fix the cause above and rehearse again.",
+                        summary.paid.len()
+                    );
+                } else {
+                    // No caller keeps a payment ledger, so nothing resumes on its own.
+                    // Saying otherwise invites a rerun that pays the paid ones twice.
+                    eprintln!(
+                        "hint: {} recipient(s) were paid. Nothing resumes automatically — \
+                         rerun with ONLY the unpaid recipients listed above, or those \
+                         already paid will be paid again.",
+                        summary.paid.len()
+                    );
+                }
                 process::exit(*exit_code);
             }
         }
