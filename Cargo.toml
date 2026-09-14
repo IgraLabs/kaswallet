@@ -42,21 +42,20 @@ kaswallet-create = { path = "create" }
 kaswallet-client = { path = "client" }
 kaswallet-test-helpers = { path = "test/helpers" }
 
-# kaspanet/rusty-kaspa upstream, tracked on `master`, which now carries the
-# Toccata work: v1 transactions with compute_budget input mass and non-native
-# subnetwork ids.
-kaspad = { git = "https://github.com/kaspanet/rusty-kaspa.git", branch = "master" }
-kaspa-consensus = { git = "https://github.com/kaspanet/rusty-kaspa.git", branch = "master" }
-kaspa-consensus-core = { git = "https://github.com/kaspanet/rusty-kaspa.git", branch = "master" }
-kaspa-bip32 = { git = "https://github.com/kaspanet/rusty-kaspa.git", branch = "master" }
-kaspa-utils = { git = "https://github.com/kaspanet/rusty-kaspa.git", branch = "master" }
-kaspa-testing-integration = { git = "https://github.com/kaspanet/rusty-kaspa.git", branch = "master" }
-kaspa-hashes = { git = "https://github.com/kaspanet/rusty-kaspa.git", branch = "master" }
-kaspa-addresses = { git = "https://github.com/kaspanet/rusty-kaspa.git", branch = "master" }
-kaspa-rpc-core = { git = "https://github.com/kaspanet/rusty-kaspa.git", branch = "master" }
-kaspa-grpc-client = { git = "https://github.com/kaspanet/rusty-kaspa.git", branch = "master" }
-kaspa-txscript = { git = "https://github.com/kaspanet/rusty-kaspa.git", branch = "master" }
-kaspa-wallet-core = { git = "https://github.com/kaspanet/rusty-kaspa.git", branch = "master" }
+# kaspanet/rusty-kaspa upstream, pinned to the tested Toccata revision.
+# Keep all rusty-kaspa crates on the same revision when updating.
+kaspad = { git = "https://github.com/kaspanet/rusty-kaspa.git", rev = "c338d495bec29e4dc8b5149f99e8db6fa916ed4a" }
+kaspa-consensus = { git = "https://github.com/kaspanet/rusty-kaspa.git", rev = "c338d495bec29e4dc8b5149f99e8db6fa916ed4a" }
+kaspa-consensus-core = { git = "https://github.com/kaspanet/rusty-kaspa.git", rev = "c338d495bec29e4dc8b5149f99e8db6fa916ed4a" }
+kaspa-bip32 = { git = "https://github.com/kaspanet/rusty-kaspa.git", rev = "c338d495bec29e4dc8b5149f99e8db6fa916ed4a" }
+kaspa-utils = { git = "https://github.com/kaspanet/rusty-kaspa.git", rev = "c338d495bec29e4dc8b5149f99e8db6fa916ed4a" }
+kaspa-testing-integration = { git = "https://github.com/kaspanet/rusty-kaspa.git", rev = "c338d495bec29e4dc8b5149f99e8db6fa916ed4a" }
+kaspa-hashes = { git = "https://github.com/kaspanet/rusty-kaspa.git", rev = "c338d495bec29e4dc8b5149f99e8db6fa916ed4a" }
+kaspa-addresses = { git = "https://github.com/kaspanet/rusty-kaspa.git", rev = "c338d495bec29e4dc8b5149f99e8db6fa916ed4a" }
+kaspa-rpc-core = { git = "https://github.com/kaspanet/rusty-kaspa.git", rev = "c338d495bec29e4dc8b5149f99e8db6fa916ed4a" }
+kaspa-grpc-client = { git = "https://github.com/kaspanet/rusty-kaspa.git", rev = "c338d495bec29e4dc8b5149f99e8db6fa916ed4a" }
+kaspa-txscript = { git = "https://github.com/kaspanet/rusty-kaspa.git", rev = "c338d495bec29e4dc8b5149f99e8db6fa916ed4a" }
+kaspa-wallet-core = { git = "https://github.com/kaspanet/rusty-kaspa.git", rev = "c338d495bec29e4dc8b5149f99e8db6fa916ed4a" }
 
 serde = { version = "1.0.218", features = ["derive"] }
 serde_json = "1.0.139"

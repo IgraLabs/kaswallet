@@ -191,9 +191,9 @@ pub struct TransactionGenerator {
 
     signature_mass_per_input: u64,
 
-    /// Post-Toccata mempool mass cofactors (transient cofactor = compute_block_limit /
-    /// transient_block_limit). Used to normalize transient mass to the compute scale exactly as the
-    /// node's standardness relay-fee floor does — the node reads `mempool_mass_cofactors.raw_post()`.
+    /// Block mass cofactors (transient cofactor = compute_block_limit / transient_block_limit).
+    /// Used to normalize transient mass to the compute scale, matching the node's standardness
+    /// relay-fee floor derived from the same block mass limits.
     mass_cofactors: MassCofactors,
 
     /// KIP-9 storage-mass parameter (`C ≈ 10^12`) from `ConsensusParams`.
@@ -261,7 +261,7 @@ impl TransactionGenerator {
             minimum_signatures_u8,
             mass_per_sig_op: consensus_params.mass_per_sig_op,
             signature_mass_per_input,
-            mass_cofactors: consensus_params.mempool_block_mass_cofactors().raw_post(),
+            mass_cofactors: consensus_params.block_mass_cofactors(),
             storage_mass_parameter: consensus_params.storage_mass_parameter,
         })
     }
@@ -1744,7 +1744,7 @@ mod tests {
         use kaspa_consensus_core::subnets::SUBNETWORK_ID_NATIVE;
         use kaspa_consensus_core::tx::{Transaction, TransactionInput, TransactionOutpoint};
         let mc = MassCalculator::new(&DEVNET_PARAMS);
-        let cofactors = DEVNET_PARAMS.mempool_block_mass_cofactors().raw_post();
+        let cofactors = DEVNET_PARAMS.block_mass_cofactors();
         let outpoint = TransactionOutpoint::new(kaspa_hashes::Hash::from_bytes([7u8; 32]), 0);
         let tx = Transaction::new(
             0,
@@ -1787,7 +1787,7 @@ mod tests {
         use kaspa_consensus_core::subnets::SUBNETWORK_ID_NATIVE;
         use kaspa_consensus_core::tx::{Transaction, TransactionInput, TransactionOutpoint};
         let mc = MassCalculator::new(&DEVNET_PARAMS);
-        let cofactors = DEVNET_PARAMS.mempool_block_mass_cofactors().raw_post();
+        let cofactors = DEVNET_PARAMS.block_mass_cofactors();
         let outpoint = TransactionOutpoint::new(kaspa_hashes::Hash::from_bytes([7u8; 32]), 0);
         let tx = Transaction::new(
             0,

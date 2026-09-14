@@ -41,7 +41,7 @@ jobs:
         run: cargo +stable fmt -- --check
 
       - name: Run clippy
-        run: cargo +stable clippy --all-targets --all-features -- -D warnings
+        run: cargo +stable clippy --locked --all-targets --all-features -- -D warnings
 
       - name: Install typos
         run: |
