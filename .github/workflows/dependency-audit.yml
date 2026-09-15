@@ -45,4 +45,4 @@ jobs:
           fi
 
       - name: Run security audit
-        run: cargo +stable deny check
+        run: cargo +stable deny --locked check

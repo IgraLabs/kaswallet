@@ -184,16 +184,30 @@ pub struct TransactionGenerator {
     /// `keys.minimum_signatures` narrowed to `u8` once at construction so the
     /// v0 input builder never silently truncates a wider value.
     minimum_signatures_u8: u8,
+    signature_mass_per_input: u64,
+
+    /// Everything this generator prices fees with that comes from `ConsensusParams`.
+    consensus_mass: ConsensusMassParams,
+}
+
+/// The consensus-derived inputs to fee-mass pricing, resolved once at construction.
+///
+/// Split out of `TransactionGenerator` so it can be unit-tested. `TransactionGenerator::new` takes
+/// an `Arc<GrpcClient>`, which only builds by connecting to a live node, so nothing the constructor
+/// derives was reachable from a unit test: replacing these values with wrong ones left the entire
+/// workspace suite green. Resolving them here gives the wiring a seam that tests can reach.
+#[derive(Debug, Clone, Copy)]
+struct ConsensusMassParams {
     /// Authoritative `mass_per_sig_op` from `ConsensusParams`. Used by
     /// `estimate_mass_per_input` for the v0 sig-op contribution so the local
     /// approximation tracks whatever the actual network ships with.
     mass_per_sig_op: u64,
 
-    signature_mass_per_input: u64,
-
-    /// Post-Toccata mempool mass cofactors (transient cofactor = compute_block_limit /
-    /// transient_block_limit). Used to normalize transient mass to the compute scale exactly as the
-    /// node's standardness relay-fee floor does — the node reads `mempool_mass_cofactors.raw_post()`.
+    /// Mempool mass cofactors (transient cofactor = compute_block_limit / transient_block_limit),
+    /// derived from `Params::block_mass_limits` the same way the node's mempool derives its own
+    /// `mempool_mass_cofactors`. Used to normalize transient mass to the compute scale for the
+    /// node-equivalent relay-fee mass. The wallet builds its own `Params` from the network type, so
+    /// this matches a node running default limits, not a node's actual configuration.
     mass_cofactors: MassCofactors,
 
     /// KIP-9 storage-mass parameter (`C ≈ 10^12`) from `ConsensusParams`.
@@ -202,6 +216,16 @@ pub struct TransactionGenerator {
     /// compute mass stays low. The multi-payment path gates on it with the
     /// node's exact calculator.
     storage_mass_parameter: u64,
+}
+
+impl ConsensusMassParams {
+    fn from_params(params: &Params) -> Self {
+        Self {
+            mass_per_sig_op: params.mass_per_sig_op,
+            mass_cofactors: params.block_mass_cofactors(),
+            storage_mass_parameter: params.storage_mass_parameter,
+        }
+    }
 }
 
 impl TransactionGenerator {
@@ -259,10 +283,8 @@ impl TransactionGenerator {
             tx_version,
             compute_budget_per_input,
             minimum_signatures_u8,
-            mass_per_sig_op: consensus_params.mass_per_sig_op,
             signature_mass_per_input,
-            mass_cofactors: consensus_params.mempool_block_mass_cofactors().raw_post(),
-            storage_mass_parameter: consensus_params.storage_mass_parameter,
+            consensus_mass: ConsensusMassParams::from_params(consensus_params),
         })
     }
 
@@ -483,7 +505,8 @@ impl TransactionGenerator {
 
         let signable = unsigned_transaction.transaction.inner();
         let masses = self.non_contextual_masses(&signable.tx, self.keys.minimum_signatures);
-        let storage_mass = storage_mass_for_signable(signable, self.storage_mass_parameter);
+        let storage_mass =
+            storage_mass_for_signable(signable, self.consensus_mass.storage_mass_parameter);
         ensure_standard_mass_limits(masses.compute_mass, masses.transient_mass, storage_mass)?;
 
         Ok(vec![unsigned_transaction])
@@ -842,7 +865,7 @@ impl TransactionGenerator {
         // thus - the same mass.
         let input_count = original_consensus_transaction.tx.inputs.len() as u64;
         let mut mass_per_input = mass_of_all_inputs / input_count;
-        if mass_of_all_inputs % input_count > 0 {
+        if !mass_of_all_inputs.is_multiple_of(input_count) {
             mass_per_input += 1;
         }
 
@@ -871,7 +894,7 @@ impl TransactionGenerator {
 
         let inputs_per_split_count = mass_for_inputs_in_split_transaction / mass_per_input;
         let mut split_count = input_count / inputs_per_split_count;
-        if input_count % inputs_per_split_count > 0 {
+        if !input_count.is_multiple_of(inputs_per_split_count) {
             split_count += 1;
         }
 
@@ -1337,7 +1360,8 @@ impl TransactionGenerator {
             // mass excluded — it can still shrink as inputs are added).
             ensure_standard_mass_limits(masses.compute_mass, masses.transient_mass, Some(0))?;
             let calculated_fee =
-                ((masses.normalized_max(&self.mass_cofactors) as f64) * fee_rate).ceil() as u64;
+                ((masses.normalized_max(&self.consensus_mass.mass_cofactors) as f64) * fee_rate)
+                    .ceil() as u64;
             fee = min(calculated_fee, max_fee);
 
             let total_spend = amount.checked_add(fee).ok_or_else(overflow_error)?;
@@ -1443,7 +1467,7 @@ impl TransactionGenerator {
     /// `max(compute, normalized_transient)` (`check_transaction_standard`).
     fn non_contextual_fee_mass(&self, tx: &Transaction, minimum_signatures: u16) -> u64 {
         self.non_contextual_masses(tx, minimum_signatures)
-            .normalized_max(&self.mass_cofactors)
+            .normalized_max(&self.consensus_mass.mass_cofactors)
     }
 
     pub async fn estimate_mass(
@@ -1480,7 +1504,7 @@ impl TransactionGenerator {
         let masses = self
             .mock_masses_for_output_amounts(selected_utxos, recipient_amounts, payload)
             .await?;
-        Ok(masses.normalized_max(&self.mass_cofactors))
+        Ok(masses.normalized_max(&self.consensus_mass.mass_cofactors))
     }
 
     /// Shared mock-transaction mass core. Output *values* do not affect mass
@@ -1548,7 +1572,7 @@ impl TransactionGenerator {
             input.compute_commit.sig_op_count(),
             input.compute_commit.compute_budget(),
         ) {
-            (Some(sig_ops), _) => sig_ops as u64 * self.mass_per_sig_op,
+            (Some(sig_ops), _) => sig_ops as u64 * self.consensus_mass.mass_per_sig_op,
             (None, Some(cb)) => cb as u64 * GRAMS_PER_COMPUTE_BUDGET_UNIT,
             (None, None) => 0,
         };
@@ -1735,6 +1759,45 @@ mod tests {
         );
     }
 
+    /// Pins the consensus-derived fee-mass inputs, resolved through the same code path production
+    /// uses, for every network.
+    ///
+    /// This is the guard the migration actually needs. It goes through
+    /// `ConsensusMassParams::from_params`, which is what `TransactionGenerator::new` calls, so it
+    /// fails both when upstream silently re-prices the cofactors and when the wiring stops reading
+    /// them from `Params`. Before this existed, replacing the production cofactors with arbitrary
+    /// values left all workspace tests green.
+    #[test]
+    fn consensus_mass_params_resolve_from_params_on_every_network() {
+        use kaspa_consensus_core::config::params::{
+            DEVNET_PARAMS, MAINNET_PARAMS, SIMNET_PARAMS, TESTNET_PARAMS,
+        };
+
+        for (network, params) in [
+            ("mainnet", &MAINNET_PARAMS),
+            ("testnet", &TESTNET_PARAMS),
+            ("devnet", &DEVNET_PARAMS),
+            ("simnet", &SIMNET_PARAMS),
+        ] {
+            let resolved = ConsensusMassParams::from_params(params);
+            let cofactors = resolved.mass_cofactors;
+            assert_eq!(
+                (cofactors.storage, cofactors.transient, cofactors.reference),
+                (1.0, 0.5, 500_000),
+                "unexpected mass cofactors on {network}: upstream block mass limits changed, \
+                 which re-prices every relay fee this wallet pays"
+            );
+            assert_eq!(
+                resolved.mass_per_sig_op, params.mass_per_sig_op,
+                "mass_per_sig_op must come from Params on {network}"
+            );
+            assert_eq!(
+                resolved.storage_mass_parameter, params.storage_mass_parameter,
+                "storage_mass_parameter must come from Params on {network}"
+            );
+        }
+    }
+
     #[test]
     fn fee_mass_uses_normalized_transient_for_payload_heavy_tx() {
         // The exact failure case: a poorly-compressible payload-heavy tx. Transient (∝ byte size)
@@ -1744,7 +1807,7 @@ mod tests {
         use kaspa_consensus_core::subnets::SUBNETWORK_ID_NATIVE;
         use kaspa_consensus_core::tx::{Transaction, TransactionInput, TransactionOutpoint};
         let mc = MassCalculator::new(&DEVNET_PARAMS);
-        let cofactors = DEVNET_PARAMS.mempool_block_mass_cofactors().raw_post();
+        let cofactors = DEVNET_PARAMS.block_mass_cofactors();
         let outpoint = TransactionOutpoint::new(kaspa_hashes::Hash::from_bytes([7u8; 32]), 0);
         let tx = Transaction::new(
             0,
@@ -1758,6 +1821,15 @@ mod tests {
         let compute = mc.calc_compute_mass_for_unsigned_consensus_transaction(&tx, 1);
         let transient = estimate_transient_mass(&tx, 1);
         let fee_mass = NonContextualMasses::new(compute, transient).normalized_max(&cofactors);
+        // Independent expectation: the node charges `max(compute, ceil(transient * 0.5))`. Compute
+        // it by hand rather than through `normalized_max` with the same cofactors, so this test
+        // fails if either the cofactor value or the normalization changes. Deriving both sides from
+        // a single call is what let the previous version pass for any cofactor triple.
+        let expected_fee_mass = compute.max((transient as f64 * 0.5).ceil() as u64);
+        assert_eq!(
+            fee_mass, expected_fee_mass,
+            "fee mass must equal max(compute {compute}, ceil(transient {transient} * 0.5))"
+        );
         // DEVNET's transient cofactor = compute_block_limit / transient_block_limit = 0.5, so the node
         // scales transient down to `normalized_transient = ceil(transient * 0.5)` before taking the max
         // with compute. The load-bearing inequality the fix relies on is therefore
@@ -1787,7 +1859,7 @@ mod tests {
         use kaspa_consensus_core::subnets::SUBNETWORK_ID_NATIVE;
         use kaspa_consensus_core::tx::{Transaction, TransactionInput, TransactionOutpoint};
         let mc = MassCalculator::new(&DEVNET_PARAMS);
-        let cofactors = DEVNET_PARAMS.mempool_block_mass_cofactors().raw_post();
+        let cofactors = DEVNET_PARAMS.block_mass_cofactors();
         let outpoint = TransactionOutpoint::new(kaspa_hashes::Hash::from_bytes([7u8; 32]), 0);
         let tx = Transaction::new(
             0,
@@ -1801,6 +1873,15 @@ mod tests {
         let compute = mc.calc_compute_mass_for_unsigned_consensus_transaction(&tx, 1);
         let transient = estimate_transient_mass(&tx, 1);
         let fee_mass = NonContextualMasses::new(compute, transient).normalized_max(&cofactors);
+        // Independent expectation: the node charges `max(compute, ceil(transient * 0.5))`. Compute
+        // it by hand rather than through `normalized_max` with the same cofactors, so this test
+        // fails if either the cofactor value or the normalization changes. Deriving both sides from
+        // a single call is what let the previous version pass for any cofactor triple.
+        let expected_fee_mass = compute.max((transient as f64 * 0.5).ceil() as u64);
+        assert_eq!(
+            fee_mass, expected_fee_mass,
+            "fee mass must equal max(compute {compute}, ceil(transient {transient} * 0.5))"
+        );
         let normalized_compute = NonContextualMasses::new(compute, 0).normalized_max(&cofactors);
         assert!(
             compute >= NonContextualMasses::new(0, transient).normalized_max(&cofactors),

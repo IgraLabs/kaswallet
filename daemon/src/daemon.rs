@@ -71,17 +71,17 @@ impl Daemon {
         // passed --subnetwork-id explicitly and the env var was unset
         // or set to the same value — the warning's stated purpose is
         // "env-driven routing redirect", not "env var happens to be set".
-        if !subnetwork_id.is_native() {
-            if let Ok(env_val) = std::env::var("KASWALLET_SUBNETWORK_ID") {
-                let env_resolves_to_same = crate::args::parse_subnetwork_id_arg(env_val.as_str())
-                    .map(|env_id| env_id == subnetwork_id)
-                    .unwrap_or(false);
-                if env_resolves_to_same {
-                    warn!(
-                        "subnetwork id may be sourced from KASWALLET_SUBNETWORK_ID env var \
-                         (resolved={subnetwork_id}); verify the env source is trusted"
-                    );
-                }
+        if !subnetwork_id.is_native()
+            && let Ok(env_val) = std::env::var("KASWALLET_SUBNETWORK_ID")
+        {
+            let env_resolves_to_same = crate::args::parse_subnetwork_id_arg(env_val.as_str())
+                .map(|env_id| env_id == subnetwork_id)
+                .unwrap_or(false);
+            if env_resolves_to_same {
+                warn!(
+                    "subnetwork id may be sourced from KASWALLET_SUBNETWORK_ID env var \
+                     (resolved={subnetwork_id}); verify the env source is trusted"
+                );
             }
         }
         // Operator explicitly opted into native by passing `00000000` (or
