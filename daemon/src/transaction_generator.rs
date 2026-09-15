@@ -191,9 +191,11 @@ pub struct TransactionGenerator {
 
     signature_mass_per_input: u64,
 
-    /// Post-Toccata mempool mass cofactors (transient cofactor = compute_block_limit /
-    /// transient_block_limit). Used to normalize transient mass to the compute scale exactly as the
-    /// node's standardness relay-fee floor does — the node reads `mempool_mass_cofactors.raw_post()`.
+    /// Mempool mass cofactors (transient cofactor = compute_block_limit / transient_block_limit),
+    /// derived from `Params::block_mass_limits` the same way the node's mempool derives its own
+    /// `mempool_mass_cofactors`. Used to normalize transient mass to the compute scale for the
+    /// node-equivalent relay-fee mass. The wallet builds its own `Params` from the network type, so
+    /// this matches a node running default limits, not a node's actual configuration.
     mass_cofactors: MassCofactors,
 
     /// KIP-9 storage-mass parameter (`C ≈ 10^12`) from `ConsensusParams`.
@@ -261,7 +263,7 @@ impl TransactionGenerator {
             minimum_signatures_u8,
             mass_per_sig_op: consensus_params.mass_per_sig_op,
             signature_mass_per_input,
-            mass_cofactors: consensus_params.mempool_block_mass_cofactors().raw_post(),
+            mass_cofactors: consensus_params.block_mass_cofactors(),
             storage_mass_parameter: consensus_params.storage_mass_parameter,
         })
     }
@@ -842,7 +844,7 @@ impl TransactionGenerator {
         // thus - the same mass.
         let input_count = original_consensus_transaction.tx.inputs.len() as u64;
         let mut mass_per_input = mass_of_all_inputs / input_count;
-        if mass_of_all_inputs % input_count > 0 {
+        if !mass_of_all_inputs.is_multiple_of(input_count) {
             mass_per_input += 1;
         }
 
@@ -871,7 +873,7 @@ impl TransactionGenerator {
 
         let inputs_per_split_count = mass_for_inputs_in_split_transaction / mass_per_input;
         let mut split_count = input_count / inputs_per_split_count;
-        if input_count % inputs_per_split_count > 0 {
+        if !input_count.is_multiple_of(inputs_per_split_count) {
             split_count += 1;
         }
 
@@ -1735,6 +1737,39 @@ mod tests {
         );
     }
 
+    /// Pins the concrete mass cofactors this wallet prices fees with, for every network.
+    ///
+    /// The `fee_mass_uses_*` tests below verify the *normalization logic* (which of compute or
+    /// transient wins), but they take expected and actual from the same `block_mass_cofactors()`
+    /// call, so they hold for any cofactor triple and cannot detect a value change. This test is
+    /// the value guard: it fails loudly if an upstream limits change silently re-prices wallet
+    /// fees, which is exactly the drift that broke this accessor in the first place.
+    ///
+    /// Not covered here: that `TransactionGenerator::new` actually stores these into
+    /// `mass_cofactors`. That needs a constructed generator, which requires a live node client,
+    /// so it is covered by the feature-gated `batch_send` integration test instead.
+    #[test]
+    fn block_mass_cofactors_match_expected_values_on_every_network() {
+        use kaspa_consensus_core::config::params::{
+            DEVNET_PARAMS, MAINNET_PARAMS, SIMNET_PARAMS, TESTNET_PARAMS,
+        };
+
+        for (network, params) in [
+            ("mainnet", &MAINNET_PARAMS),
+            ("testnet", &TESTNET_PARAMS),
+            ("devnet", &DEVNET_PARAMS),
+            ("simnet", &SIMNET_PARAMS),
+        ] {
+            let cofactors = params.block_mass_cofactors();
+            assert_eq!(
+                (cofactors.storage, cofactors.transient, cofactors.reference),
+                (1.0, 0.5, 500_000),
+                "unexpected mass cofactors on {network}: upstream block mass limits changed, \
+                 which re-prices every relay fee this wallet pays"
+            );
+        }
+    }
+
     #[test]
     fn fee_mass_uses_normalized_transient_for_payload_heavy_tx() {
         // The exact failure case: a poorly-compressible payload-heavy tx. Transient (∝ byte size)
@@ -1744,7 +1779,7 @@ mod tests {
         use kaspa_consensus_core::subnets::SUBNETWORK_ID_NATIVE;
         use kaspa_consensus_core::tx::{Transaction, TransactionInput, TransactionOutpoint};
         let mc = MassCalculator::new(&DEVNET_PARAMS);
-        let cofactors = DEVNET_PARAMS.mempool_block_mass_cofactors().raw_post();
+        let cofactors = DEVNET_PARAMS.block_mass_cofactors();
         let outpoint = TransactionOutpoint::new(kaspa_hashes::Hash::from_bytes([7u8; 32]), 0);
         let tx = Transaction::new(
             0,
@@ -1787,7 +1822,7 @@ mod tests {
         use kaspa_consensus_core::subnets::SUBNETWORK_ID_NATIVE;
         use kaspa_consensus_core::tx::{Transaction, TransactionInput, TransactionOutpoint};
         let mc = MassCalculator::new(&DEVNET_PARAMS);
-        let cofactors = DEVNET_PARAMS.mempool_block_mass_cofactors().raw_post();
+        let cofactors = DEVNET_PARAMS.block_mass_cofactors();
         let outpoint = TransactionOutpoint::new(kaspa_hashes::Hash::from_bytes([7u8; 32]), 0);
         let tx = Transaction::new(
             0,

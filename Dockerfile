@@ -8,7 +8,7 @@ RUN apt-get update && \
 
 # Build application
 COPY . .
-RUN cargo build --release
+RUN cargo build --release --locked
 
 FROM debian:bookworm-slim
 

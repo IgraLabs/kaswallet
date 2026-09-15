@@ -36,10 +36,10 @@ jobs:
       - uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: Build
-        run: cargo +stable build --verbose
+        run: cargo +stable build --locked --verbose
 
       - name: Run tests
-        run: cargo +stable test --verbose
+        run: cargo +stable test --locked --verbose
 
       - name: Run integration tests (batch-send)
         # Spawns a real kaspad: single-threaded to avoid resource races
@@ -49,4 +49,4 @@ jobs:
         # tests rely on fixed post-startup sleeps and flake on slow runners
         # ("wallet is not yet synced"); they need sync-polling before they
         # can gate PRs.
-        run: bash -c 'ulimit -n 8192 && cargo +stable test -p kaswallet-test-integration --features integration-tests batch_send --verbose -- --test-threads=1'
+        run: bash -c 'ulimit -n 8192 && cargo +stable test --locked -p kaswallet-test-integration --features integration-tests batch_send --verbose -- --test-threads=1'

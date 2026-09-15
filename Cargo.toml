@@ -15,7 +15,8 @@ members = [
 ]
 
 [workspace.package]
-rust-version = "1.85.0"
+# Floor set by the pinned rusty-kaspa rev, which declares rust-version = "1.91.0".
+rust-version = "1.91.0"
 version = "0.1.1"
 edition = "2024"
 authors = ["Kaspa Developers", "IgraNet Developers"]
@@ -42,21 +43,30 @@ kaswallet-create = { path = "create" }
 kaswallet-client = { path = "client" }
 kaswallet-test-helpers = { path = "test/helpers" }
 
-# kaspanet/rusty-kaspa upstream, tracked on `master`, which now carries the
-# Toccata work: v1 transactions with compute_budget input mass and non-native
-# subnetwork ids.
-kaspad = { git = "https://github.com/kaspanet/rusty-kaspa.git", branch = "master" }
-kaspa-consensus = { git = "https://github.com/kaspanet/rusty-kaspa.git", branch = "master" }
-kaspa-consensus-core = { git = "https://github.com/kaspanet/rusty-kaspa.git", branch = "master" }
-kaspa-bip32 = { git = "https://github.com/kaspanet/rusty-kaspa.git", branch = "master" }
-kaspa-utils = { git = "https://github.com/kaspanet/rusty-kaspa.git", branch = "master" }
-kaspa-testing-integration = { git = "https://github.com/kaspanet/rusty-kaspa.git", branch = "master" }
-kaspa-hashes = { git = "https://github.com/kaspanet/rusty-kaspa.git", branch = "master" }
-kaspa-addresses = { git = "https://github.com/kaspanet/rusty-kaspa.git", branch = "master" }
-kaspa-rpc-core = { git = "https://github.com/kaspanet/rusty-kaspa.git", branch = "master" }
-kaspa-grpc-client = { git = "https://github.com/kaspanet/rusty-kaspa.git", branch = "master" }
-kaspa-txscript = { git = "https://github.com/kaspanet/rusty-kaspa.git", branch = "master" }
-kaspa-wallet-core = { git = "https://github.com/kaspanet/rusty-kaspa.git", branch = "master" }
+# kaspanet/rusty-kaspa upstream (master lineage, which carries the Toccata work:
+# v1 transactions with compute_budget input mass and non-native subnetwork ids),
+# pinned to an explicit commit so every build resolves the same source. Tracking
+# the branch meant upstream could — and did — delete an API mid-flight and break
+# CI and the Docker image without a commit here.
+#
+# To bump: replace the SHA on all twelve lines below, run `cargo update -w`,
+# review the whole lockfile delta, fix any API fallout, rerun the locked
+# validation, and commit Cargo.toml and Cargo.lock together.
+#
+# Registry-only advisory fixes: `cargo update -p <crate>` (lock-only diff). Do
+# not move the revs for that, and do not weaken `--locked`.
+kaspad = { git = "https://github.com/kaspanet/rusty-kaspa.git", rev = "c338d495bec29e4dc8b5149f99e8db6fa916ed4a" }
+kaspa-consensus = { git = "https://github.com/kaspanet/rusty-kaspa.git", rev = "c338d495bec29e4dc8b5149f99e8db6fa916ed4a" }
+kaspa-consensus-core = { git = "https://github.com/kaspanet/rusty-kaspa.git", rev = "c338d495bec29e4dc8b5149f99e8db6fa916ed4a" }
+kaspa-bip32 = { git = "https://github.com/kaspanet/rusty-kaspa.git", rev = "c338d495bec29e4dc8b5149f99e8db6fa916ed4a" }
+kaspa-utils = { git = "https://github.com/kaspanet/rusty-kaspa.git", rev = "c338d495bec29e4dc8b5149f99e8db6fa916ed4a" }
+kaspa-testing-integration = { git = "https://github.com/kaspanet/rusty-kaspa.git", rev = "c338d495bec29e4dc8b5149f99e8db6fa916ed4a" }
+kaspa-hashes = { git = "https://github.com/kaspanet/rusty-kaspa.git", rev = "c338d495bec29e4dc8b5149f99e8db6fa916ed4a" }
+kaspa-addresses = { git = "https://github.com/kaspanet/rusty-kaspa.git", rev = "c338d495bec29e4dc8b5149f99e8db6fa916ed4a" }
+kaspa-rpc-core = { git = "https://github.com/kaspanet/rusty-kaspa.git", rev = "c338d495bec29e4dc8b5149f99e8db6fa916ed4a" }
+kaspa-grpc-client = { git = "https://github.com/kaspanet/rusty-kaspa.git", rev = "c338d495bec29e4dc8b5149f99e8db6fa916ed4a" }
+kaspa-txscript = { git = "https://github.com/kaspanet/rusty-kaspa.git", rev = "c338d495bec29e4dc8b5149f99e8db6fa916ed4a" }
+kaspa-wallet-core = { git = "https://github.com/kaspanet/rusty-kaspa.git", rev = "c338d495bec29e4dc8b5149f99e8db6fa916ed4a" }
 
 serde = { version = "1.0.218", features = ["derive"] }
 serde_json = "1.0.139"

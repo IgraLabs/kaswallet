@@ -725,13 +725,13 @@ async fn log_transaction_plan(
         kas_display(fee_sompi),
         kas_display(change_sompi),
     );
-    if let Some(masses) = masses {
-        if masses.compute_mass > 0 {
-            debug!(
-                "effective fee rate ≈ {:.2} sompi per compute gram",
-                fee_sompi as f64 / masses.compute_mass as f64
-            );
-        }
+    if let Some(masses) = masses
+        && masses.compute_mass > 0
+    {
+        debug!(
+            "effective fee rate ≈ {:.2} sompi per compute gram",
+            fee_sompi as f64 / masses.compute_mass as f64
+        );
     }
 
     for (address, (amount, count)) in &sources {
