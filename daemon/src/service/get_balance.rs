@@ -19,6 +19,8 @@ impl KasWalletService {
         let utxos_count: usize;
         {
             let utxo_manager = self.utxo_manager.lock().await;
+            self.check_is_synced().await?;
+            self.check_fresh_utxo_snapshot(&utxo_manager)?;
             utxos_sorted_by_amount = utxo_manager.utxos_sorted_by_amount();
 
             utxos_count = utxos_sorted_by_amount.len();

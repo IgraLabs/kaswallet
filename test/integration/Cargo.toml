@@ -22,14 +22,18 @@ kaswallet-daemon.workspace = true
 kaswallet-create.workspace = true
 kaswallet-client.workspace = true
 kaswallet-test-helpers.workspace = true
+kaswallet-proto.workspace = true
 
 kaspa-consensus-core.workspace = true
 kaspa-grpc-client.workspace = true
+kaspa-grpc-core.workspace = true
 kaspa-addresses.workspace = true
 kaspa-rpc-core.workspace = true
 kaspa-txscript.workspace = true
 
 tonic.workspace = true
+grpc-tonic = { package = "tonic", version = "0.14.5", features = ["gzip", "transport"] }
 tokio.workspace = true
+tokio-stream = { version = "0.1.14", features = ["net"] }
 thiserror.workspace = true
 tempfile.workspace = true

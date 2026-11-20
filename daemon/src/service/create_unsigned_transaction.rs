@@ -42,6 +42,7 @@ impl KasWalletService {
         utxo_manager: &MutexGuard<'_, UtxoManager>,
     ) -> WalletResult<Vec<WalletSignableTransaction>> {
         self.check_is_synced().await?;
+        self.check_fresh_utxo_snapshot(utxo_manager)?;
 
         let mut transaction_generator = self.transaction_generator.lock().await;
         transaction_generator
