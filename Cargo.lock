@@ -4332,6 +4332,7 @@ dependencies = [
  "kaspa-addresses",
  "kaspa-consensus-core",
  "kaspa-grpc-client",
+ "kaspa-grpc-core",
  "kaspa-rpc-core",
  "kaspa-txscript",
  "kaswallet-batch-send",
@@ -4339,12 +4340,15 @@ dependencies = [
  "kaswallet-common",
  "kaswallet-create",
  "kaswallet-daemon",
+ "kaswallet-proto",
  "kaswallet-test-helpers",
  "rstest",
  "tempfile",
  "thiserror 2.0.20",
  "tokio",
+ "tokio-stream",
  "tonic 0.12.3",
+ "tonic 0.14.6",
 ]
 
 [[package]]

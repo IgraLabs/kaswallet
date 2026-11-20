@@ -37,6 +37,19 @@ impl KasWalletService {
         }
     }
 
+    pub(crate) fn check_fresh_utxo_snapshot(
+        &self,
+        _utxo_guard: &MutexGuard<'_, UtxoManager>,
+    ) -> WalletResult<()> {
+        if !self.sync_manager.utxos_are_fresh() {
+            return Err(SyncError::NotYetSynced {
+                location: ErrorLocation::capture(),
+            }
+            .into());
+        }
+        Ok(())
+    }
+
     pub(crate) async fn submit_transactions(
         &self,
         utxo_manager: &mut MutexGuard<'_, UtxoManager>,

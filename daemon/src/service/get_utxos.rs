@@ -58,6 +58,7 @@ impl KasWalletService {
 
         let utxos = {
             let utxo_manager = self.utxo_manager.lock().await;
+            self.check_fresh_utxo_snapshot(&utxo_manager)?;
             utxo_manager.utxos_sorted_by_amount()
         };
         let filtered_bucketed_utxos = self
@@ -95,6 +96,7 @@ impl KasWalletService {
         for utxo in utxos {
             let is_pending = {
                 let utxo_manager = self.utxo_manager.lock().await;
+                self.check_fresh_utxo_snapshot(&utxo_manager)?;
                 utxo_manager.is_utxo_unspendable(utxo, virtual_daa_score)
             };
             if !include_pending && is_pending {

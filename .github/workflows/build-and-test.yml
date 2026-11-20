@@ -50,3 +50,6 @@ jobs:
         # ("wallet is not yet synced"); they need sync-polling before they
         # can gate PRs.
         run: bash -c 'ulimit -n 8192 && cargo +stable test --locked -p kaswallet-test-integration --features integration-tests batch_send --verbose -- --test-threads=1'
+
+      - name: Run integration tests (sync recovery)
+        run: cargo +stable test --locked -p kaswallet-test-integration --features integration-tests sync_recovery --verbose -- --test-threads=1
